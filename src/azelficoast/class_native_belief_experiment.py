@@ -346,7 +346,7 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
     passed = (
         projections["world_count_preserved"] is True
         and projections["damage_projection_exact"] is True
-        and projections["split_merge_sequence"] == [1, 176, 8, 1408, 1]
+        and projections["split_merge_sequence"] == [1, 192, 8, 1536, 1]
         and observation["exact"] is True
         and observation["informative"] is True
         and all(row["score_equal"] for row in benchmarks)

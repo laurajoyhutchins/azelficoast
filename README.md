@@ -317,13 +317,13 @@ multiplicities over a compact canonical semantic support. Effect-specific projec
 select only the distinctions needed by the current mechanic.
 
 For the Showdown-backed damage corpus, the hosted treatment adds eight nuisance bench variants
-and all sixteen damage rolls. That creates 1,408 canonical support classes while representing up
+and all sixteen damage rolls. That creates 1,536 canonical support classes while representing up
 to 524,288 logical worlds. The same belief can be viewed as:
 
 - 1 execution class for Protect;
-- 176 classes for the damage kernel;
+- 192 classes for the damage kernel;
 - 8 classes for a bench-only dependency;
-- all 1,408 classes when every modeled distinction matters;
+- all 1,536 classes when every modeled distinction matters;
 - then 1 class again for Protect.
 
 The belief weights never expand into 524,288 mutable particles during the class-native path.

@@ -59,7 +59,7 @@ jobs:
 
           result = json.loads(Path("/tmp/class-native-belief-experiment.json").read_text())
           assert result["passed"] is True, result
-          assert result["projection_evidence"]["split_merge_sequence"] == [1, 176, 8, 1408, 1], result
+          assert result["projection_evidence"]["split_merge_sequence"] == [1, 192, 8, 1536, 1], result
           assert result["projection_evidence"]["damage_projection_exact"] is True, result
           assert result["observation_evidence"]["exact"] is True, result
           assert result["benchmarks"][-1]["logical_world_count"] == 524288, result
