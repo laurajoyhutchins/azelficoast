@@ -68,7 +68,7 @@ def test_battle_view_contains_decision_information_without_inventing_hidden_stat
 
 def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) -> None:
     trace = tmp_path / "decisions.jsonl"
-    writer = DecisionTraceWriter(trace)
+    writer = DecisionTraceWriter(trace, run_id="test-run")
     battle = _battle()
 
     writer.record_protocol_batch(
@@ -80,6 +80,7 @@ def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) ->
     records = [json.loads(line) for line in trace.read_text().splitlines()]
     assert [record["kind"] for record in records] == ["protocol", "decision", "terminal"]
     assert [record["event_index"] for record in records] == [0, 1, 2]
+    assert all(record["run_id"] == "test-run" for record in records)
     assert all(record["schema"] == TRACE_SCHEMA for record in records)
     assert all(record["schema_version"] == TRACE_SCHEMA_VERSION for record in records)
     assert records[0]["protocol_index"] == 0
@@ -87,6 +88,20 @@ def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) ->
     assert records[1]["chosen_action"] == "/choose move recover"
     assert records[2]["tied"] is False
     assert all("observed_at" in record for record in records)
+
+
+def test_distinct_writers_get_distinct_run_ids_when_appending_to_one_file(tmp_path) -> None:
+    trace = tmp_path / "decisions.jsonl"
+    first = DecisionTraceWriter(trace)
+    second = DecisionTraceWriter(trace)
+
+    first.record_protocol_batch([[">battle-one"], ["", "turn", "1"]])
+    second.record_protocol_batch([[">battle-two"], ["", "turn", "1"]])
+
+    records = [json.loads(line) for line in trace.read_text().splitlines()]
+    assert records[0]["run_id"] != records[1]["run_id"]
+    assert records[0]["event_index"] == 0
+    assert records[1]["event_index"] == 0
 
 
 def test_terminal_tie_is_derived_from_finished_without_calling_tied_method(tmp_path) -> None:
