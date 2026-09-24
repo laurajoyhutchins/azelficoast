@@ -61,7 +61,7 @@ def _oracle(
         )
 
         reveal_values = (
-            {"world-aware": 2 if item == "left" else -2, "safe": 0}
+            {"world-aware": 1.5, "safe": 1.5}
             if disagreement
             else {"world-aware": 2, "safe": 0}
         )
