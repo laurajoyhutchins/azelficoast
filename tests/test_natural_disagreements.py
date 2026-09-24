@@ -27,7 +27,7 @@ def _fixture() -> DecisionFixture:
             },
         },
         "opponent_active": {
-            "species": "Gardevoir",
+            "species": "gardevoir",
             "level": 83,
             "status": None,
             "item": None,
