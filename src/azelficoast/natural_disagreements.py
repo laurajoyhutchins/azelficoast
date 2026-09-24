@@ -340,11 +340,7 @@ def _switch_view(
 
 def _persistent_protect_actions(
     fixture: DecisionFixture,
-    *,
-    current_speed_fork: bool,
 ) -> list[dict[str, Any]]:
-    if not current_speed_fork:
-        return []
     persistent: list[dict[str, Any]] = []
     for action in fixture.legal_actions:
         if not action.startswith("/choose move "):
@@ -366,8 +362,6 @@ def _persistent_immunity_switches(
     fixture: DecisionFixture,
     *,
     move_type: str,
-    opponent_base_speed: int,
-    opponent_scarf_speed: int,
 ) -> list[dict[str, Any]]:
     raw_switches = fixture.state.get("available_switches")
     if not isinstance(raw_switches, Sequence) or isinstance(raw_switches, (str, bytes)):
@@ -375,7 +369,6 @@ def _persistent_immunity_switches(
 
     own_conditions = fixture.state.get("side_conditions")
     conditions = own_conditions if isinstance(own_conditions, Mapping) else None
-    low, high = sorted((opponent_base_speed, opponent_scarf_speed))
     persistent: list[dict[str, Any]] = []
 
     for species in raw_switches:
@@ -392,8 +385,6 @@ def _persistent_immunity_switches(
             continue
 
         speed = _effective_own_speed(view, conditions)
-        if not (low < speed < high):
-            continue
 
         action = next(
             (
@@ -593,18 +584,17 @@ def mine_candidates(
             _persistent_immunity_switches(
                 fixture,
                 move_type=move_type,
-                opponent_base_speed=base_speed,
-                opponent_scarf_speed=scarf_speed,
             )
             if move_type is not None
             else []
         )
-        persistent_protect_actions = _persistent_protect_actions(
-            fixture,
-            current_speed_fork=current_speed_fork,
-        )
-        if not current_speed_fork and not persistent_switches:
-            skip("no-speed-order-fork")
+        persistent_protect_actions = _persistent_protect_actions(fixture)
+        if (
+            not current_speed_fork
+            and not persistent_switches
+            and not persistent_protect_actions
+        ):
+            skip("no-speed-or-persistent-information-fork")
             continue
 
         is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
