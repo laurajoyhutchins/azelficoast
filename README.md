@@ -384,6 +384,30 @@ remain useful, and exact result agreement throughout.
 Calibration is backend-specific. JAX CPU, the owned native kernel, and future GPU kernels receive
 separate profiles rather than sharing coefficients.
 
+## Native damage compiler
+
+The exact numeric damage formula now has one executable definition in `gen9_damage.py`. Ordinary
+CPython executes that function directly. Azelficoast's deliberately tiny native compiler extracts
+the same function and its three helpers from the Python AST, rejects syntax outside its supported
+subset, and emits standalone C99 with 64-bit intermediates and Python-compatible floor division.
+
+```bash
+uv sync --extra simulator
+uv run python -m azelficoast.native_damage_experiment \
+  /tmp/showdown-gen9-damage-fixtures.json
+```
+
+Hosted correctness requires the interpreted numeric function, generated native code, JAX lowering,
+and pinned Pokémon Showdown corpus to agree exactly. A transitional comparison against POST Python
+0.3.0 established that the external compiler was not necessary for this workload: with 524,288
+logical worlds represented by 192 execution classes, the owned weighted kernel measured 0.0168 ms
+versus 0.0157 ms for POST and 0.136 ms for JAX on the comparison runner. At 524,288 direct
+transitions the owned batch path was faster than the POST control in that same treatment.
+
+POST is therefore no longer a project dependency. The compiler remains intentionally narrow rather
+than evolving into a general Python implementation. A mechanic that needs new syntax must extend
+the supported language explicitly, with rejection tests and Showdown-backed semantic evidence.
+
 ## Development
 
 ```bash

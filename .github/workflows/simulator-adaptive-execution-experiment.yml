@@ -5,6 +5,7 @@ on:
     paths:
       - "src/azelficoast/adaptive_execution.py"
       - "src/azelficoast/adaptive_execution_experiment.py"
+      - "src/azelficoast/class_native_belief.py"
       - "tests/test_adaptive_execution.py"
       - ".github/workflows/simulator-adaptive-execution-experiment.yml"
       - "README.md"
