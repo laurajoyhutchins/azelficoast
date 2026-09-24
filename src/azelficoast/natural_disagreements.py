@@ -383,6 +383,9 @@ def mine_candidates(
         if not isinstance(active, Mapping) or not isinstance(opponent_active, Mapping):
             skip("missing-active-state")
             continue
+        if active.get("transformed") is True:
+            skip("active-transformed")
+            continue
         if not _item_is_hidden(opponent_active.get("item")):
             skip("opponent-item-known")
             continue
