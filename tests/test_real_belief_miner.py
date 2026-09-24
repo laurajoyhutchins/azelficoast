@@ -119,8 +119,9 @@ def test_miner_ranks_by_structure_before_inspecting_policy_result() -> None:
     assert result["evaluated_count"] == 2
     assert result["ranked_candidates"][0]["source_fixture_id"] == "rich-no-disagreement"
 
-    # The disagreement is reported after structural ordering rather than promoted
-    # above a structurally stronger candidate.
+    # Strategy-fusion and root-policy outcomes are inspected only after structural
+    # ordering rather than promoted above a structurally stronger candidate.
+    assert result["first_strategy_fusion_candidate"]["source_fixture_id"] == "poor-disagreement"
     assert result["first_disagreement"]["source_fixture_id"] == "poor-disagreement"
 
 
@@ -133,7 +134,9 @@ def test_miner_reports_valid_negative_corpus_without_manufacturing_disagreement(
     result = mine_oracles([("negative.json", oracle)])
 
     assert result["evaluated_count"] == 1
+    assert result["strategy_fusion_candidate_count"] == 0
     assert result["disagreement_count"] == 0
+    assert result["first_strategy_fusion_candidate"] is None
     assert result["first_disagreement"] is None
     assert result["ranked_candidates"][0]["policy_disagreement"] is False
 
