@@ -1,0 +1,89 @@
+name: simulator-native-damage-experiment
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/gen9_damage.py"
+      - "src/azelficoast/native_damage_compiler.py"
+      - "src/azelficoast/native_damage_experiment.py"
+      - "src/azelficoast/jax_gen9_damage.py"
+      - "src/azelficoast/showdown_damage_corpus.py"
+      - "scripts/generate_showdown_damage_fixtures.cjs"
+      - "tests/test_native_damage_compiler.py"
+      - ".github/workflows/simulator-native-damage-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native-damage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install simulator dependencies
+        run: uv sync --extra simulator
+
+      - name: Test restricted compiler
+        run: uv run pytest tests/test_native_damage_compiler.py tests/test_gen9_damage.py
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate exact Showdown damage fixtures
+        run: |
+          node scripts/generate_showdown_damage_fixtures.cjs \
+            /tmp/pokemon-showdown \
+            > /tmp/showdown-gen9-damage-fixtures.json
+
+      - name: Verify scalar kernel against Showdown
+        run: |
+          uv run python -m azelficoast.showdown_damage_corpus \
+            /tmp/showdown-gen9-damage-fixtures.json \
+            | tee /tmp/showdown-gen9-damage-analysis.json
+
+      - name: Verify and benchmark native lowering
+        run: |
+          uv run python -m azelficoast.native_damage_experiment \
+            /tmp/showdown-gen9-damage-fixtures.json \
+            | tee /tmp/native-damage-experiment.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/native-damage-experiment.json").read_text())
+          assert result["passed"] is True, result
+          assert result["correctness"]["roll_case_count"] == 192, result
+          assert result["correctness"]["native_exact"] is True, result
+          assert result["correctness"]["all_equal"] is True, result
+          assert all(row["score_equal"] for row in result["batch_benchmarks"]), result
+          assert result["class_native_benchmark"]["score_equal"] is True, result
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-damage-evidence
+          path: |
+            /tmp/showdown-gen9-damage-fixtures.json
+            /tmp/showdown-gen9-damage-analysis.json
+            /tmp/native-damage-experiment.json
+          if-no-files-found: error
