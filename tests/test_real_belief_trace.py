@@ -174,6 +174,7 @@ def test_determinization_cannot_condition_on_unobserved_chance() -> None:
 
     result = analyze_oracle(document)
 
+    assert result["schema_version"] == 3
     assert result["determinization"]["value"] == 2
     assert result["public_belief"]["value"] == 2
     assert result["policy_disagreement"] is False
