@@ -80,7 +80,7 @@ uv run azelficoast corpus build artifacts/decisions.jsonl \
   --output artifacts/corpus.jsonl
 ```
 
-Each fixture contains the normalized decision-time state, the complete public Showdown protocol prefix observed before that decision, and the control action chosen in the original battle. The chosen action is evidence, not part of fixture identity. Later observations are never copied backward into earlier fixtures.
+Each fixture contains the normalized decision-time state, the decision-semantic Showdown protocol prefix observed before that decision, and the control action chosen in the original battle. Raw traces retain every inbound protocol batch; fixture construction removes parser-ignored transport noise such as server timestamps. The chosen action is evidence, not part of fixture identity. Later observations are never copied backward into earlier fixtures.
 
 The corpus is deterministic and content-addressed. Rebuilding the same evidence produces the same bytes; attempting to overwrite an existing corpus path with different evidence fails closed.
 
@@ -92,7 +92,7 @@ uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
   --output artifacts/first-legal-evaluation.jsonl
 ```
 
-Two deliberately simple policies currently exercise the common interface: `first-legal` and `recorded-mode`. Their agreement with the recorded heuristic action is an instrumentation sanity metric, not a claim about battle quality. Determinized search and belief-state search should implement the same frozen-fixture interface so they can be compared on identical information histories.
+Two deliberately simple policies currently exercise the common interface: `first-legal` and `recorded-mode`. Their agreement with the recorded heuristic action is an instrumentation sanity metric, not a claim about battle quality. A new algorithm can be loaded without changing the corpus code by passing `--policy package.module:policy_object`; the object must expose a string `name` and `choose(fixture)`. Determinized search and belief-state search should implement that same frozen-fixture interface so they can be compared on identical information histories.
 
 ## Development
 
