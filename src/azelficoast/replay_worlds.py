@@ -8,10 +8,10 @@ import json
 import math
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
@@ -20,22 +20,28 @@ REPLAY_URL = (
     "gen9randombattle-2405042449-9irailjicjrb4g5sr5r0v1j7tthvqudpw"
 )
 
-# Latest randbats generator revision before this replay was played in July 2025.
+# Latest relevant randbats repository revision before the July 2025 replay.
 SHOWDOWN_COMMIT = "6397bfddb3db4e916dd792e03c43355f7366e8ab"
-SETS_URL = (
-    "https://raw.githubusercontent.com/smogon/pokemon-showdown/"
-    f"{SHOWDOWN_COMMIT}/data/random-battles/gen9/sets.json"
-)
-
+POKE_ENV_VERSION = "0.16.1"
 RANDBATS_EV = 85
 RANDBATS_IV = 31
 
+EXPECTED_GENERATOR_CONTEXT = {
+    "format": "gen9randombattle",
+    "teamDetails": {},
+    "isLead": False,
+    "isDoubles": False,
+}
+
+# (physical attack multiplier, final damage multiplier)
+# Life Orb uses Showdown's historical fixed-point 5324/4096 modifier.
 ITEM_DAMAGE_MODELS: dict[str, tuple[Fraction, Fraction]] = {
-    # (physical attack multiplier, final damage multiplier)
     "Choice Band": (Fraction(3, 2), Fraction(1, 1)),
     "Choice Scarf": (Fraction(1, 1), Fraction(1, 1)),
-    "Life Orb": (Fraction(1, 1), Fraction(13, 10)),
+    "Life Orb": (Fraction(1, 1), Fraction(5324, 4096)),
 }
+
+NON_SEMANTIC_PROTOCOL_KINDS = {"", "t:", "-hint"}
 
 
 class ReplayError(ValueError):
@@ -50,16 +56,6 @@ class ProtocolEvent:
     fields: tuple[str, ...]
 
 
-@dataclass
-class PokemonObservation:
-    side: str
-    species: str
-    level: int | None = None
-    moves: list[tuple[int, str]] = field(default_factory=list)
-    item_events: list[tuple[int, str, str]] = field(default_factory=list)
-    hp_events: list[tuple[int, str]] = field(default_factory=list)
-
-
 @dataclass(frozen=True)
 class ReplayEvidence:
     replay_id: str
@@ -69,6 +65,7 @@ class ReplayEvidence:
 
 @dataclass(frozen=True)
 class DamageObservation:
+    event_index: int
     turn: int
     attacker_species: str
     attacker_level: int
@@ -115,6 +112,7 @@ def fetch_replay(url: str) -> ReplayEvidence:
     payload = _get_json(replay_json_url(url))
     if not isinstance(payload, dict):
         raise ReplayError("replay endpoint did not return an object")
+
     log = payload.get("log")
     if not isinstance(log, str) or not log:
         raise ReplayError("replay JSON does not contain a log string")
@@ -130,13 +128,6 @@ def fetch_replay(url: str) -> ReplayEvidence:
     return ReplayEvidence(replay_id=replay_id, format=format_name, log=log)
 
 
-def fetch_randbats_sets() -> dict[str, Any]:
-    payload = _get_json(SETS_URL)
-    if not isinstance(payload, dict):
-        raise ReplayError("pinned Showdown sets data is not an object")
-    return payload
-
-
 def parse_protocol(log: str) -> tuple[ProtocolEvent, ...]:
     events: list[ProtocolEvent] = []
     turn = 0
@@ -146,25 +137,18 @@ def parse_protocol(log: str) -> tuple[ProtocolEvent, ...]:
         fields = tuple(raw_line.split("|")[1:])
         if not fields:
             continue
+
         kind = fields[0]
         if kind == "turn" and len(fields) >= 2:
             try:
                 turn = int(fields[1])
             except ValueError as error:
                 raise ReplayError(f"invalid turn number: {fields[1]!r}") from error
+
         events.append(
             ProtocolEvent(index=index, turn=turn, kind=kind, fields=fields[1:])
         )
     return tuple(events)
-
-
-def _side_from_actor(actor: str) -> str | None:
-    slot = _slot_from_actor(actor)
-    if slot.startswith("p1"):
-        return "p1"
-    if slot.startswith("p2"):
-        return "p2"
-    return None
 
 
 def _slot_from_actor(actor: str) -> str:
@@ -193,58 +177,10 @@ def _parse_hp(status: str, previous_max: int | None = None) -> tuple[int, int] |
     return None
 
 
-def collect_observations(
-    events: Iterable[ProtocolEvent],
-) -> dict[tuple[str, str], PokemonObservation]:
-    active_slots: dict[str, tuple[str, str]] = {}
-    observations: dict[tuple[str, str], PokemonObservation] = {}
-
-    def ensure(side: str, species: str, level: int | None = None) -> PokemonObservation:
-        key = (side, species)
-        observation = observations.get(key)
-        if observation is None:
-            observation = PokemonObservation(side=side, species=species, level=level)
-            observations[key] = observation
-        elif observation.level is None and level is not None:
-            observation.level = level
-        return observation
-
-    for event in events:
-        fields = event.fields
-        if event.kind in {"switch", "drag"} and len(fields) >= 2:
-            actor, details = fields[0], fields[1]
-            side = _side_from_actor(actor)
-            if side is None:
-                continue
-            species, level = _species_from_details(details)
-            key = (side, species)
-            active_slots[_slot_from_actor(actor)] = key
-            ensure(side, species, level)
-            continue
-
-        if not fields:
-            continue
-        actor = fields[0]
-        side = _side_from_actor(actor)
-        if side is None:
-            continue
-        key = active_slots.get(_slot_from_actor(actor))
-        if key is None:
-            continue
-        observation = ensure(*key)
-
-        if event.kind == "move" and len(fields) >= 2:
-            observation.moves.append((event.turn, fields[1]))
-        elif event.kind in {"-item", "-enditem"} and len(fields) >= 2:
-            observation.item_events.append((event.turn, event.kind, fields[1]))
-        elif event.kind in {"-damage", "-heal"} and len(fields) >= 2:
-            observation.hp_events.append((event.turn, fields[1]))
-
-    return observations
-
-
-def extract_damage_observations(events: Sequence[ProtocolEvent]) -> tuple[DamageObservation, ...]:
-    """Pair public move and HP messages without using later hidden information."""
+def extract_damage_observations(
+    events: Sequence[ProtocolEvent],
+) -> tuple[DamageObservation, ...]:
+    """Pair public move and HP messages without consulting later hidden information."""
     active: dict[str, tuple[str, int | None]] = {}
     hp: dict[str, tuple[int, int]] = {}
     tera: dict[str, str] = {}
@@ -291,71 +227,56 @@ def extract_damage_observations(events: Sequence[ProtocolEvent]) -> tuple[Damage
                 pending_move = None
             continue
 
-        if event.kind in {"-damage", "-heal"} and len(fields) >= 2:
-            slot = _slot_from_actor(fields[0])
-            previous = hp.get(slot)
-            parsed_hp = _parse_hp(
-                fields[1],
-                previous_max=previous[1] if previous is not None else None,
-            )
-            if parsed_hp is None:
-                continue
+        if event.kind not in {"-damage", "-heal"} or len(fields) < 2:
+            continue
 
-            if event.kind == "-damage" and pending_move is not None and previous is not None:
-                (
-                    move_turn,
-                    attacker_species,
-                    attacker_level,
-                    move,
-                    target_slot,
-                    target_level,
-                ) = pending_move
-                target = active.get(slot)
-                if (
-                    move_turn == event.turn
-                    and slot == target_slot
-                    and target is not None
-                    and previous[1] == parsed_hp[1]
-                    and parsed_hp[0] <= previous[0]
-                ):
-                    observations.append(
-                        DamageObservation(
-                            turn=event.turn,
-                            attacker_species=attacker_species,
-                            attacker_level=attacker_level,
-                            move=move,
-                            target_species=target[0],
-                            target_level=target_level,
-                            target_tera_type=tera.get(slot),
-                            before_hp=previous[0],
-                            after_hp=parsed_hp[0],
-                            max_hp=parsed_hp[1],
-                            damage=previous[0] - parsed_hp[0],
-                        )
+        slot = _slot_from_actor(fields[0])
+        previous = hp.get(slot)
+        parsed_hp = _parse_hp(
+            fields[1],
+            previous_max=previous[1] if previous is not None else None,
+        )
+        if parsed_hp is None:
+            continue
+
+        if event.kind == "-damage" and pending_move is not None and previous is not None:
+            (
+                move_turn,
+                attacker_species,
+                attacker_level,
+                move,
+                target_slot,
+                target_level,
+            ) = pending_move
+            target = active.get(slot)
+            if (
+                move_turn == event.turn
+                and slot == target_slot
+                and target is not None
+                and previous[1] == parsed_hp[1]
+                and parsed_hp[0] <= previous[0]
+            ):
+                observations.append(
+                    DamageObservation(
+                        event_index=event.index,
+                        turn=event.turn,
+                        attacker_species=attacker_species,
+                        attacker_level=attacker_level,
+                        move=move,
+                        target_species=target[0],
+                        target_level=target_level,
+                        target_tera_type=tera.get(slot),
+                        before_hp=previous[0],
+                        after_hp=parsed_hp[0],
+                        max_hp=parsed_hp[1],
+                        damage=previous[0] - parsed_hp[0],
                     )
-                    pending_move = None
+                )
+                pending_move = None
 
-            hp[slot] = parsed_hp
+        hp[slot] = parsed_hp
 
     return tuple(observations)
-
-
-def event_window(
-    events: Sequence[ProtocolEvent],
-    *,
-    start_turn: int,
-    end_turn: int,
-) -> list[dict[str, Any]]:
-    return [
-        {
-            "index": event.index,
-            "turn": event.turn,
-            "kind": event.kind,
-            "fields": list(event.fields),
-        }
-        for event in events
-        if start_turn <= event.turn <= end_turn
-    ]
 
 
 def load_world_sample(path: str | Path) -> dict[str, Any]:
@@ -371,18 +292,25 @@ def load_world_sample(path: str | Path) -> dict[str, Any]:
         raise ReplayError(
             f"{sample_path}: sample is not bound to Showdown {SHOWDOWN_COMMIT}"
         )
-    if not isinstance(payload.get("generator_context"), dict):
-        raise ReplayError(f"{sample_path}: missing generator context")
-    if not isinstance(payload.get("rounds"), int) or payload["rounds"] <= 0:
+    if payload.get("generator_context") != EXPECTED_GENERATOR_CONTEXT:
+        raise ReplayError(f"{sample_path}: unexpected generator context")
+
+    rounds = payload.get("rounds")
+    matched = payload.get("matched")
+    if not isinstance(rounds, int) or rounds <= 0:
         raise ReplayError(f"{sample_path}: invalid rounds")
-    if not isinstance(payload.get("matched"), int) or payload["matched"] <= 0:
+    if not isinstance(matched, int) or matched <= 0 or matched > rounds:
         raise ReplayError(f"{sample_path}: invalid matched count")
+
     item_counts = payload.get("item_counts")
     if not isinstance(item_counts, dict) or not item_counts:
         raise ReplayError(f"{sample_path}: missing item counts")
     for item, count in item_counts.items():
         if not isinstance(item, str) or not isinstance(count, int) or count <= 0:
             raise ReplayError(f"{sample_path}: malformed item count")
+    if sum(item_counts.values()) != matched:
+        raise ReplayError(f"{sample_path}: item counts do not sum to matched worlds")
+
     return payload
 
 
@@ -391,12 +319,16 @@ def _neutral_stat(base: int, level: int) -> int:
 
 
 def _showdown_modify(value: int, modifier: Fraction) -> int:
-    """Mirror Pokémon Showdown's 12-bit fixed-point Battle.modify for positive values."""
+    """Mirror historical Showdown's 12-bit Battle.modify for positive values."""
     fixed = math.floor(modifier.numerator * 4096 / modifier.denominator)
     return math.floor((math.floor(value * fixed) + 2048 - 1) / 4096)
 
 
-def _effectiveness(data: GenData, attacking_type: str, defending_types: Sequence[str]) -> Fraction:
+def _effectiveness(
+    data: GenData,
+    attacking_type: str,
+    defending_types: Sequence[str],
+) -> Fraction:
     result = Fraction(1, 1)
     for defending_type in defending_types:
         value = data.type_chart[defending_type.upper()][attacking_type.upper()]
@@ -409,21 +341,21 @@ def damage_rolls_for_item(
     *,
     item: str,
 ) -> tuple[int, ...]:
-    """Calculate ordinary physical-damage rolls for a recognized sampled item."""
+    """Calculate the 16 ordinary damage rolls for one recognized item world."""
     if item not in ITEM_DAMAGE_MODELS:
         raise ReplayError(
             f"no damage model for sampled item {item!r}; refusing to guess"
         )
 
     data = GenData.from_gen(9)
-    attacker_id = _to_id(observation.attacker_species)
-    target_id = _to_id(observation.target_species)
-    move_id = _to_id(observation.move)
-
-    attacker = data.pokedex.get(attacker_id)
-    target = data.pokedex.get(target_id)
-    move = data.moves.get(move_id)
-    if not isinstance(attacker, dict) or not isinstance(target, dict) or not isinstance(move, dict):
+    attacker = data.pokedex.get(_to_id(observation.attacker_species))
+    target = data.pokedex.get(_to_id(observation.target_species))
+    move = data.moves.get(_to_id(observation.move))
+    if (
+        not isinstance(attacker, dict)
+        or not isinstance(target, dict)
+        or not isinstance(move, dict)
+    ):
         raise ReplayError("species or move is missing from pinned poke-env mechanics data")
     if move.get("category") != "Physical":
         raise ReplayError("current replay conditioner supports physical damage only")
@@ -452,7 +384,6 @@ def damage_rolls_for_item(
         )
         + 2
     )
-
     stab = (
         Fraction(3, 2)
         if move_type.lower() in {type_.lower() for type_ in attacker["types"]}
@@ -466,8 +397,8 @@ def damage_rolls_for_item(
     effectiveness = _effectiveness(data, move_type, defending_types)
 
     rolls: list[int] = []
-    # Showdown applies its 85..100 randomizer before STAB/type/final damage modifiers.
     for random_percent in range(85, 101):
+        # Historical Showdown randomizes before STAB, type and final modifiers.
         damage = math.floor(base_damage * random_percent / 100)
         damage = _showdown_modify(damage, stab)
         damage = math.floor(damage * effectiveness)
@@ -496,10 +427,12 @@ def _life_orb_recoil_observed(
     for event in events:
         if event.turn > turn:
             break
+
         fields = event.fields
         if event.kind in {"switch", "drag"} and len(fields) >= 2:
             active[_slot_from_actor(fields[0])] = _species_from_details(fields[1])[0]
             continue
+
         if event.turn != turn or event.kind != "-damage" or len(fields) < 3:
             continue
         slot = _slot_from_actor(fields[0])
@@ -514,16 +447,12 @@ def condition_generator_prior_on_public_history(
     sample: Mapping[str, Any],
     events: Sequence[ProtocolEvent],
 ) -> dict[str, Any]:
-    """Apply authoritative public observations that precede the target damage event."""
+    """Apply authoritative public observations preceding the target damage event."""
     raw_counts = sample.get("item_counts")
     if not isinstance(raw_counts, dict):
         raise ReplayError("world sample has no item counts")
     counts = dict(raw_counts)
-    updates: list[dict[str, Any]] = []
 
-    # In this replay Infernape dealt Close Combat damage on turn 18. Historical
-    # Showdown's Life Orb callback necessarily emits recoil after such a move for
-    # Infernape. The completed public turn contains no such recoil message.
     damaging_turn_18 = [
         observation
         for observation in extract_damage_observations(events)
@@ -548,7 +477,13 @@ def condition_generator_prior_on_public_history(
             counts = {"Life Orb": counts["Life Orb"]}
         else:
             del counts["Life Orb"]
-        updates.append(
+
+    if not counts:
+        raise ReplayError("public history eliminated every sampled item world")
+
+    return {
+        "item_counts": counts,
+        "updates": [
             {
                 "turn": 18,
                 "kind": "life-orb-recoil",
@@ -556,14 +491,7 @@ def condition_generator_prior_on_public_history(
                 "authority": "complete-public-turn",
                 "remaining_items": sorted(counts),
             }
-        )
-
-    if not counts:
-        raise ReplayError("public history eliminated every sampled item world")
-
-    return {
-        "item_counts": counts,
-        "updates": updates,
+        ],
     }
 
 
@@ -573,9 +501,12 @@ def infer_item_posterior(
     *,
     item_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
-    """Condition empirical generator item mass on one exact public damage observation."""
+    """Condition empirical generator item mass on exact public damage."""
     species = sample.get("species")
-    if not isinstance(species, str) or _to_id(species) != _to_id(observation.attacker_species):
+    if (
+        not isinstance(species, str)
+        or _to_id(species) != _to_id(observation.attacker_species)
+    ):
         raise ReplayError("world sample species does not match damage attacker")
 
     if item_counts is None:
@@ -605,7 +536,6 @@ def infer_item_posterior(
     if not compatible:
         raise ReplayError("public damage observation eliminated every sampled item world")
 
-    # Each ordinary damage roll is equiprobable, so update sample mass by likelihood.
     weighted = {
         item: details["count"] * details["matching_rolls"] / 16
         for item, details in compatible.items()
@@ -623,7 +553,9 @@ def infer_item_posterior(
     }
 
 
-def _target_replay_observation(events: Sequence[ProtocolEvent]) -> DamageObservation:
+def _target_replay_observation(
+    events: Sequence[ProtocolEvent],
+) -> DamageObservation:
     matches = [
         observation
         for observation in extract_damage_observations(events)
@@ -634,8 +566,10 @@ def _target_replay_observation(events: Sequence[ProtocolEvent]) -> DamageObserva
     ]
     if len(matches) != 1:
         raise ReplayError(
-            f"expected exactly one turn-19 Infernape Close Combat observation, got {len(matches)}"
+            "expected exactly one turn-19 Infernape Close Combat observation, "
+            f"got {len(matches)}"
         )
+
     observation = matches[0]
     if observation.target_tera_type != "Flying":
         raise ReplayError(
@@ -644,12 +578,39 @@ def _target_replay_observation(events: Sequence[ProtocolEvent]) -> DamageObserva
     return observation
 
 
+def _public_prefix_sha256(
+    events: Sequence[ProtocolEvent],
+    *,
+    through_index: int,
+) -> str:
+    semantic_prefix = [
+        {
+            "turn": event.turn,
+            "kind": event.kind,
+            "fields": list(event.fields),
+        }
+        for event in events
+        if event.index <= through_index
+        and event.kind not in NON_SEMANTIC_PROTOCOL_KINDS
+    ]
+    return _sha256(semantic_prefix)
+
+
 def build_replay_belief(
     replay: ReplayEvidence,
     events: Sequence[ProtocolEvent],
     sample: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Build a deterministic belief certificate from already-acquired public evidence."""
+    """Build a deterministic belief certificate from acquired public evidence."""
+    if sample.get("showdown_commit") != SHOWDOWN_COMMIT:
+        raise ReplayError("world sample is not bound to the expected Showdown revision")
+    if sample.get("generator_context") != EXPECTED_GENERATOR_CONTEXT:
+        raise ReplayError("world sample uses an unexpected generator context")
+    if sample.get("observed_moves") != ["closecombat"]:
+        raise ReplayError(
+            "world sample must use exactly the moves public before the turn-19 update"
+        )
+
     observation = _target_replay_observation(events)
     history_condition = condition_generator_prior_on_public_history(sample, events)
     inference = infer_item_posterior(
@@ -669,12 +630,20 @@ def build_replay_belief(
         "replay_id": replay.replay_id,
         "format": replay.format,
         "showdown_commit": SHOWDOWN_COMMIT,
+        "mechanics_source": {
+            "poke_env": POKE_ENV_VERSION,
+            "showdown_damage_semantics": SHOWDOWN_COMMIT,
+        },
+        "public_prefix_sha256": _public_prefix_sha256(
+            events,
+            through_index=observation.event_index,
+        ),
         "sample": {
             "species": sample["species"],
-            "observed_moves": sample.get("observed_moves"),
-            "showdown_commit": sample.get("showdown_commit"),
+            "observed_moves": sample["observed_moves"],
+            "showdown_commit": sample["showdown_commit"],
             "seed_family": sample.get("seed_family"),
-            "generator_context": sample.get("generator_context"),
+            "generator_context": sample["generator_context"],
             "rounds": sample["rounds"],
             "matched": sample["matched"],
             "item_counts": sample["item_counts"],
@@ -694,6 +663,9 @@ def build_replay_belief(
             "max_hp": observation.max_hp,
             "damage": observation.damage,
         },
+        "generator_prior": generator_prior,
+        "prior": inference["prior"],
+        "compatible_worlds": inference["compatible"],
         "posterior": inference["posterior"],
     }
 
@@ -701,9 +673,6 @@ def build_replay_belief(
         "schema": "azelficoast.replay-belief",
         "schema_version": 1,
         **evidence,
-        "generator_prior": generator_prior,
-        "prior": inference["prior"],
-        "compatible_worlds": inference["compatible"],
         "belief_sha256": _sha256(evidence),
     }
 
@@ -718,69 +687,21 @@ def reconstruct_replay_belief(
     return build_replay_belief(replay, events, sample)
 
 
-def probe_replay(url: str = REPLAY_URL) -> dict[str, Any]:
-    replay = fetch_replay(url)
-    events = parse_protocol(replay.log)
-    observations = collect_observations(events)
-
-    infernape = [
-        observation
-        for observation in observations.values()
-        if observation.species.lower() == "infernape"
-    ]
-
-    sets = fetch_randbats_sets()
-    infernape_sets = sets.get("infernape")
-    damage = _target_replay_observation(events)
-
-    return {
-        "schema": "azelficoast.replay-probe",
-        "schema_version": 1,
-        "replay_id": replay.replay_id,
-        "format": replay.format,
-        "showdown_commit": SHOWDOWN_COMMIT,
-        "infernape": [
-            {
-                "side": item.side,
-                "species": item.species,
-                "level": item.level,
-                "moves": item.moves,
-                "item_events": item.item_events,
-                "hp_events": item.hp_events,
-            }
-            for item in infernape
-        ],
-        "turn_19_damage": {
-            "attacker": damage.attacker_species,
-            "move": damage.move,
-            "target": damage.target_species,
-            "target_tera_type": damage.target_tera_type,
-            "before_hp": damage.before_hp,
-            "after_hp": damage.after_hp,
-            "damage": damage.damage,
-        },
-        "turns_17_to_21": event_window(events, start_turn=17, end_turn=21),
-        "infernape_generator_entry": infernape_sets,
-    }
-
-
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--replay", default=REPLAY_URL)
     parser.add_argument(
         "--world-sample",
         type=Path,
-        help="condition a Showdown-generated world sample on replay evidence",
+        required=True,
+        help="Showdown-generated world sample to condition on replay evidence",
     )
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.world_sample is None:
-        result = probe_replay(args.replay)
-    else:
-        result = reconstruct_replay_belief(args.world_sample, args.replay)
+    result = reconstruct_replay_belief(args.world_sample, args.replay)
     print(json.dumps(result, sort_keys=True))
     return 0
 
