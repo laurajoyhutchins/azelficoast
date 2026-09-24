@@ -46,9 +46,41 @@ jobs:
             > /tmp/infernape-closecombat.json
           cat /tmp/infernape-closecombat.json
 
-      - name: Sample worlds after Flare Blitz reveal
+      - name: Reconstruct item belief from public replay
+        run: |
+          uv run python -m azelficoast.replay_worlds \
+            --world-sample /tmp/infernape-closecombat.json \
+            > /tmp/infernape-belief.json
+          cat /tmp/infernape-belief.json
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/infernape-belief.json").read_text())
+          assert result["damage_observation"]["damage"] == 54, result
+          assert result["damage_observation"]["target_tera_type"] == "Flying", result
+          assert result["posterior"] == {"Choice Scarf": 1.0}, result
+          assert result["showdown_commit"] == "6397bfddb3db4e916dd792e03c43355f7366e8ab", result
+          assert len(result["belief_sha256"]) == 64, result
+          PY
+
+      - name: Later-move prior control
         run: |
           node scripts/sample_showdown_worlds.cjs \
             /tmp/pokemon-showdown infernape closecombat,flareblitz 65536 \
             > /tmp/infernape-closecombat-flareblitz.json
-          cat /tmp/infernape-closecombat-flareblitz.json
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          sample = json.loads(
+              Path("/tmp/infernape-closecombat-flareblitz.json").read_text()
+          )
+          assert sample["matched"] > 0, sample
+          assert set(sample["item_counts"]) == {
+              "Choice Band",
+              "Choice Scarf",
+              "Life Orb",
+          }, sample
+          PY
