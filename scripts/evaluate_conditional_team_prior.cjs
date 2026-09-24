@@ -203,22 +203,6 @@ function compatibleCandidate(candidateId, summary) {
   if (summary.knownSet.has(candidateId)) return false;
   const feature = featureById.get(candidateId);
   if (summary.baseSpecies.has(feature.baseSpecies)) return false;
-
-  for (const type of feature.types) {
-    if ((summary.typeCount.get(type) || 0) >= 2) return false;
-  }
-  for (const type of feature.weak) {
-    if ((summary.weaknessCount.get(type) || 0) >= 3) return false;
-  }
-  for (const type of feature.doubleWeak) {
-    if ((summary.doubleWeaknessCount.get(type) || 0) >= 1) return false;
-  }
-  if (feature.freezeDryWeak && summary.freezeDryWeaknesses >= 4) return false;
-  if (feature.level === 100 && summary.level100Count >= 1) return false;
-
-  if (!generator.getPokemonCompatibility(feature.species, summary.compatibilitySets, false)) {
-    return false;
-  }
   return true;
 }
 
@@ -234,26 +218,6 @@ function rejectionReasons(candidateId, known) {
   if (!feature) return ["missing-candidate-feature"];
   if (summary.knownSet.has(candidateId)) reasons.push("exact-species-present");
   if (summary.baseSpecies.has(feature.baseSpecies)) reasons.push("base-species-present");
-  for (const type of feature.types) {
-    if ((summary.typeCount.get(type) || 0) >= 2) reasons.push("type-cap:" + type);
-  }
-  for (const type of feature.weak) {
-    if ((summary.weaknessCount.get(type) || 0) >= 3) reasons.push("weakness-cap:" + type);
-  }
-  for (const type of feature.doubleWeak) {
-    if ((summary.doubleWeaknessCount.get(type) || 0) >= 1) {
-      reasons.push("double-weakness-cap:" + type);
-    }
-  }
-  if (feature.freezeDryWeak && summary.freezeDryWeaknesses >= 4) {
-    reasons.push("freeze-dry-cap");
-  }
-  if (feature.level === 100 && summary.level100Count >= 1) {
-    reasons.push("level-100-cap");
-  }
-  if (!generator.getPokemonCompatibility(feature.species, summary.compatibilitySets, false)) {
-    reasons.push("species-incompatibility");
-  }
   return reasons;
 }
 
@@ -483,6 +447,7 @@ const evidence = {
     "model-is-a-learned-team-composition-prior-not-an-exact-generator-posterior",
     "emitted-species-not-having-their-own-random-set-key-are-canonicalized-to-a-unique-base-species-set-family",
     "conditioning-uses-team-species-only-not-revealed-moves-items-abilities-or-tera",
+    "candidate-support-is-a-species-clause-safe-overapproximation-because-set-families-can-emit-forms-with-different-typing",
     "pairwise-model-ignores-higher-order-team-correlations",
     "lambda-is-selected-only-on-the-validation-seed-range",
     "test-seed-range-is-not-used-for-model-selection",
