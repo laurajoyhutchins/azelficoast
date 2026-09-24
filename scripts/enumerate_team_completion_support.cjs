@@ -237,11 +237,23 @@ const evidence = {
   ],
 };
 
+const supportIdentity = {
+  showdown_commit: SHOWDOWN_COMMIT,
+  public_team_size: teamSize,
+  known_species: evidence.known_species,
+  unknown_slots: evidence.unknown_slots,
+  random_set_species_count: evidence.random_set_species_count,
+  rejection_counts: evidence.rejection_counts,
+  support,
+  caveats: evidence.caveats,
+};
+
 process.stdout.write(
   JSON.stringify(
     {
       ...evidence,
-      support_sha256: sha256(evidence),
+      support_set_sha256: sha256(supportIdentity),
+      evidence_sha256: sha256(evidence),
     },
     null,
     2
