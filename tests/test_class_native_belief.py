@@ -6,6 +6,7 @@ import numpy as np
 
 from azelficoast.class_native_belief import (
     build_factor_support,
+    compile_attack_projection,
     compile_bench_projection,
     compile_damage_projection,
     compile_full_projection,
@@ -15,6 +16,7 @@ from azelficoast.class_native_belief import (
     project_belief,
     uniform_belief,
 )
+from azelficoast.gen9_attack import AttackTransitionContext, attack_transition_dependency_signature
 from azelficoast.gen9_damage import DamageContext, damage
 
 
@@ -109,3 +111,41 @@ def test_missing_attack_modifier_merges_choice_specs_worlds() -> None:
 
     assert good.class_count == 32
     assert bad.class_count == 16
+
+
+
+def test_whole_attack_projection_collapses_miss_branch_and_nuisance_bench() -> None:
+    damage_contexts = _contexts()
+    life_orb = replace(damage_contexts[0], attacker_item="Life Orb")
+    attacks = tuple(
+        AttackTransitionContext(
+            damage=context,
+            accuracy=80,
+            attacker_hp=341,
+            attacker_max_hp=341,
+            defender_hp=400,
+            move_pp=8,
+        )
+        for context in (*damage_contexts, life_orb)
+    )
+    support = build_factor_support(
+        len(attacks),
+        bench_variants=4,
+        accuracy_rolls=100,
+        rolls=16,
+    )
+
+    projection = compile_attack_projection(support, attacks)
+    hostile = compile_attack_projection(
+        support,
+        attacks,
+        include_attack_modifier=False,
+    )
+
+    # 20 miss rolls collapse every item, damage roll, and bench variant to one class.
+    # 80 hit rolls collapse by hit-control result, leaving three item-sensitive
+    # mechanics contexts times the 16 damage rolls.
+    assert projection.class_count == 49
+    assert projection.effect_signature == attack_transition_dependency_signature()
+    assert hostile.class_count == 33
+    assert hostile.effect_signature is None

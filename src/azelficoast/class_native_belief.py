@@ -13,12 +13,15 @@ from typing import Callable, Sequence
 
 import numpy as np
 
+from azelficoast.gen9_attack import (
+    AttackTransitionContext,
+    attack_transition_dependency_key,
+    attack_transition_dependency_signature,
+)
 from azelficoast.gen9_damage import (
-    COMPILED_ATTACK_MOD_COLUMN,
-    COMPILED_CATEGORY_COLUMN,
     DamageContext,
-    compile_numeric_context,
     damage,
+    damage_dependency_tuple,
 )
 
 
@@ -26,16 +29,23 @@ from azelficoast.gen9_damage import (
 class CanonicalSupport:
     context_index: np.ndarray
     bench_signature: np.ndarray
+    accuracy_roll: np.ndarray
     roll: np.ndarray
 
     def __post_init__(self) -> None:
         size = len(self.context_index)
-        if len(self.bench_signature) != size or len(self.roll) != size:
+        if (
+            len(self.bench_signature) != size
+            or len(self.accuracy_roll) != size
+            or len(self.roll) != size
+        ):
             raise ValueError("canonical support columns must have equal length")
         if self.context_index.dtype.kind not in "iu":
             raise ValueError("context_index must be integer")
         if self.bench_signature.dtype.kind not in "iu":
             raise ValueError("bench_signature must be integer")
+        if self.accuracy_roll.dtype.kind not in "iu":
+            raise ValueError("accuracy_roll must be integer")
         if self.roll.dtype.kind not in "iu":
             raise ValueError("roll must be integer")
 
@@ -71,6 +81,7 @@ class ProjectionMap:
     name: str
     class_ids: np.ndarray
     representative_indices: np.ndarray
+    effect_signature: str | None = None
 
     def __post_init__(self) -> None:
         if self.class_ids.dtype.kind not in "iu":
@@ -104,21 +115,26 @@ def build_factor_support(
     *,
     bench_variants: int,
     rolls: int = 16,
+    accuracy_rolls: int = 1,
 ) -> CanonicalSupport:
-    if context_count <= 0 or bench_variants <= 0 or rolls <= 0:
+    if context_count <= 0 or bench_variants <= 0 or rolls <= 0 or accuracy_rolls <= 0:
         raise ValueError("support dimensions must be positive")
     context: list[int] = []
     bench: list[int] = []
+    accuracy: list[int] = []
     roll: list[int] = []
     for context_index in range(context_count):
         for bench_signature in range(bench_variants):
-            for damage_roll in range(rolls):
-                context.append(context_index)
-                bench.append(bench_signature)
-                roll.append(damage_roll)
+            for accuracy_roll in range(accuracy_rolls):
+                for damage_roll in range(rolls):
+                    context.append(context_index)
+                    bench.append(bench_signature)
+                    accuracy.append(accuracy_roll)
+                    roll.append(damage_roll)
     return CanonicalSupport(
         context_index=np.asarray(context, dtype=np.int32),
         bench_signature=np.asarray(bench, dtype=np.int32),
+        accuracy_roll=np.asarray(accuracy, dtype=np.int32),
         roll=np.asarray(roll, dtype=np.int32),
     )
 
@@ -176,22 +192,6 @@ def compile_bench_projection(support: CanonicalSupport) -> ProjectionMap:
     )
 
 
-def damage_dependency_tuple(
-    context: DamageContext,
-    *,
-    include_attack_modifier: bool = True,
-) -> tuple[int, ...]:
-    compiled = compile_numeric_context(context)
-    # CATEGORY is metadata after semantic modifiers are compiled and is not read by
-    # the numeric JAX damage kernel. The negative control optionally removes the
-    # Choice Band/Specs-derived attack modifier.
-    return tuple(
-        value
-        for column, value in enumerate(compiled)
-        if column != COMPILED_CATEGORY_COLUMN and (include_attack_modifier or column != COMPILED_ATTACK_MOD_COLUMN)
-    )
-
-
 def compile_damage_projection(
     support: CanonicalSupport,
     contexts: Sequence[DamageContext],
@@ -215,6 +215,39 @@ def compile_damage_projection(
             "damage"
             if include_attack_modifier
             else "damage-missing-attack-modifier"
+        ),
+    )
+
+
+
+def compile_attack_projection(
+    support: CanonicalSupport,
+    contexts: Sequence[AttackTransitionContext],
+    *,
+    include_attack_modifier: bool = True,
+) -> ProjectionMap:
+    projection = _compile_ids(
+        support,
+        lambda index: attack_transition_dependency_key(
+            contexts[int(support.context_index[index])],
+            int(support.accuracy_roll[index]),
+            int(support.roll[index]),
+            include_attack_modifier=include_attack_modifier,
+        ),
+        name=(
+            "attack-transition"
+            if include_attack_modifier
+            else "attack-transition-missing-attack-modifier"
+        ),
+    )
+    return ProjectionMap(
+        name=projection.name,
+        class_ids=projection.class_ids,
+        representative_indices=projection.representative_indices,
+        effect_signature=(
+            attack_transition_dependency_signature()
+            if include_attack_modifier
+            else None
         ),
     )
 
