@@ -30,6 +30,13 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _positive_float(value: str) -> float:
+    parsed = float(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="azelficoast",
@@ -52,6 +59,21 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_REPLAYS,
         help=f"save replay HTML here (default: {DEFAULT_REPLAYS})",
+    )
+    parser.add_argument(
+        "--showdown-root",
+        type=Path,
+        default=(Path(os.environ["AZELFICOAST_SHOWDOWN_ROOT"]) if os.getenv("AZELFICOAST_SHOWDOWN_ROOT") else None),
+        help=(
+            "built pinned Pokémon Showdown checkout for bounded live public-belief "
+            "search; defaults to AZELFICOAST_SHOWDOWN_ROOT"
+        ),
+    )
+    parser.add_argument(
+        "--belief-timeout",
+        type=_positive_float,
+        default=float(os.getenv("AZELFICOAST_BELIEF_TIMEOUT_SECONDS", "20")),
+        help="maximum seconds for one live public-belief probe (default: 20)",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -156,6 +178,9 @@ def _live_player(
     password: str,
     replays: Path,
     decisions: Path,
+    *,
+    showdown_root: Path | None,
+    belief_timeout: float,
 ) -> AzelficoastPlayer:
     return AzelficoastPlayer(
         account_configuration=AccountConfiguration(username, password),
@@ -164,6 +189,8 @@ def _live_player(
         max_concurrent_battles=1,
         save_replays=str(replays),
         decision_log=decisions,
+        showdown_root=showdown_root,
+        belief_timeout_seconds=belief_timeout,
     )
 
 
@@ -206,12 +233,17 @@ async def _run_local(
     results: Path,
     decisions: Path,
     replays: Path,
+    *,
+    showdown_root: Path | None,
+    belief_timeout: float,
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
         max_concurrent_battles=concurrency,
         save_replays=str(replays),
         decision_log=decisions,
+        showdown_root=showdown_root,
+        belief_timeout_seconds=belief_timeout,
     )
     opponent = RandomPlayer(
         battle_format=BATTLE_FORMAT,
@@ -224,7 +256,14 @@ async def _run_local(
 
 async def _run_live(args: argparse.Namespace) -> None:
     username, password = _resolve_live_credentials(args.username)
-    player = _live_player(username, password, args.replays, args.decisions)
+    player = _live_player(
+        username,
+        password,
+        args.replays,
+        args.decisions,
+        showdown_root=args.showdown_root,
+        belief_timeout=args.belief_timeout,
+    )
 
     if args.command == "challenge":
         await player.send_challenges(args.opponent, n_challenges=args.battles)
@@ -251,6 +290,8 @@ async def _async_main(args: argparse.Namespace) -> None:
             args.results,
             args.decisions,
             args.replays,
+            showdown_root=args.showdown_root,
+            belief_timeout=args.belief_timeout,
         )
     else:
         await _run_live(args)

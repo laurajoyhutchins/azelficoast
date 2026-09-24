@@ -9,42 +9,141 @@ from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.player import SimpleHeuristicsPlayer
 from poke_env.player.battle_order import BattleOrder
 
-from azelficoast.instrumentation import DecisionTraceWriter
+from azelficoast.instrumentation import DecisionTraceWriter, battle_view
+from azelficoast.live_belief import (
+    LiveDecisionResult,
+    PinnedShowdownBeliefPolicy,
+    live_fixture,
+)
 
 
 class AzelficoastPlayer(SimpleHeuristicsPlayer):
-    """Temporary baseline behind the Azelficoast player interface.
+    """Live player with bounded public-belief search and heuristic fallback.
 
-    The harness depends on this class rather than a particular model or search
-    implementation. Replacing the decision machinery should not require
-    changing local, ladder, or challenge orchestration.
+    The public-belief path is enabled only when a pinned, built Pokémon Showdown
+    checkout is configured. It currently admits the hidden-Choice slice covered
+    by the exact natural public-belief experiments. Every unsupported state or
+    failed search falls back to poke-env's simple heuristics rather than guessing.
     """
 
     def __init__(
         self,
         *args: Any,
         decision_log: str | Path | None = None,
+        showdown_root: str | Path | None = None,
+        belief_timeout_seconds: float = 20.0,
+        belief_policy: Any | None = None,
         **kwargs: Any,
     ) -> None:
+        if belief_policy is not None and showdown_root is not None:
+            raise ValueError("provide belief_policy or showdown_root, not both")
         self._decision_trace = (
             DecisionTraceWriter(decision_log) if decision_log is not None else None
         )
+        self._protocol_history: dict[str, list[list[list[str]]]] = {}
+        self._belief_policy = belief_policy
+        if self._belief_policy is None and showdown_root is not None:
+            self._belief_policy = PinnedShowdownBeliefPolicy(
+                showdown_root,
+                timeout_seconds=belief_timeout_seconds,
+            )
         super().__init__(*args, **kwargs)
 
     async def _handle_battle_message(self, split_messages: list[list[str]]) -> None:
         # poke-env funnels the exact Showdown observations through this callback.
         # The dependency is pinned so this private seam is version-fenced.
+        if split_messages:
+            room = split_messages[0][0].lstrip(">")
+            if room:
+                self._protocol_history.setdefault(room, []).append(
+                    [list(message) for message in split_messages[1:]]
+                )
         if self._decision_trace is not None:
             self._decision_trace.record_protocol_batch(split_messages)
         await super()._handle_battle_message(split_messages)
 
+    @staticmethod
+    def _order_for_action(
+        battle: AbstractBattle,
+        action: str,
+    ) -> BattleOrder | None:
+        for order in getattr(battle, "valid_orders", ()):
+            if order.message == action:
+                return order
+        return None
+
+    def _belief_decision(self, battle: AbstractBattle) -> LiveDecisionResult:
+        if self._belief_policy is None:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="belief-search-disabled",
+            )
+
+        fixture = live_fixture(
+            battle_view(battle),
+            self._protocol_history.get(battle.battle_tag, ()),
+        )
+        try:
+            result = self._belief_policy.choose(fixture)
+        except Exception as error:
+            # A research policy must never turn an otherwise legal live decision
+            # into a forfeit. Preserve the exception as evidence and fall back.
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="belief-policy-exception",
+                diagnostics={
+                    "type": type(error).__name__,
+                    "error": str(error)[-1000:],
+                },
+            )
+
+        if result.action is not None and result.action not in fixture.legal_actions:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="belief-policy-returned-nonlegal-action",
+                diagnostics={"action": result.action},
+            )
+        return result
+
     def choose_move(self, battle: AbstractBattle) -> BattleOrder:
-        order = super().choose_move(battle)
+        belief = self._belief_decision(battle)
+        order = (
+            self._order_for_action(battle, belief.action)
+            if belief.action is not None
+            else None
+        )
+        selected_policy = "public-belief"
+
+        if order is None:
+            if belief.action is not None:
+                belief = LiveDecisionResult(
+                    action=None,
+                    status="fallback",
+                    reason="belief-action-order-mismatch",
+                    diagnostics={
+                        **dict(belief.diagnostics),
+                        "requested_action": belief.action,
+                    },
+                )
+            order = super().choose_move(battle)
+            selected_policy = "simple-heuristics"
+
         if self._decision_trace is not None:
-            self._decision_trace.record_decision(battle, order)
+            self._decision_trace.record_decision(
+                battle,
+                order,
+                decision_metadata={
+                    "selected_policy": selected_policy,
+                    "belief": belief.as_trace(),
+                },
+            )
         return order
 
     def _battle_finished_callback(self, battle: AbstractBattle) -> None:
         if self._decision_trace is not None:
             self._decision_trace.record_terminal(battle)
+        self._protocol_history.pop(battle.battle_tag, None)
         super()._battle_finished_callback(battle)

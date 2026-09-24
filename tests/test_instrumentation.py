@@ -89,7 +89,11 @@ def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) ->
     writer.record_protocol_batch(
         [[">battle-gen9randombattle-test"], ["", "move", "p2a: Ditto", "Protect"]]
     )
-    writer.record_decision(battle, SimpleNamespace(message="/choose move recover"))
+    writer.record_decision(
+        battle,
+        SimpleNamespace(message="/choose move recover"),
+        decision_metadata={"selected_policy": "public-belief"},
+    )
     writer.record_terminal(battle)
 
     records = [json.loads(line) for line in trace.read_text().splitlines()]
@@ -101,6 +105,7 @@ def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) ->
     assert records[0]["protocol_index"] == 0
     assert records[1]["decision_index"] == 0
     assert records[1]["chosen_action"] == "/choose move recover"
+    assert records[1]["decision_metadata"]["selected_policy"] == "public-belief"
     assert records[2]["tied"] is False
     assert all("observed_at" in record for record in records)
 
