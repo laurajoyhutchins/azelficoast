@@ -23,7 +23,7 @@ def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
         base_stats={"hp": 100, "atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
         stats={"hp": 200, "atk": 120, "def": 130, "spa": 110, "spd": 120, "spe": 90},
         status=None,
-        item=None if opponent else "leftovers",
+        item="unknown_item" if opponent else "leftovers",
         ability=None if opponent else "pressure",
         moves={"protect": object()} if opponent else {"recover": object()},
         boosts={"atk": 0, "def": 1},
@@ -71,6 +71,7 @@ def test_battle_view_contains_decision_information_without_inventing_hidden_stat
     assert view["active"]["max_hp"] == 200
     assert view["active"]["stats"]["spe"] == 90
     assert view["opponent_active"]["item"] is None
+    assert _pokemon("Ditto", opponent=True).item == "unknown_item"
     assert view["opponent_active"]["ability"] is None
     assert view["opponent_active"]["moves"] == ["protect"]
 
