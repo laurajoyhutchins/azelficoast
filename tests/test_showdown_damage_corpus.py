@@ -18,14 +18,16 @@ def _fixture(
     tera: str | None = None,
     type_mod: int = 1,
     burned: bool = False,
+    attacker_level: int = 100,
+    defender_level: int = 100,
 ) -> dict[str, object]:
     # Values here are generated from the local scalar kernel solely to test corpus
     # structure. Hosted evidence is generated independently by Showdown.
     from azelficoast.gen9_damage import DamageContext, damage
 
     context = DamageContext(
-        attacker_level=100,
-        defender_level=100,
+        attacker_level=attacker_level,
+        defender_level=defender_level,
         base_power=120 if burned else 80,
         category="Physical" if burned else "Special",
         move_id="closecombat" if burned else "aurasphere",
@@ -81,6 +83,12 @@ def _document() -> dict[str, object]:
         _fixture(scenario="item", item="Choice Specs", type_mod=0),
         _fixture(scenario="tera", tera="Fighting", type_mod=0),
         _fixture(scenario="burn", burned=True, type_mod=0),
+        _fixture(
+            scenario="unequal-levels",
+            type_mod=0,
+            attacker_level=78,
+            defender_level=88,
+        ),
     ]
     return {
         "schema": "azelficoast.showdown-gen9-damage-fixtures",
@@ -94,12 +102,13 @@ def _document() -> dict[str, object]:
 def test_damage_corpus_requires_exact_roll_agreement_and_negative_controls() -> None:
     result = analyze_document(_document())
     assert result["passed"] is True
-    assert result["roll_case_count"] == 64
-    assert result["exact_case_count"] == 64
+    assert result["roll_case_count"] == 80
+    assert result["exact_case_count"] == 80
     assert result["type_negative_control_detected"] is True
     assert result["item_negative_control_detected"] is True
     assert result["tera_negative_control_detected"] is True
     assert result["burn_negative_control_detected"] is True
+    assert result["unequal_level_negative_control_detected"] is True
 
 
 def test_damage_corpus_rejects_one_wrong_damage_roll() -> None:

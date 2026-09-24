@@ -63,6 +63,7 @@ jobs:
           assert result["scenario_count"] == 11, result
           assert result["roll_case_count"] == 176, result
           assert result["exact_case_count"] == 176, result
+          assert result["unequal_level_negative_control_detected"] is True, result
           PY
 
       - name: Test damage machinery

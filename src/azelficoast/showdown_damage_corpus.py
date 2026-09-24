@@ -109,6 +109,7 @@ def analyze_document(
     item_negative_detected = False
     tera_negative_detected = False
     burn_negative_detected = False
+    unequal_level_negative_detected = False
 
     for fixture in fixtures:
         if not isinstance(fixture, Mapping):
@@ -149,6 +150,11 @@ def analyze_document(
                 replace(context, burned=False),
                 rolls,
             ) > 0
+        if context.attacker_level != context.defender_level:
+            unequal_level_negative_detected |= _mismatch_count(
+                replace(context, defender_level=context.attacker_level),
+                rolls,
+            ) > 0
 
     passed = (
         exact_cases == total_cases
@@ -157,6 +163,7 @@ def analyze_document(
         and item_negative_detected
         and tera_negative_detected
         and burn_negative_detected
+        and unequal_level_negative_detected
     )
     return {
         "schema": "azelficoast.showdown-gen9-damage-analysis",
@@ -169,6 +176,7 @@ def analyze_document(
         "item_negative_control_detected": item_negative_detected,
         "tera_negative_control_detected": tera_negative_detected,
         "burn_negative_control_detected": burn_negative_detected,
+        "unequal_level_negative_control_detected": unequal_level_negative_detected,
         "passed": passed,
     }
 
