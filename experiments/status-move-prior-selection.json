@@ -1,0 +1,68 @@
+{
+  "schema": "azelficoast.status-move-prior-selection",
+  "schema_version": 1,
+  "source": {
+    "workflow_run_id": 36068967462,
+    "artifact_id": 10836574187,
+    "artifact_digest": "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2",
+    "head_sha": "50f035e785f805a15b44cc2d83f4f3d42ce837bf",
+    "selection_rule": "For each of the six highest-priority common status moves, select the most frequent tuple of current opponent species, accumulated revealed moves for that species, and public lead status in the corrected 256-battle coverage artifact; break ties lexicographically."
+  },
+  "treatments": [
+    {
+      "move": "Rest",
+      "species": "bastiodon",
+      "observed_moves": ["Body Press", "Foul Play", "Iron Defense", "Rest"],
+      "is_lead": true,
+      "discovery_decision_count": 15
+    },
+    {
+      "move": "Roost",
+      "species": "articuno",
+      "observed_moves": ["Roost"],
+      "is_lead": false,
+      "discovery_decision_count": 6
+    },
+    {
+      "move": "Protect",
+      "species": "arboliva",
+      "observed_moves": ["Hyper Voice", "Leech Seed", "Protect", "Substitute"],
+      "is_lead": false,
+      "discovery_decision_count": 10
+    },
+    {
+      "move": "Swords Dance",
+      "species": "rhydon",
+      "observed_moves": ["Swords Dance"],
+      "is_lead": false,
+      "discovery_decision_count": 4
+    },
+    {
+      "move": "Thunder Wave",
+      "species": "chansey",
+      "observed_moves": ["Seismic Toss", "Soft-Boiled", "Stealth Rock", "Thunder Wave"],
+      "is_lead": false,
+      "discovery_decision_count": 8
+    },
+    {
+      "move": "Recover",
+      "species": "avalugghisui",
+      "observed_moves": ["Recover"],
+      "is_lead": false,
+      "discovery_decision_count": 5
+    }
+  ],
+  "confirmation": {
+    "rounds_per_family": 8192,
+    "seed_offsets": [0, 32768],
+    "minimum_matches_per_family": 32,
+    "support_stability_required": true,
+    "maximum_total_variation": 0.1
+  },
+  "hypothesis": "For the selected common status-move information patterns, two disjoint deterministic Showdown generator seed families yield the same nonempty hidden-item support and item-weight distributions within total-variation distance 0.1, with at least 32 conditioned matches per family.",
+  "non_claims": [
+    "This does not establish that status moves are sufficient by themselves for competitive-optimal play.",
+    "This does not promote status-move priors into the live player.",
+    "This tests generator-conditioned hidden-item support only; exact transition/search behavior remains a separate promotion requirement."
+  ]
+}
