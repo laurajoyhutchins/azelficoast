@@ -312,6 +312,29 @@ def _move_type(move_id: str) -> str | None:
     return move_type.lower() if isinstance(move_type, str) else None
 
 
+def _protect_blocks_locked_move(
+    fixture: DecisionFixture,
+    move_id: str,
+) -> bool:
+    move = GenData.from_gen(9).moves.get(_to_id(move_id))
+    if not isinstance(move, Mapping):
+        return False
+    flags = move.get("flags")
+    if not isinstance(flags, Mapping) or not flags.get("protect"):
+        return False
+
+    opponent = fixture.state.get("opponent_active")
+    ability = ""
+    if isinstance(opponent, Mapping):
+        raw_ability = opponent.get("ability")
+        if isinstance(raw_ability, str):
+            ability = _to_id(raw_ability)
+
+    if ability == "unseenfist" and bool(flags.get("contact")):
+        return False
+    return True
+
+
 def _type_immune(view: Mapping[str, Any], move_type: str) -> bool:
     immune_types = TYPE_IMMUNITIES.get(move_type)
     if not immune_types:
@@ -340,7 +363,15 @@ def _switch_view(
 
 def _persistent_protect_actions(
     fixture: DecisionFixture,
+    *,
+    locked_move: str | None = None,
 ) -> list[dict[str, Any]]:
+    if locked_move is not None and not _protect_blocks_locked_move(
+        fixture,
+        locked_move,
+    ):
+        return []
+
     persistent: list[dict[str, Any]] = []
     for action in fixture.legal_actions:
         if not action.startswith("/choose move "):
@@ -589,7 +620,10 @@ def mine_candidates(
             if move_type is not None
             else []
         )
-        persistent_protect_actions = _persistent_protect_actions(fixture)
+        persistent_protect_actions = _persistent_protect_actions(
+            fixture,
+            locked_move=str(last_move["move"]),
+        )
         has_persistent_branch = bool(
             persistent_switches or persistent_protect_actions
         )
