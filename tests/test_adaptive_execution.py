@@ -152,6 +152,7 @@ def test_cost_profiles_reject_negative_coefficients() -> None:
     with pytest.raises(ValueError, match="non-negative"):
         ExecutionCostProfile(
             backend="cpu",
+            target_signature="sha256:target",
             effect_signature="sha256:test",
             direct_intercept_ms=0.0,
             direct_per_world_ms=-1.0,
