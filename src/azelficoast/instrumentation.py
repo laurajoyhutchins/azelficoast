@@ -161,19 +161,26 @@ class DecisionTraceWriter:
             }
         )
 
-    def record_decision(self, battle: AbstractBattle, order: BattleOrder) -> None:
+    def record_decision(
+        self,
+        battle: AbstractBattle,
+        order: BattleOrder,
+        *,
+        decision_metadata: Mapping[str, Any] | None = None,
+    ) -> None:
         battle_tag = battle.battle_tag
         index = self._decision_index.get(battle_tag, 0)
         self._decision_index[battle_tag] = index + 1
-        self._append(
-            {
-                "kind": "decision",
-                "battle_tag": battle_tag,
-                "decision_index": index,
-                "state": battle_view(battle),
-                "chosen_action": order.message,
-            }
-        )
+        record: dict[str, Any] = {
+            "kind": "decision",
+            "battle_tag": battle_tag,
+            "decision_index": index,
+            "state": battle_view(battle),
+            "chosen_action": order.message,
+        }
+        if decision_metadata is not None:
+            record["decision_metadata"] = dict(decision_metadata)
+        self._append(record)
 
     def record_terminal(self, battle: AbstractBattle) -> None:
         won = battle.won
