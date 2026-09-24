@@ -24,15 +24,16 @@ const common = require(path.join(showdownRoot, "test", "common.js"));
 
 const DEFAULT_IVS = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
 
-function attackerSet(species, move, category, item = "", level = 100) {
+function attackerSet(species, move, category, item = "", level = 100, options = {}) {
   const physical = category === "Physical";
   return {
     species,
-    ability: species === "Lucario" ? "Steadfast" : "Synchronize",
+    ability: options.ability ||
+      (species === "Lucario" ? "Steadfast" : "Synchronize"),
     item,
     level,
-    nature: physical ? "Adamant" : "Modest",
-    evs: {
+    nature: options.nature || (physical ? "Adamant" : "Modest"),
+    evs: options.evs || {
       hp: 0,
       atk: physical ? 252 : 0,
       def: 0,
@@ -45,17 +46,19 @@ function attackerSet(species, move, category, item = "", level = 100) {
   };
 }
 
-function defenderSet(species, category, level = 100) {
+function defenderSet(species, category, level = 100, options = {}) {
   const physical = category === "Physical";
-  const ability = species === "Lapras" ? "Shell Armor" :
-    species === "Blastoise" ? "Torrent" : "Synchronize";
+  const ability = options.ability || (
+    species === "Lapras" ? "Shell Armor" :
+      species === "Blastoise" ? "Torrent" : "Synchronize"
+  );
   return {
     species,
     ability,
     item: "",
     level,
-    nature: physical ? "Bold" : "Calm",
-    evs: {
+    nature: options.nature || (physical ? "Bold" : "Calm"),
+    evs: options.evs || {
       hp: 252,
       atk: 0,
       def: physical ? 252 : 0,
@@ -140,6 +143,22 @@ const SCENARIOS = [
     move: "Close Combat",
     item: "Choice Band",
   },
+  {
+    id: "chiyu-beads-specs-flamethrower-sableye",
+    attacker: "Chi-Yu",
+    defender: "Sableye",
+    move: "Flamethrower",
+    item: "Choice Specs",
+    attackerLevel: 77,
+    defenderLevel: 87,
+    attackerAbility: "Beads of Ruin",
+    defenderAbility: "Prankster",
+    attackerNature: "Serious",
+    defenderNature: "Serious",
+    attackerEvs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
+    defenderEvs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
+    defenderStatModifier: 3072,
+  },
 ];
 
 function naturePercent(battle, pokemon, stat) {
@@ -165,10 +184,24 @@ function runScenario(scenario) {
           scenario.move,
           category,
           scenario.item || "",
-          scenario.attackerLevel || 100
+          scenario.attackerLevel || 100,
+          {
+            ability: scenario.attackerAbility,
+            nature: scenario.attackerNature,
+            evs: scenario.attackerEvs,
+          }
         ),
       ],
-      [defenderSet(scenario.defender, category, scenario.defenderLevel || 100)],
+      [defenderSet(
+        scenario.defender,
+        category,
+        scenario.defenderLevel || 100,
+        {
+          ability: scenario.defenderAbility,
+          nature: scenario.defenderNature,
+          evs: scenario.defenderEvs,
+        }
+      )],
     ]
   );
 
@@ -205,6 +238,7 @@ function runScenario(scenario) {
     attacker_item: source.getItem().name || "",
     type_mod: typeMod,
     burned: !!scenario.burned,
+    defender_stat_modifier: scenario.defenderStatModifier || 4096,
   };
 
   const originalRandom = battle.random;
