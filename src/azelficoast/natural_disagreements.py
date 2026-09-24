@@ -131,7 +131,7 @@ def _active_history(
             active_species = _species_from_details(event.fields[1])
             if lead_species is None:
                 lead_species = active_species
-            revealed_moves.setdefault(active_species, set())
+            revealed_moves.setdefault(_to_id(active_species), set())
             continue
 
         if event.kind != "move" or len(event.fields) < 2:
@@ -140,7 +140,7 @@ def _active_history(
         if event_side != side or active_species is None:
             continue
         move = event.fields[1]
-        revealed_moves.setdefault(active_species, set()).add(move)
+        revealed_moves.setdefault(_to_id(active_species), set()).add(move)
         move_events.append(
             {
                 "event_index": event.index,
@@ -393,7 +393,9 @@ def mine_candidates(
             skip("active-history-mismatch")
             continue
 
-        revealed = sorted(history["revealed_moves"].get(opponent_species, set()))
+        revealed = sorted(
+            history["revealed_moves"].get(_to_id(opponent_species), set())
+        )
         if not revealed:
             skip("no-revealed-opponent-move")
             continue
@@ -401,7 +403,7 @@ def mine_candidates(
         current_moves = [
             item
             for item in history["move_events"]
-            if item["species"] == opponent_species
+            if _to_id(str(item["species"])) == _to_id(opponent_species)
         ]
         if not current_moves:
             skip("no-current-move-event")
@@ -434,7 +436,7 @@ def mine_candidates(
             skip("no-speed-order-fork")
             continue
 
-        is_lead = history["lead_species"] == opponent_species
+        is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
         key = (opponent_species, tuple(revealed), is_lead)
         if key not in cache:
             cache[key] = _sample_worlds(
