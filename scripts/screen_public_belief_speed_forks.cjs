@@ -112,7 +112,19 @@ function buildBattle(fixture, variant) {
   const own = battle.p1.active[0];
   const opponent = battle.p2.active[0];
 
-  own.hp = ownSnapshot.current_hp;
+  // The trace is authoritative for our exact known stats. Generator-style
+  // EV/nature defaults are only scaffolding needed to instantiate Showdown.
+  const stored = Object.fromEntries(
+    ["atk", "def", "spa", "spd", "spe"].map(stat => [
+      stat,
+      Number(ownSnapshot.stats[stat]),
+    ])
+  );
+  own.baseStoredStats = {hp: Number(ownSnapshot.max_hp), ...stored};
+  own.storedStats = {...stored};
+  own.baseMaxhp = Number(ownSnapshot.max_hp);
+  own.maxhp = Number(ownSnapshot.max_hp);
+  own.hp = Number(ownSnapshot.current_hp);
   own.boosts = {...ownSnapshot.boosts};
   if (ownSnapshot.status && ownSnapshot.status !== "FNT") {
     own.status = toID(ownSnapshot.status);
