@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 from collections import Counter, defaultdict
@@ -203,10 +204,10 @@ def build_fixtures(trace_paths: Sequence[str | Path]) -> list[DecisionFixture]:
                 continue
 
             battle_tag = record.get("battle_tag")
-            state = record.get("state")
+            raw_state = record.get("state")
             chosen_action = record.get("chosen_action")
             decision_index = record.get("decision_index")
-            if not isinstance(battle_tag, str) or not isinstance(state, dict):
+            if not isinstance(battle_tag, str) or not isinstance(raw_state, dict):
                 raise CorpusError(
                     f"run {run_id!r} event {event_index}: malformed decision record"
                 )
@@ -215,6 +216,8 @@ def build_fixtures(trace_paths: Sequence[str | Path]) -> list[DecisionFixture]:
                     f"run {run_id!r} event {event_index}: incomplete decision evidence"
                 )
 
+            state = copy.deepcopy(raw_state)
+            state.pop("battle_tag", None)
             legal_actions = state.get("legal_actions")
             if not isinstance(legal_actions, list) or not all(
                 isinstance(action, str) for action in legal_actions
@@ -227,7 +230,7 @@ def build_fixtures(trace_paths: Sequence[str | Path]) -> list[DecisionFixture]:
                     f"run {run_id!r} event {event_index}: chosen action is not legal"
                 )
 
-            protocol_prefix = history.get(battle_tag, [])
+            protocol_prefix = copy.deepcopy(history.get(battle_tag, []))
             fixture_id = _fixture_id(state, protocol_prefix)
             control = {
                 "run_id": run_id,
