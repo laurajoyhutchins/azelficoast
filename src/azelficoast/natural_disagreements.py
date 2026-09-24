@@ -34,6 +34,10 @@ class NaturalDisagreementError(ValueError):
     """Raised when frozen evidence cannot be interpreted safely."""
 
 
+class UnsupportedWorldSample(NaturalDisagreementError):
+    """Raised when public evidence is outside the generator-derived world model."""
+
+
 @dataclass(frozen=True)
 class PublicEvent:
     index: int
@@ -289,20 +293,26 @@ def _sample_worlds(
     is_lead: bool,
 ) -> dict[str, Any]:
     script = Path(__file__).resolve().parents[2] / "scripts" / "sample_showdown_worlds.cjs"
-    completed = subprocess.run(
-        [
-            "node",
-            str(script),
-            str(showdown_root),
-            species,
-            ",".join(observed_moves),
-            str(rounds),
-            "true" if is_lead else "false",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        completed = subprocess.run(
+            [
+                "node",
+                str(script),
+                str(showdown_root),
+                species,
+                ",".join(observed_moves),
+                str(rounds),
+                "true" if is_lead else "false",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as error:
+        if error.returncode == 2:
+            detail = (error.stderr or "").strip() or "unsupported generator evidence"
+            raise UnsupportedWorldSample(detail) from error
+        raise
     payload = json.loads(completed.stdout)
     if not isinstance(payload, dict):
         raise NaturalDisagreementError("world sampler did not return an object")
@@ -439,13 +449,17 @@ def mine_candidates(
         is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
         key = (opponent_species, tuple(revealed), is_lead)
         if key not in cache:
-            cache[key] = _sample_worlds(
-                showdown_root=showdown_root,
-                species=opponent_species,
-                observed_moves=revealed,
-                rounds=rounds,
-                is_lead=is_lead,
-            )
+            try:
+                cache[key] = _sample_worlds(
+                    showdown_root=showdown_root,
+                    species=opponent_species,
+                    observed_moves=revealed,
+                    rounds=rounds,
+                    is_lead=is_lead,
+                )
+            except UnsupportedWorldSample:
+                skip("world-sample-unsupported")
+                continue
         sample = cache[key]
         if sample.get("showdown_commit") is None:
             raise NaturalDisagreementError("world sample lacks Showdown revision")
