@@ -1,0 +1,57 @@
+{
+  "schema": "azelficoast.live-belief-coverage-results",
+  "schema_version": 1,
+  "source": {
+    "workflow_run_id": 36067812926,
+    "artifact_id": 10837355836,
+    "artifact_digest": "sha256:aba2a656c2e38a583be5b891c7507f24537e2dfd3b20a10cb6ad3ccd40710b1e",
+    "head_sha": "04d2bfd5380fda3c5abcf2668cc4e6ac299b9d01",
+    "battle_count": 256,
+    "decision_count": 6139
+  },
+  "baseline": {
+    "admitted_decision_count": 2339,
+    "admission_rate": 0.3810066786121518,
+    "fallback_decision_count": 3800,
+    "fallback_reasons": {
+      "opponent-item-known": 2055,
+      "last-opponent-move-not-fixed-damage-category": 1026,
+      "opponent-side-or-last-move-unresolved": 412,
+      "own-active-tera-type-unavailable": 307
+    }
+  },
+  "public_tera_recovery": {
+    "method": "recover the current active species' Tera type only from an earlier public request naming that same active species",
+    "baseline_tera_blocked_fixed_damage_decisions": 307,
+    "recoverable_from_prior_matching_request": 304,
+    "still_unavailable": 3,
+    "non_claim": "No hidden state is inferred and no new battle mechanic is modeled; this only reuses public information already present in the protocol prefix."
+  },
+  "same_trace_after_public_tera_recovery": {
+    "admitted_decision_count": 2643,
+    "admission_rate": 0.43052614432317965,
+    "absolute_admission_rate_gain": 0.04951946571102785,
+    "fallback_decision_count": 3496,
+    "fallback_reasons": {
+      "opponent-item-known": 2055,
+      "last-opponent-move-not-fixed-damage-category": 1026,
+      "opponent-side-or-last-move-unresolved": 412,
+      "own-active-tera-type-unavailable": 3
+    }
+  },
+  "next_research_frontier": {
+    "reason": "last-opponent-move-not-fixed-damage-category",
+    "decision_count": 1026,
+    "largest_observed_status_moves": [
+      {"move": "Roost", "count": 82},
+      {"move": "Swords Dance", "count": 73},
+      {"move": "Calm Mind", "count": 62},
+      {"move": "Thunder Wave", "count": 58},
+      {"move": "Nasty Plot", "count": 52},
+      {"move": "Recover", "count": 48},
+      {"move": "Stealth Rock", "count": 45},
+      {"move": "Protect", "count": 41}
+    ],
+    "required_before_promotion": "Test a generator-conditioned hidden-world prior for status-move observations instead of inventing a Choice Band/Specs analogue."
+  }
+}
