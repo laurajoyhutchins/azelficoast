@@ -188,3 +188,32 @@ def test_absent_life_orb_recoil_removes_life_orb_before_pair_check(monkeypatch) 
         "Choice Scarf",
         "Choice Specs",
     }
+
+
+def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    active = dict(state["active"])
+    active["boosts"] = dict(active["boosts"])
+    active["boosts"]["spe"] = 1
+    state["active"] = active
+    boosted = DecisionFixture(
+        fixture_id="boosted",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [boosted],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    # 206 * 1.5 is faster than both Gardevoir worlds, so the fork disappears.
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["no-speed-order-fork"] == 1
