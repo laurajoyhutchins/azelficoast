@@ -456,3 +456,52 @@ def test_persistent_only_skips_nonpersistent_state_before_sampling(monkeypatch) 
     assert result["candidate_count"] == 0
     assert result["sampled_world_queries"] == 0
     assert result["skipped"]["no-persistent-information-branch"] == 1
+
+
+
+def test_unseen_fist_contact_move_is_not_protect_persistence(monkeypatch) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    opponent = dict(state["opponent_active"])
+    opponent.update(
+        {
+            "species": "urshifu",
+            "level": 74,
+            "ability": "unseenfist",
+        }
+    )
+    state["opponent_active"] = opponent
+
+    prefix = [list(message) for message in fixture.protocol_prefix[0]]
+    for message in prefix:
+        if len(message) >= 4 and message[1] == "switch" and message[2].startswith("p2"):
+            message[2] = "p2a: Urshifu"
+            message[3] = "Urshifu, L74"
+        if len(message) >= 4 and message[1] == "move" and message[2].startswith("p2"):
+            message[2] = "p2a: Urshifu"
+            message[3] = "Close Combat"
+    unseen_fist = DecisionFixture(
+        fixture_id="unseen-fist",
+        state=state,
+        protocol_prefix=(tuple(tuple(field for field in message) for message in prefix),),
+        control_decisions=fixture.control_decisions,
+    )
+
+    def should_not_sample(**_kwargs):
+        raise AssertionError("Unseen Fist Protect bypass should fail before sampling")
+
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        should_not_sample,
+    )
+
+    result = mine_candidates(
+        [unseen_fist],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["sampled_world_queries"] == 0
+    assert result["skipped"]["no-persistent-information-branch"] == 1

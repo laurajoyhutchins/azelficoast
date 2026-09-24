@@ -55,3 +55,13 @@ def test_credentials_come_from_environment(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("SHOWDOWN_USERNAME", "azelficoast")
     monkeypatch.setenv("SHOWDOWN_PASSWORD", "secret")
     assert _resolve_live_credentials(None) == ("azelficoast", "secret")
+
+
+
+def test_local_concurrency_parsing() -> None:
+    args = _build_parser().parse_args(
+        ["local", "--battles", "32", "--concurrency", "8"]
+    )
+    assert args.command == "local"
+    assert args.battles == 32
+    assert args.concurrency == 8

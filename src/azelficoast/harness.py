@@ -58,6 +58,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     local = subparsers.add_parser("local", help="battle a baseline on localhost:8000")
     local.add_argument("--battles", type=_positive_int, default=1)
+    local.add_argument(
+        "--concurrency",
+        type=_positive_int,
+        default=1,
+        help="maximum simultaneous local battles (default: 1)",
+    )
 
     challenge = subparsers.add_parser(
         "challenge",
@@ -196,19 +202,20 @@ def _print_summary(player: Player) -> None:
 
 async def _run_local(
     battles: int,
+    concurrency: int,
     results: Path,
     decisions: Path,
     replays: Path,
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
-        max_concurrent_battles=1,
+        max_concurrent_battles=concurrency,
         save_replays=str(replays),
         decision_log=decisions,
     )
     opponent = RandomPlayer(
         battle_format=BATTLE_FORMAT,
-        max_concurrent_battles=1,
+        max_concurrent_battles=concurrency,
     )
     await player.battle_against(opponent, n_battles=battles)
     _append_results(player, results, mode="local")
@@ -238,7 +245,13 @@ async def _run_live(args: argparse.Namespace) -> None:
 async def _async_main(args: argparse.Namespace) -> None:
     _prepare_output_paths(args.results, args.decisions, args.replays)
     if args.command == "local":
-        await _run_local(args.battles, args.results, args.decisions, args.replays)
+        await _run_local(
+            args.battles,
+            args.concurrency,
+            args.results,
+            args.decisions,
+            args.replays,
+        )
     else:
         await _run_live(args)
 
