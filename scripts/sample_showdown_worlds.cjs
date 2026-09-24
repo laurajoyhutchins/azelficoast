@@ -2,6 +2,7 @@
 "use strict";
 
 const path = require("node:path");
+const {execFileSync} = require("node:child_process");
 
 function fail(message) {
   process.stderr.write(message + "\n");
@@ -26,6 +27,12 @@ const observedMoves = new Set(
     .map(move => move.trim().toLowerCase().replace(/[^a-z0-9]/g, ""))
     .filter(Boolean)
 );
+
+const showdownCommit = execFileSync(
+  "git",
+  ["-C", showdownRoot, "rev-parse", "HEAD"],
+  {encoding: "utf8"}
+).trim();
 
 const {Teams} = require(path.join(showdownRoot, "dist", "sim", "teams"));
 const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
@@ -87,7 +94,14 @@ process.stdout.write(
       schema_version: 1,
       species,
       observed_moves: [...observedMoves].sort(),
+      showdown_commit: showdownCommit,
       seed_family: "[i,i,i,i]",
+      generator_context: {
+        format: "gen9randombattle",
+        teamDetails: {},
+        isLead: false,
+        isDoubles: false,
+      },
       rounds,
       matched,
       item_counts: sortedItemCounts,
