@@ -204,38 +204,54 @@ def _life_orb_recoil_observed(
     return False
 
 
-def _boost_is_neutral(view: Mapping[str, Any] | None) -> bool:
-    if not isinstance(view, Mapping):
-        return False
-    boosts = view.get("boosts")
-    return isinstance(boosts, Mapping) and all(int(value) == 0 for value in boosts.values())
+def _has_condition(
+    conditions: Mapping[str, Any] | None,
+    name: str,
+) -> bool:
+    return isinstance(conditions, Mapping) and any(
+        name in str(key).upper() for key in conditions
+    )
 
 
 def _plain_speed_context(fixture: DecisionFixture) -> bool:
     state = fixture.state
     fields = state.get("fields")
-    if isinstance(fields, Mapping) and any(
-        "TRICK_ROOM" in str(name).upper() for name in fields
-    ):
+    if _has_condition(fields if isinstance(fields, Mapping) else None, "TRICK_ROOM"):
         return False
-    for key in ("side_conditions", "opponent_side_conditions"):
-        conditions = state.get(key)
-        if isinstance(conditions, Mapping) and any(
-            "TAILWIND" in str(name).upper() for name in conditions
-        ):
-            return False
 
     active = state.get("active")
-    opponent = state.get("opponent_active")
-    if not isinstance(active, Mapping) or not isinstance(opponent, Mapping):
+    if not isinstance(active, Mapping):
         return False
-    if active.get("status") is not None or opponent.get("status") is not None:
-        return False
-    if not _boost_is_neutral(active) or not _boost_is_neutral(opponent):
-        return False
-    if _to_id(str(active.get("ability") or "")) in SPEED_ABILITIES:
-        return False
-    return True
+    return _to_id(str(active.get("ability") or "")) not in SPEED_ABILITIES
+
+
+def _apply_speed_stage(speed: int, view: Mapping[str, Any]) -> int:
+    boosts = view.get("boosts")
+    stage = 0
+    if isinstance(boosts, Mapping):
+        raw = boosts.get("spe", 0)
+        if isinstance(raw, (int, float)):
+            stage = int(raw)
+    stage = max(-6, min(6, stage))
+    if stage >= 0:
+        speed = speed * (2 + stage) // 2
+    else:
+        speed = speed * 2 // (2 - stage)
+    return max(1, speed)
+
+
+def _apply_public_speed_modifiers(
+    speed: int,
+    view: Mapping[str, Any],
+    side_conditions: Mapping[str, Any] | None,
+) -> int:
+    speed = _apply_speed_stage(speed, view)
+    status = _to_id(str(view.get("status") or ""))
+    if status in {"par", "paralysis"}:
+        speed = max(1, speed // 2)
+    if _has_condition(side_conditions, "TAILWIND"):
+        speed *= 2
+    return speed
 
 
 def _neutral_speed(species: str, level: int) -> int:
@@ -247,14 +263,17 @@ def _neutral_speed(species: str, level: int) -> int:
     return int((2 * base_speed + RANDBATS_IV + RANDBATS_EV // 4) * level / 100) + 5
 
 
-def _effective_own_speed(active: Mapping[str, Any]) -> int:
+def _effective_own_speed(
+    active: Mapping[str, Any],
+    side_conditions: Mapping[str, Any] | None,
+) -> int:
     stats = active.get("stats")
     if not isinstance(stats, Mapping) or not isinstance(stats.get("spe"), int):
         raise NaturalDisagreementError("active state lacks exact speed")
     speed = int(stats["spe"])
     if _to_id(str(active.get("item") or "")) == "choicescarf":
         speed = speed * 3 // 2
-    return speed
+    return _apply_public_speed_modifiers(speed, active, side_conditions)
 
 
 def _sample_worlds(
@@ -390,9 +409,22 @@ def mine_candidates(
             skip("last-move-not-fixed-damage-category")
             continue
 
-        own_speed = _effective_own_speed(active)
-        base_speed = _neutral_speed(opponent_species, opponent_level)
-        scarf_speed = base_speed * 3 // 2
+        own_conditions = fixture.state.get("side_conditions")
+        opponent_conditions = fixture.state.get("opponent_side_conditions")
+        own_speed = _effective_own_speed(
+            active,
+            own_conditions if isinstance(own_conditions, Mapping) else None,
+        )
+        base_speed = _apply_public_speed_modifiers(
+            _neutral_speed(opponent_species, opponent_level),
+            opponent_active,
+            opponent_conditions if isinstance(opponent_conditions, Mapping) else None,
+        )
+        scarf_speed = _apply_public_speed_modifiers(
+            _neutral_speed(opponent_species, opponent_level) * 3 // 2,
+            opponent_active,
+            opponent_conditions if isinstance(opponent_conditions, Mapping) else None,
+        )
         low, high = sorted((base_speed, scarf_speed))
         if not (low < own_speed < high):
             skip("no-speed-order-fork")
