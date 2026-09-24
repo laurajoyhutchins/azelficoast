@@ -1,0 +1,118 @@
+{
+  "schema": "azelficoast.protect-speed-forks",
+  "schema_version": 1,
+  "source_artifact": {
+    "id": 10812908643,
+    "digest": "sha256:77382c3ea7fa5c6b9356f40149b4d66b186e548ae5012966de5fb01b2b8824e9"
+  },
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "cases": [
+    {
+      "fixture_id": "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a",
+      "turn": 16,
+      "own": {
+        "species": "Gliscor",
+        "level": 76,
+        "ability": "Poison Heal",
+        "item": "Toxic Orb",
+        "current_hp": 210,
+        "max_hp": 239,
+        "moves": [
+          "Earthquake",
+          "Knock Off",
+          "Protect",
+          "Toxic Spikes"
+        ],
+        "boosts": {
+          "atk": 0,
+          "def": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0,
+          "accuracy": 0,
+          "evasion": 0
+        },
+        "expected_stats": {
+          "atk": 188,
+          "def": 234,
+          "spa": 112,
+          "spd": 158,
+          "spe": 188
+        }
+      },
+      "opponent": {
+        "species": "Urshifu",
+        "level": 74,
+        "ability": "Unseen Fist",
+        "public_hp_percent": 20,
+        "boosts": {
+          "atk": 0,
+          "def": -1,
+          "spa": 0,
+          "spd": -1,
+          "spe": 0,
+          "accuracy": 0,
+          "evasion": 0
+        },
+        "locked_move": "Close Combat",
+        "item_worlds": [
+          "Choice Band",
+          "Choice Scarf"
+        ]
+      }
+    },
+    {
+      "fixture_id": "90322c79fa3101b1dc66bcd7554888d37b1e1d9da112e09746e2082278525664",
+      "turn": 6,
+      "own": {
+        "species": "Dachsbun",
+        "level": 92,
+        "ability": "Well-Baked Body",
+        "item": "Leftovers",
+        "current_hp": 173,
+        "max_hp": 254,
+        "moves": [
+          "Play Rough",
+          "Wish",
+          "Yawn",
+          "Protect"
+        ],
+        "boosts": {
+          "atk": -1,
+          "def": 0,
+          "spa": -1,
+          "spd": 0,
+          "spe": 0,
+          "accuracy": 0,
+          "evasion": 0
+        },
+        "expected_stats": {
+          "atk": 200,
+          "def": 264,
+          "spa": 144,
+          "spd": 200,
+          "spe": 227
+        }
+      },
+      "opponent": {
+        "species": "Typhlosion",
+        "level": 84,
+        "public_hp_percent": 88,
+        "boosts": {
+          "atk": 0,
+          "def": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0,
+          "accuracy": 0,
+          "evasion": 0
+        },
+        "locked_move": "Focus Blast",
+        "item_worlds": [
+          "Choice Scarf",
+          "Choice Specs"
+        ]
+      }
+    }
+  ]
+}
