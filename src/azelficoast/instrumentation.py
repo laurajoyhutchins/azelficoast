@@ -38,9 +38,14 @@ def pokemon_view(pokemon: Pokemon | None) -> dict[str, Any] | None:
         return None
     return {
         "species": pokemon.species,
+        "level": pokemon.level,
         "active": pokemon.active,
         "fainted": pokemon.fainted,
+        "current_hp": pokemon.current_hp,
+        "max_hp": pokemon.max_hp,
         "hp_fraction": pokemon.current_hp_fraction,
+        "base_stats": dict(sorted(pokemon.base_stats.items())),
+        "stats": dict(sorted(pokemon.stats.items())),
         "status": _name(pokemon.status),
         "item": pokemon.item,
         "ability": pokemon.ability,
