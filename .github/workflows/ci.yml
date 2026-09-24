@@ -25,3 +25,5 @@ jobs:
         run: uv run ruff check .
       - name: Test
         run: uv run pytest
+      - name: Imperfect-information reference experiment
+        run: uv run python -m azelficoast.imperfect_information

@@ -94,6 +94,45 @@ uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
 
 Two deliberately simple policies currently exercise the common interface: `first-legal` and `recorded-mode`. Their agreement with the recorded heuristic action is an instrumentation sanity metric, not a claim about battle quality. A new algorithm can be loaded without changing the corpus code by passing `--policy package.module:policy_object`; the object must expose a string `name` and `choose(fixture)`. Determinized search and belief-state search should implement that same frozen-fixture interface so they can be compared on identical information histories.
 
+
+## Imperfect-information reference experiment
+
+The first search experiment deliberately uses a tiny two-stage hidden-world game rather than full Pokémon mechanics. It exists to test the architectural question cleanly.
+
+```text
+hidden world: red or blue
+
+guess
+  -> world remains hidden
+  -> one future action must serve both worlds
+
+scout
+  -> world is revealed
+  -> future action may depend on the observation
+```
+
+The determinization baseline solves each sampled world as if its hidden state will remain available at future decisions. The public-belief solver instead groups worlds by the public observation available at that future information set and requires one continuation per indistinguishable group.
+
+Run the reference experiment directly:
+
+```bash
+uv run python -m azelficoast.imperfect_information
+```
+
+The preregistered treatment requires determinization to overvalue the unrevealed `guess` branch while public-belief search chooses the costly but informative `scout` branch. A negative control then reveals the world for free; both solvers must agree there.
+
+Both policies also implement the corpus policy interface:
+
+```bash
+uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
+  --policy azelficoast.imperfect_information:determinization
+
+uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
+  --policy azelficoast.imperfect_information:public_belief
+```
+
+This is intentionally not yet a Pokémon-strength search engine. It establishes the strategy-fusion failure and the information-set-preserving correction on the exact interface that later Pokémon world models will use.
+
 ## Development
 
 ```bash
