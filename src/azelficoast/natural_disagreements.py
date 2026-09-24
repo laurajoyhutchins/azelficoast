@@ -490,6 +490,7 @@ def mine_candidates(
     *,
     showdown_root: Path,
     rounds: int = 2048,
+    persistent_only: bool = False,
 ) -> dict[str, Any]:
     cache: dict[tuple[str, tuple[str, ...], bool], dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
@@ -589,10 +590,15 @@ def mine_candidates(
             else []
         )
         persistent_protect_actions = _persistent_protect_actions(fixture)
+        has_persistent_branch = bool(
+            persistent_switches or persistent_protect_actions
+        )
+        if persistent_only and not has_persistent_branch:
+            skip("no-persistent-information-branch")
+            continue
         if (
             not current_speed_fork
-            and not persistent_switches
-            and not persistent_protect_actions
+            and not has_persistent_branch
         ):
             skip("no-speed-or-persistent-information-fork")
             continue
@@ -674,6 +680,7 @@ def mine_candidates(
         "schema": "azelficoast.natural-fusion-candidates",
         "schema_version": 1,
         "fixture_count": fixture_count,
+        "persistent_only": persistent_only,
         "sampled_world_queries": len(cache),
         "candidate_count": len(candidates),
         "persistent_candidate_count": sum(
@@ -691,11 +698,13 @@ def mine_corpus(
     *,
     showdown_root: str | Path,
     rounds: int = 2048,
+    persistent_only: bool = False,
 ) -> dict[str, Any]:
     return mine_candidates(
         load_corpus(corpus_path),
         showdown_root=Path(showdown_root),
         rounds=rounds,
+        persistent_only=persistent_only,
     )
 
 
@@ -704,6 +713,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--showdown-root", type=Path, required=True)
     parser.add_argument("--rounds", type=int, default=2048)
+    parser.add_argument(
+        "--persistent-only",
+        action="store_true",
+        help="mine only branches that preserve hidden worlds into the next decision",
+    )
     return parser
 
 
@@ -715,6 +729,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.corpus,
         showdown_root=args.showdown_root,
         rounds=args.rounds,
+        persistent_only=args.persistent_only,
     )
     print(json.dumps(result, sort_keys=True))
     return 0
