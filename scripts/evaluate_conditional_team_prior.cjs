@@ -227,6 +227,36 @@ function supportFor(known) {
   return candidateIds.filter(id => compatibleCandidate(id, summary));
 }
 
+function rejectionReasons(candidateId, known) {
+  const summary = contextSummary(known);
+  const reasons = [];
+  const feature = featureById.get(candidateId);
+  if (!feature) return ["missing-candidate-feature"];
+  if (summary.knownSet.has(candidateId)) reasons.push("exact-species-present");
+  if (summary.baseSpecies.has(feature.baseSpecies)) reasons.push("base-species-present");
+  for (const type of feature.types) {
+    if ((summary.typeCount.get(type) || 0) >= 2) reasons.push("type-cap:" + type);
+  }
+  for (const type of feature.weak) {
+    if ((summary.weaknessCount.get(type) || 0) >= 3) reasons.push("weakness-cap:" + type);
+  }
+  for (const type of feature.doubleWeak) {
+    if ((summary.doubleWeaknessCount.get(type) || 0) >= 1) {
+      reasons.push("double-weakness-cap:" + type);
+    }
+  }
+  if (feature.freezeDryWeak && summary.freezeDryWeaknesses >= 4) {
+    reasons.push("freeze-dry-cap");
+  }
+  if (feature.level === 100 && summary.level100Count >= 1) {
+    reasons.push("level-100-cap");
+  }
+  if (!generator.getPokemonCompatibility(feature.species, summary.compatibilitySets, false)) {
+    reasons.push("species-incompatibility");
+  }
+  return reasons;
+}
+
 const PRIOR_SMOOTHING = 1;
 const PAIR_SMOOTHING = 0.5;
 const lambdaGrid = [0, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2];
@@ -294,6 +324,7 @@ function blankMetrics() {
   return {
     examples: 0,
     supportMisses: 0,
+    supportMissExamples: [],
     nll: 0,
     reciprocalRank: 0,
     top1: 0,
@@ -326,6 +357,7 @@ function finalize(metrics) {
   return {
     examples: n,
     support_misses: metrics.supportMisses,
+    support_miss_examples: metrics.supportMissExamples,
     mean_nll: metrics.nll / n,
     mean_reciprocal_rank: metrics.reciprocalRank / n,
     top1_recall: metrics.top1 / n,
@@ -358,11 +390,23 @@ function evaluateRange(start, count, lambdas) {
     const support = supportFor(known);
 
     if (!support.includes(target)) {
+      const miss = {
+        global_index: globalIndex,
+        target,
+        known,
+        reasons: rejectionReasons(target, known),
+      };
       uniform.examples++;
       uniform.supportMisses++;
+      if (uniform.supportMissExamples.length < 20) {
+        uniform.supportMissExamples.push(miss);
+      }
       for (const metrics of byLambda.values()) {
         metrics.examples++;
         metrics.supportMisses++;
+        if (metrics.supportMissExamples.length < 20) {
+          metrics.supportMissExamples.push(miss);
+        }
       }
       continue;
     }
