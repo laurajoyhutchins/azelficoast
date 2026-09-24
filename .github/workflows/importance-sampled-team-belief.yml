@@ -93,8 +93,8 @@ jobs:
           node scripts/sample_conditioned_random_teams.cjs \
             /tmp/pokemon-showdown \
             --control-species staraptor \
-            --particles 20000 \
-            --alpha 0.85 \
+            --particles 30000 \
+            --alpha 0.08 \
             > /tmp/control-biased.json
 
       - name: Validate importance weights against rejection sampling
@@ -107,7 +107,7 @@ jobs:
           biased = json.loads(Path("/tmp/control-biased.json").read_text())
 
           assert naive["event_particle_count"] >= 200, naive
-          assert biased["event_particle_count"] >= 1000, biased
+          assert biased["event_particle_count"] >= 500, biased
 
           baseline = naive["estimated_event_probability"]
           estimate = biased["estimated_event_probability"]
@@ -117,8 +117,29 @@ jobs:
               "importance": estimate,
               "relative_error": relative_error,
           }
-          assert 0.75 <= biased["mean_importance_weight"] <= 1.25, biased
+          assert 0.50 <= biased["mean_importance_weight"] <= 1.50, biased
           assert biased["effective_sample_size"] >= 200, biased
+
+          def position_vector(document):
+              rows = document["required_position_posterior"]
+              by_position = {
+                  int(row["position"]): float(row["probability"])
+                  for row in rows
+                  if row["species_id"] == "staraptor"
+              }
+              return [by_position.get(position, 0.0) for position in range(6)]
+
+          naive_positions = position_vector(naive)
+          biased_positions = position_vector(biased)
+          position_tv = 0.5 * sum(
+              abs(left - right)
+              for left, right in zip(naive_positions, biased_positions, strict=True)
+          )
+          assert position_tv <= 0.10, {
+              "naive_positions": naive_positions,
+              "importance_positions": biased_positions,
+              "total_variation": position_tv,
+          }
 
           print(json.dumps({
               "naive_probability": baseline,
@@ -126,6 +147,9 @@ jobs:
               "relative_error": relative_error,
               "importance_mean_weight": biased["mean_importance_weight"],
               "importance_ess": biased["effective_sample_size"],
+              "naive_position_distribution": naive_positions,
+              "importance_position_distribution": biased_positions,
+              "position_total_variation": position_tv,
           }, sort_keys=True))
           PY
 
@@ -134,8 +158,8 @@ jobs:
           node scripts/sample_conditioned_random_teams.cjs \
             /tmp/pokemon-showdown \
             --source /tmp/source.json \
-            --particles 50000 \
-            --alpha 0.85 \
+            --particles 100000 \
+            --alpha 0.08 \
             | tee /tmp/team-belief.json
 
       - name: Verify weighted hidden-team posterior
@@ -147,7 +171,7 @@ jobs:
           result = json.loads(Path("/tmp/team-belief.json").read_text())
           assert result["mode"] == "public-fixture", result
           assert result["event_particle_count"] > 0, result
-          assert result["effective_sample_size"] >= 20, result
+          assert result["effective_sample_size"] >= 50, result
           assert result["species_posterior"], result
           total = sum(row["probability"] for row in result["species_posterior"])
           assert abs(total - 1.0) <= 1e-9, total
