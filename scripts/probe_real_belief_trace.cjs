@@ -75,6 +75,37 @@ function toID(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function protocolSides() {
+  const ownName = toID(fixture.state.player);
+  const opponentName = toID(fixture.state.opponent);
+  let own = null;
+  let opponent = null;
+
+  for (const batch of fixture.protocol_prefix || []) {
+    for (const message of batch) {
+      if (
+        message[0] !== "" ||
+        message[1] !== "player" ||
+        !["p1", "p2"].includes(message[2])
+      ) {
+        continue;
+      }
+      const name = toID(message[3]);
+      if (name === ownName) own = message[2];
+      if (name === opponentName) opponent = message[2];
+    }
+  }
+
+  if (!own && opponent) own = opponent === "p1" ? "p2" : "p1";
+  if (!opponent && own) opponent = own === "p1" ? "p2" : "p1";
+  if (!own || !opponent || own === opponent) {
+    fail("could not resolve player/opponent protocol sides");
+  }
+  return {own, opponent};
+}
+
+const PROTOCOL_SIDES = protocolSides();
+
 function seed(index, salt) {
   const base = index + 1 + salt * 257;
   return [
@@ -95,10 +126,10 @@ function observedOpponentMoves() {
   for (const batch of fixture.protocol_prefix) {
     for (const message of batch) {
       if (message[0] !== "" || message.length < 2) continue;
-      if (["switch", "drag"].includes(message[1]) && String(message[2] || "").startsWith("p2")) {
+      if (["switch", "drag"].includes(message[1]) && String(message[2] || "").startsWith(PROTOCOL_SIDES.opponent)) {
         active = toID(String(message[3] || "").split(",", 1)[0]);
       }
-      if (message[1] === "move" && String(message[2] || "").startsWith("p2") && active === species) {
+      if (message[1] === "move" && String(message[2] || "").startsWith(PROTOCOL_SIDES.opponent) && active === species) {
         moves.add(toID(message[3]));
       }
     }
@@ -111,7 +142,7 @@ function lastOpponentMove() {
   let last = null;
   for (const batch of fixture.protocol_prefix) {
     for (const message of batch) {
-      if (message[0] === "" && message[1] === "move" && String(message[2] || "").startsWith("p2")) {
+      if (message[0] === "" && message[1] === "move" && String(message[2] || "").startsWith(PROTOCOL_SIDES.opponent)) {
         last = String(message[3]);
       }
     }
@@ -191,7 +222,7 @@ function opponentTeamSize() {
       if (
         message[0] === "" &&
         message[1] === "teamsize" &&
-        message[2] === "p2" &&
+        message[2] === PROTOCOL_SIDES.opponent &&
         Number.isInteger(Number(message[3]))
       ) {
         size = Number(message[3]);
@@ -212,7 +243,7 @@ function opponentBenchSpecies() {
       if (message[0] !== "" || message.length < 2) continue;
       if (
         ["switch", "drag"].includes(message[1]) &&
-        String(message[2] || "").startsWith("p2")
+        String(message[2] || "").startsWith(PROTOCOL_SIDES.opponent)
       ) {
         active = String(message[3] || "").split(",", 1)[0];
         if (active && !seen.some(species => toID(species) === toID(active))) {
@@ -221,7 +252,7 @@ function opponentBenchSpecies() {
       }
       if (
         message[1] === "faint" &&
-        String(message[2] || "").startsWith("p2") &&
+        String(message[2] || "").startsWith(PROTOCOL_SIDES.opponent) &&
         active
       ) {
         fainted.add(toID(active));
