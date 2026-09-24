@@ -85,7 +85,9 @@ def correctness_check() -> dict[str, object]:
     }
 
 
-def _benchmark_states(world_count: int) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
+def _benchmark_states(
+    world_count: int,
+) -> tuple[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array]:
     if world_count < 2 or world_count % 2:
         raise ValueError("world_count must be an even integer >= 2")
 
