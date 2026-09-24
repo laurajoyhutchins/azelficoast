@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from azelficoast.instrumentation import DecisionTraceWriter, battle_view
+from azelficoast.instrumentation import (
+    TRACE_SCHEMA,
+    TRACE_SCHEMA_VERSION,
+    DecisionTraceWriter,
+    battle_view,
+)
 
 
 def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
@@ -74,6 +79,9 @@ def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) ->
 
     records = [json.loads(line) for line in trace.read_text().splitlines()]
     assert [record["kind"] for record in records] == ["protocol", "decision", "terminal"]
+    assert [record["event_index"] for record in records] == [0, 1, 2]
+    assert all(record["schema"] == TRACE_SCHEMA for record in records)
+    assert all(record["schema_version"] == TRACE_SCHEMA_VERSION for record in records)
     assert records[0]["protocol_index"] == 0
     assert records[1]["decision_index"] == 0
     assert records[1]["chosen_action"] == "/choose move recover"
