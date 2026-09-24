@@ -13,6 +13,7 @@ from typing import Sequence
 from poke_env import AccountConfiguration, ShowdownServerConfiguration
 from poke_env.player import Player, RandomPlayer
 
+from azelficoast.belief_coverage import summarize_traces
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.player import AzelficoastPlayer
 
@@ -147,6 +148,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="optional JSONL file for per-fixture evaluation results",
     )
+
+    coverage = subparsers.add_parser(
+        "belief-coverage",
+        help="summarize live public-belief routing and static admission coverage",
+    )
+    coverage.add_argument("traces", nargs="+", type=Path)
 
     return parser
 
@@ -307,12 +314,18 @@ def _run_corpus(args: argparse.Namespace) -> None:
     print(json.dumps(summary, sort_keys=True))
 
 
+def _run_belief_coverage(args: argparse.Namespace) -> None:
+    print(json.dumps(summarize_traces(args.traces), sort_keys=True))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
         if args.command == "corpus":
             _run_corpus(args)
+        elif args.command == "belief-coverage":
+            _run_belief_coverage(args)
         else:
             asyncio.run(_async_main(args))
     except ValueError as error:

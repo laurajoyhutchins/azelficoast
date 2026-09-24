@@ -84,7 +84,7 @@ def _to_id(value: Any) -> str:
     return "".join(character for character in str(value or "").lower() if character.isalnum())
 
 
-def _opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
+def opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
     """Return the latest publicly observed opponent move for either Showdown side."""
 
     opponent = _to_id(fixture.state.get("opponent"))
@@ -127,6 +127,75 @@ def _choice_items_for_move(move_name: str) -> tuple[str, str] | None:
     return None
 
 
+def _own_active_tera_type(fixture: DecisionFixture) -> str | None:
+    active = fixture.state.get("active")
+    if not isinstance(active, Mapping):
+        return None
+
+    current = active.get("tera_type")
+    if isinstance(current, str) and current:
+        return current
+
+    species = _to_id(active.get("species"))
+    if not species:
+        return None
+
+    recovered: str | None = None
+    for batch in fixture.protocol_prefix:
+        for message in batch:
+            if len(message) < 3 or message[0] != "" or message[1] != "request":
+                continue
+            try:
+                request = json.loads(message[2])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(request, Mapping):
+                continue
+
+            request_active = request.get("active")
+            side = request.get("side")
+            if (
+                not isinstance(request_active, Sequence)
+                or isinstance(request_active, (str, bytes))
+                or not request_active
+                or not isinstance(request_active[0], Mapping)
+                or not isinstance(side, Mapping)
+            ):
+                continue
+
+            tera = request_active[0].get("canTerastallize")
+            if not isinstance(tera, str) or not tera:
+                continue
+
+            pokemon = side.get("pokemon")
+            if (
+                not isinstance(pokemon, Sequence)
+                or isinstance(pokemon, (str, bytes))
+            ):
+                continue
+            active_view = next(
+                (
+                    view
+                    for view in pokemon
+                    if isinstance(view, Mapping) and view.get("active") is True
+                ),
+                None,
+            )
+            if active_view is None:
+                continue
+
+            details = active_view.get("details")
+            request_species = (
+                _to_id(str(details).split(",", 1)[0])
+                if isinstance(details, str)
+                else ""
+            )
+            if request_species == species:
+                recovered = tera
+
+    return recovered
+
+
 def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None, str]:
     """Admit only the hidden-Choice slice supported by current live evidence."""
 
@@ -141,15 +210,15 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
     if not fixture.legal_actions:
         return None, "no-legal-actions"
 
-    last_move = _opponent_move_from_protocol(fixture)
+    last_move = opponent_move_from_protocol(fixture)
     if last_move is None:
         return None, "opponent-side-or-last-move-unresolved"
     plausible_items = _choice_items_for_move(last_move)
     if plausible_items is None:
         return None, "last-opponent-move-not-fixed-damage-category"
 
-    tera_type = active.get("tera_type")
-    if not isinstance(tera_type, str) or not tera_type:
+    tera_type = _own_active_tera_type(fixture)
+    if tera_type is None:
         return None, "own-active-tera-type-unavailable"
 
     team = fixture.state.get("team")

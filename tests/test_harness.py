@@ -78,3 +78,11 @@ def test_live_belief_configuration_parsing() -> None:
     )
     assert str(args.showdown_root) == "/tmp/pokemon-showdown"
     assert args.belief_timeout == 3.5
+
+
+def test_belief_coverage_parsing() -> None:
+    args = _build_parser().parse_args(
+        ["belief-coverage", "one.jsonl", "two.jsonl"]
+    )
+    assert args.command == "belief-coverage"
+    assert [str(path) for path in args.traces] == ["one.jsonl", "two.jsonl"]

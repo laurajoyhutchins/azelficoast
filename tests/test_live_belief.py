@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 from azelficoast.corpus import DecisionFixture
@@ -12,14 +13,14 @@ from azelficoast.live_belief import (
 from azelficoast.player import AzelficoastPlayer
 
 
-def _state(*, opponent_item=None) -> dict[str, object]:
+def _state(*, opponent_item=None, tera_type="Steel") -> dict[str, object]:
     return {
         "battle_tag": "battle-live",
         "player": "Azelficoast",
         "opponent": "Rival",
         "active": {
             "species": "Tinkaton",
-            "tera_type": "Steel",
+            "tera_type": tera_type,
         },
         "opponent_active": {
             "species": "Zapdos-Galar",
@@ -74,6 +75,69 @@ def test_probe_source_rejects_known_opponent_item() -> None:
 
     assert source is None
     assert reason == "opponent-item-known"
+
+
+def test_probe_source_recovers_current_species_tera_from_prior_public_request() -> None:
+    request = json.dumps(
+        {
+            "active": [{"canTerastallize": "Steel"}],
+            "side": {
+                "pokemon": [
+                    {
+                        "details": "Tinkaton, L82",
+                        "active": True,
+                    }
+                ]
+            },
+        },
+        sort_keys=True,
+    )
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+            ("", "request", request),
+            ("", "move", "p2a: Zapdos-Galar", "U-turn"),
+        ),
+    )
+    fixture = live_fixture(_state(tera_type=None), protocol)
+
+    source, reason = build_probe_source(fixture)
+
+    assert reason == "admitted"
+    assert source is not None
+    assert source["own_active_tera_type"] == "Steel"
+
+
+def test_probe_source_does_not_reuse_another_species_tera_type() -> None:
+    request = json.dumps(
+        {
+            "active": [{"canTerastallize": "Water"}],
+            "side": {
+                "pokemon": [
+                    {
+                        "details": "Lapras, L82",
+                        "active": True,
+                    }
+                ]
+            },
+        },
+        sort_keys=True,
+    )
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+            ("", "request", request),
+            ("", "move", "p2a: Zapdos-Galar", "U-turn"),
+        ),
+    )
+    fixture = live_fixture(_state(tera_type=None), protocol)
+
+    source, reason = build_probe_source(fixture)
+
+    assert source is None
+    assert reason == "own-active-tera-type-unavailable"
 
 
 def _strategy_fusion_oracle() -> dict[str, object]:
