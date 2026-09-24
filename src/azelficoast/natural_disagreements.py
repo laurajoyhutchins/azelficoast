@@ -102,7 +102,11 @@ def _opponent_side(
             side = _slot_side(event.fields[0])
             if side is not None:
                 active[side] = _species_from_details(event.fields[1])
-    matches = [side for side, active_species in active.items() if active_species == species]
+    matches = [
+        side
+        for side, active_species in active.items()
+        if _to_id(active_species) == _to_id(species)
+    ]
     return matches[0] if len(matches) == 1 else None
 
 
@@ -209,10 +213,17 @@ def _boost_is_neutral(view: Mapping[str, Any] | None) -> bool:
 
 def _plain_speed_context(fixture: DecisionFixture) -> bool:
     state = fixture.state
-    if state.get("weather") or state.get("fields"):
+    fields = state.get("fields")
+    if isinstance(fields, Mapping) and any(
+        "TRICK_ROOM" in str(name).upper() for name in fields
+    ):
         return False
-    if state.get("side_conditions") or state.get("opponent_side_conditions"):
-        return False
+    for key in ("side_conditions", "opponent_side_conditions"):
+        conditions = state.get(key)
+        if isinstance(conditions, Mapping) and any(
+            "TAILWIND" in str(name).upper() for name in conditions
+        ):
+            return False
 
     active = state.get("active")
     opponent = state.get("opponent_active")
@@ -358,7 +369,7 @@ def mine_candidates(
             skip("opponent-side-unresolved")
             continue
         history = _active_history(events, side)
-        if history["active_species"] != opponent_species:
+        if _to_id(str(history["active_species"])) != _to_id(opponent_species):
             skip("active-history-mismatch")
             continue
 
