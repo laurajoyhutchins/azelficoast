@@ -1,0 +1,134 @@
+{
+  "schema": "azelficoast.natural-public-belief-exact-results",
+  "schema_version": 1,
+  "source_artifact": {
+    "workflow_run_id": 36043848704,
+    "artifact_id": 10828246332,
+    "digest": "sha256:8ebe92746f76af4a6bab60c64e40ead2a31afb7f09beb988a77d2108b9e14f94",
+    "head_sha": "4a3d9fcad84de99ba13805e30b5643fd80602539"
+  },
+  "exact_workflow": {
+    "workflow_run_id": 36055203000,
+    "head_sha": "3f00727ba3f42159222c6ec71782cec0b8b6d03b",
+    "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+    "evaluator_schema_version": 3
+  },
+  "cases": [
+    {
+      "selection_rank": 1,
+      "case": "jirachi-flamigo",
+      "fixture_id": "66b147a68b0760a757aa9208bbc60fe0141cb4d466d960ecc424f20eb6f984a2",
+      "artifact": {
+        "id": 10831509823,
+        "digest": "sha256:a55d9e525a3719222f2e276233ff9c26e1c06c240d7633cbf9d1eb289b607194"
+      },
+      "world_count": 4,
+      "legal_action_count": 12,
+      "continuation_conflict_present": true,
+      "strategy_fusion_observation_count": 2,
+      "conflicted_root_actions": [
+        "/choose move protect",
+        "/choose move protect terastallize"
+      ],
+      "root_policy_flip_present": false,
+      "determinization": {
+        "chosen_action": "/choose move wish terastallize",
+        "value": 5
+      },
+      "public_belief": {
+        "chosen_action": "/choose move wish terastallize",
+        "value": 5
+      }
+    },
+    {
+      "selection_rank": 2,
+      "case": "tinkaton-zapdosgalar-lowhp",
+      "fixture_id": "254abe0451d56e0ee8e58672fee5d4724756a018791f2fec808681f5d85147ce",
+      "artifact": {
+        "id": 10831748483,
+        "digest": "sha256:085bd274386f8103d4c6d1c70ec409355a2b220fa7660338e8a51ceb53cdefb2"
+      },
+      "world_count": 18,
+      "legal_action_count": 13,
+      "continuation_conflict_present": true,
+      "strategy_fusion_observation_count": 2,
+      "conflicted_root_actions": [
+        "/choose move protect",
+        "/choose move protect terastallize"
+      ],
+      "root_policy_flip_present": false,
+      "determinization": {
+        "chosen_action": "/choose move protect",
+        "value": 5.6741726810506705
+      },
+      "public_belief": {
+        "chosen_action": "/choose move protect",
+        "value": 5.66356581641567
+      }
+    },
+    {
+      "selection_rank": 3,
+      "case": "tinkaton-zapdosgalar-mid",
+      "fixture_id": "e3486d3564d1f2fe2310e86ce2acf2bfbc5ee4840b75308d7421893fafed5812",
+      "artifact": {
+        "id": 10832550259,
+        "digest": "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443"
+      },
+      "world_count": 18,
+      "legal_action_count": 13,
+      "continuation_conflict_present": true,
+      "strategy_fusion_observation_count": 2,
+      "conflicted_root_actions": [
+        "/choose move protect",
+        "/choose move protect terastallize"
+      ],
+      "root_policy_flip_present": true,
+      "determinization": {
+        "chosen_action": "/choose move protect",
+        "value": 5.466274653691246
+      },
+      "public_belief": {
+        "chosen_action": "/choose move gigatonhammer",
+        "value": 5.455898373070051
+      },
+      "causal_trace": {
+        "root_action": "/choose move protect",
+        "immediate_empirically_required_hidden_reads": [],
+        "observable_classes_out": 1,
+        "world_count": 18,
+        "public_observation_hash": "dcfd7021fc88d4c039b91ee64f8a8ace1cac143cbdd46886419301950972885a",
+        "hidden_item_mass": {
+          "Choice Band": 0.4945598417408506,
+          "Choice Scarf": 0.5054401582591493
+        },
+        "world_aware_continuation_by_item": {
+          "Choice Band": "move gigatonhammer",
+          "Choice Scarf": "move protect"
+        },
+        "public_shared_continuation": "move playrough",
+        "public_shared_continuation_value": 5.455667789056246,
+        "world_aware_pattern_invariant_across_hidden_tera_and_exact_hp": true,
+        "determinization_protect_value": 5.466274653691246,
+        "public_belief_protect_value": 5.455667789056246,
+        "strategy_fusion_value_advantage": 0.010606864635000157,
+        "determinization_gigatonhammer_value": 5.45589837307005,
+        "public_belief_gigatonhammer_value": 5.455898373070051,
+        "public_gigatonhammer_margin_over_protect": 0.00023058401380460225
+      }
+    }
+  ],
+  "interpretation": {
+    "bounded_treatment_count": 3,
+    "continuation_conflict_cases": 3,
+    "root_policy_flip_cases": 1,
+    "strongest_result": "The third preregistered natural treatment reproduces strategy fusion strongly enough to flip the bounded root decision from Protect under determinization to Gigaton Hammer under public-belief search.",
+    "next_required_falsifier": "Re-evaluate the positive fixture with substantially more chance samples and multiple deterministic seed families because the final public root-action margin is narrow."
+  },
+  "non_claims": [
+    "This is not a claim of competitive-optimal Pokémon play.",
+    "The opponent root response is bounded to the observed locked move.",
+    "The continuation horizon is one further decision under material utility.",
+    "Hidden-world support is empirical Showdown generator support rather than a full analytical posterior.",
+    "The root-policy flip is not yet established as robust to higher chance-sampling resolution."
+  ]
+}
