@@ -1,0 +1,24 @@
+{
+  "schema": "azelficoast.real-belief-negative-corpus",
+  "schema_version": 1,
+  "cases": [
+    {
+      "fixture": "experiments/real-belief-source-gliscor-urshifu.json",
+      "source_fixture_id": "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a",
+      "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+      "expected": {
+        "world_count": 33,
+        "legal_action_count": 12,
+        "policy_disagreement": false,
+        "determinization_action": "/choose move earthquake",
+        "public_belief_action": "/choose move earthquake",
+        "strategy_fusion_observation_count": 0
+      },
+      "evidence": {
+        "workflow_run_id": 36026994126,
+        "artifact_id": 10820720501,
+        "artifact_digest": "sha256:dc364ceeb61ea8cf3fe3d6a9ee97464e62f3e2560e618f9ed168c080a7cc54ac"
+      }
+    }
+  ]
+}
