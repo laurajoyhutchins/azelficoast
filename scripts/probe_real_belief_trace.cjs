@@ -184,6 +184,23 @@ function ownActiveTeraType() {
   return inferred;
 }
 
+function opponentTeamSize() {
+  let size = null;
+  for (const batch of fixture.protocol_prefix || []) {
+    for (const message of batch) {
+      if (
+        message[0] === "" &&
+        message[1] === "teamsize" &&
+        message[2] === "p2" &&
+        Number.isInteger(Number(message[3]))
+      ) {
+        size = Number(message[3]);
+      }
+    }
+  }
+  return size;
+}
+
 function opponentBenchSpecies() {
   if (source.opponent_bench_species) return String(source.opponent_bench_species);
 
@@ -216,12 +233,32 @@ function opponentBenchSpecies() {
   const candidate = [...seen].reverse().find(
     species => toID(species) !== current && !fainted.has(toID(species))
   );
-  if (!candidate) {
-    fail(
-      "source fixture must expose one surviving public opponent bench species or override"
-    );
+  if (candidate) return candidate;
+
+  const publicTeam = Object.values(fixture.state.opponent_team || {});
+  const knownSpecies = new Set(
+    publicTeam
+      .map(view => toID(view && view.species))
+      .filter(Boolean)
+  );
+  const teamSize = opponentTeamSize();
+
+  if (
+    teamSize !== null &&
+    knownSpecies.size >= teamSize &&
+    publicTeam.every(
+      view =>
+        toID(view && view.species) === current ||
+        Boolean(view && view.fainted)
+    )
+  ) {
+    return null;
   }
-  return candidate;
+
+  fail(
+    "source fixture must expose one surviving public opponent bench species, " +
+    "prove the public bench is exhausted, or provide an override"
+  );
 }
 
 const OWN_ACTIVE_TERA_TYPE = ownActiveTeraType();
@@ -272,7 +309,7 @@ const ownOrdered = [
 ];
 if (!ownOrdered[0]) fail("could not place current player active first");
 const ownTeam = ownOrdered.map((view, index) => ownSet(view, {active: index === 0}));
-const benchSet = opponentBenchSet();
+const benchSet = OPPONENT_BENCH_SPECIES ? opponentBenchSet() : null;
 
 function applyRecordedOwnStats(battle) {
   for (const view of ownOrdered) {
@@ -339,7 +376,7 @@ function applyFixtureState(battle, world) {
 function buildBattle(world) {
   const battle = common.createBattle(
     {preview: false, seed: [1, 2, 3, 4]},
-    [ownTeam, [opponentSet(world), benchSet]]
+    [ownTeam, benchSet ? [opponentSet(world), benchSet] : [opponentSet(world)]]
   );
   applyRecordedOwnStats(battle);
   applyFixtureState(battle, world);
