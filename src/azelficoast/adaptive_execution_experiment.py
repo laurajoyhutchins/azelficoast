@@ -555,21 +555,23 @@ def _fit_cost_profile(
         key=lambda candidate: float(candidate["mae"]),
     )
     best_mae = float(best_candidate["mae"])
-    best_errors = [float(value) for value in best_candidate["errors"]]
-    best_standard_error = (
-        statistics.stdev(best_errors) / (len(best_errors) ** 0.5)
-        if len(best_errors) > 1
-        else 0.0
+
+    # The dispatcher consumes the sign of the cost difference. Once cross-validated
+    # path accuracy ties, extra curve complexity must not be justified merely by
+    # fitting large, decision-irrelevant latency magnitudes far from the crossover.
+    minimum_complexity = min(
+        candidate["shape"].complexity
+        for candidate in accuracy_eligible
     )
-    eligible = [
+    simplest = [
         candidate
         for candidate in accuracy_eligible
-        if float(candidate["mae"]) <= best_mae + best_standard_error
+        if candidate["shape"].complexity == minimum_complexity
     ]
     selected = min(
-        eligible,
+        simplest,
         key=lambda candidate: (
-            candidate["shape"].complexity,
+            float(candidate["mae"]),
             candidate["shape"].direct_quadratic_term,
             candidate["shape"].projected_canonical_term,
         ),
@@ -628,7 +630,8 @@ def _fit_cost_profile(
         },
         "best_choice_accuracy": best_accuracy,
         "best_delta_mae_among_best_accuracy_ms": best_mae,
-        "one_standard_error_ms": best_standard_error,
+        "minimum_complexity_at_best_accuracy": minimum_complexity,
+        "selection_policy": "choice-accuracy_then_complexity_then-delta-mae",
         "selected_delta_mae_ms": selected["mae"],
         "selected_choice_accuracy": selected["choice_accuracy"],
         "uncertainty_guard_ms": uncertainty_guard,

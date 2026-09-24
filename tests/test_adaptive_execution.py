@@ -8,6 +8,7 @@ from azelficoast.adaptive_execution import (
     ExecutionPath,
     choose_execution_path,
 )
+from azelficoast.adaptive_execution_experiment import _fit_cost_profile
 
 
 def _profile(*, guard: float = 0.2) -> ExecutionCostProfile:
@@ -165,3 +166,50 @@ def test_cost_profiles_reject_negative_coefficients() -> None:
             calibrated_max_canonical_classes=10,
             calibrated_max_projected_classes=5,
         )
+
+
+
+def test_model_selection_prefers_simpler_shape_when_choice_accuracy_ties() -> None:
+    # Frozen whole-attack calibration witness: quadratic shapes fit large-world
+    # latency much more closely, but all shapes make the same number of
+    # leave-one-out path decisions. Dispatch should therefore keep the simpler
+    # linear boundary instead of spending complexity on irrelevant magnitude.
+    observed = (
+        (6144, 0.538380, 0.594276, 0.034118, 0.038052),
+        (8192, 0.728377, 0.588846, 0.015900, 0.011110),
+        (12288, 0.931238, 0.598484, 0.116800, 0.009537),
+        (16384, 1.184323, 0.594385, 0.035737, 0.023874),
+        (24576, 1.445684, 0.619863, 0.058089, 0.048751),
+        (32768, 2.012328, 0.582323, 0.109917, 0.004950),
+        (65536, 4.213745, 0.637075, 0.252663, 0.065984),
+        (131072, 7.418286, 0.631304, 0.206898, 0.049693),
+        (262144, 16.624287, 0.693781, 0.951895, 0.062286),
+        (524288, 38.994405, 0.681559, 0.975217, 0.056927),
+    )
+    rows = [
+        {
+            "logical_world_count": worlds,
+            "active_canonical_classes": 4800,
+            "active_projected_classes": 49,
+            "direct_median_ms": direct,
+            "direct_mad_ms": direct_mad,
+            "projected_median_ms": projected,
+            "projected_mad_ms": projected_mad,
+            "projected_minus_direct_median_ms": projected - direct,
+            "projected_minus_direct_mad_ms": direct_mad + projected_mad,
+        }
+        for worlds, direct, projected, direct_mad, projected_mad in observed
+    ]
+
+    profile, selection = _fit_cost_profile(
+        rows,
+        backend="cpu",
+        target_signature="sha256:target",
+        effect_signature="sha256:attack",
+    )
+
+    assert selection["selected_shape"] == "direct-linear__projected-execution"
+    assert selection["selection_policy"] == (
+        "choice-accuracy_then_complexity_then-delta-mae"
+    )
+    assert profile.direct_per_world_squared_ms == 0.0

@@ -369,9 +369,10 @@ largest logical population or class counts used during calibration.
 Calibration alternates direct and projected measurements to reduce runner drift and weights fits
 by observed timing noise. Leave-one-out model selection compares four structural shapes: linear
 versus bounded-quadratic direct work, each with or without an independent canonical-class term.
-Selection first maximizes crossover-choice accuracy, then minimizes prediction error. Among models
-with the best crossover accuracy, it applies the one-standard-error rule and chooses the simplest
-model whose error is statistically indistinguishable from the best observed fit.
+Selection first maximizes leave-one-out crossover-choice accuracy. If several models tie on the
+decision the dispatcher actually makes, the simplest shape wins; latency MAE only breaks ties
+between equally simple shapes. This prevents a saturation term from earning complexity merely by
+fitting large, decision-irrelevant latency magnitudes far from the crossover.
 
 An uncertainty guard derived from leave-one-out error is reported with each decision, but it is
 diagnostic only. Both execution paths are semantically exact, so uncertainty about performance
