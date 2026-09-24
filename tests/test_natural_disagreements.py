@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from azelficoast.corpus import DecisionFixture
-from azelficoast.natural_disagreements import mine_candidates
+from azelficoast.natural_disagreements import UnsupportedWorldSample, mine_candidates
 
 
 def _fixture() -> DecisionFixture:
@@ -245,3 +245,22 @@ def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> Non
     assert result["skipped"]["no-speed-order-fork"] == 1
 
 
+
+
+def test_unsupported_generator_world_is_counted_not_fatal(monkeypatch) -> None:
+    def unsupported(**_kwargs):
+        raise UnsupportedWorldSample("transformed Ditto moves are not generator moves")
+
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        unsupported,
+    )
+
+    result = mine_candidates(
+        [_fixture()],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["world-sample-unsupported"] == 1
