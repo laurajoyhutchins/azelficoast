@@ -133,6 +133,34 @@ uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
 
 This is intentionally not yet a Pokémon-strength search engine. It establishes the strategy-fusion failure and the information-set-preserving correction on the exact interface that later Pokémon world models will use.
 
+
+## Pokémon-shaped hidden-item counterexample
+
+The abstract red/blue experiment now has a Gen 9 Random Battle analogue grounded in current Pokémon Showdown set-generation data.
+
+The position uses:
+
+- level-80 Jirachi with `Protect` and `Iron Head`;
+- level-83 Gardevoir on an all-special Fast Attacker set whose item path can produce either Choice Scarf or Choice Specs;
+- level-94 Furret with `Frisk`;
+- a revealed `Moonblast` from Gardevoir.
+
+Under Showdown's randbats stat defaults, unboosted Gardevoir is 180 Speed, Jirachi is 206, and Choice Scarf Gardevoir is 270. The experiment pins Gardevoir to 83 HP and Jirachi to 29 HP, so Jirachi's Iron Head removes Gardevoir if Jirachi acts first, while even the minimum Moonblast roll removes Jirachi if Scarf Gardevoir acts first.
+
+`Protect` blocks Moonblast but does not reveal whether the item is Scarf or Specs. Determinization therefore overvalues the protected position by selecting different next moves in the two hidden worlds. The public-belief solver cannot do that. Its information-gathering alternative is the real switch to Frisk Furret.
+
+Furret's bounded two-turn line is evaluated by enumerating the actual 16 damage rolls for Moonblast and Knock Off. No information bonus is inserted by hand.
+
+Run it directly:
+
+```bash
+uv run python -m azelficoast.pokemon_counterexample
+```
+
+The treatment passes only if determinization chooses `Protect`, public-belief search chooses `Furret`, all mechanical speed/damage falsifiers hold, and both solvers agree again in the known-item controls.
+
+This remains a bounded tactical model, not a claim that the current search machinery is a competitive Pokémon engine. The next rung is to construct these hidden worlds automatically from a real decision trace and the Showdown random-set generator rather than embedding one curated position.
+
 ## Development
 
 ```bash
