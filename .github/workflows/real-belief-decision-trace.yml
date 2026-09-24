@@ -4,10 +4,13 @@ on:
   pull_request:
     paths:
       - "src/azelficoast/real_belief_trace.py"
+      - "src/azelficoast/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
       - "experiments/real-belief-source-fixture.json"
       - "experiments/real-belief-source-gliscor-urshifu.json"
+      - "experiments/real-belief-negative-corpus.json"
       - "tests/test_real_belief_trace.py"
+      - "tests/test_real_belief_miner.py"
       - ".github/workflows/real-belief-decision-trace.yml"
       - "README.md"
   workflow_dispatch:
@@ -32,7 +35,7 @@ jobs:
         run: uv sync
 
       - name: Test information-set machinery
-        run: uv run pytest tests/test_real_belief_trace.py
+        run: uv run pytest tests/test_real_belief_trace.py tests/test_real_belief_miner.py
 
       - name: Fetch pinned Pokémon Showdown
         run: |
@@ -58,7 +61,13 @@ jobs:
           echo "${PIPESTATUS[0]}" > /tmp/real-belief-analysis-status
           set -e
 
-      - name: Verify acceptance trace
+      - name: Mine structural candidates
+        run: |
+          uv run python -m azelficoast.real_belief_miner \
+            /tmp/real-belief-transition-oracle.json \
+            | tee /tmp/real-belief-trace-mining.json
+
+      - name: Verify negative corpus and mining result
         run: |
           python - <<'PY'
           import json
@@ -66,15 +75,23 @@ jobs:
 
           oracle = json.loads(Path("/tmp/real-belief-transition-oracle.json").read_text())
           trace = json.loads(Path("/tmp/real-belief-decision-trace.json").read_text())
+          mining = json.loads(Path("/tmp/real-belief-trace-mining.json").read_text())
+          corpus = json.loads(
+              Path("experiments/real-belief-negative-corpus.json").read_text()
+          )
+          case = corpus["cases"][0]
+          expected = case["expected"]
 
-          assert oracle["showdown_commit"] == "a5df8274e85b0889bf2a9b3422a08b39732374fc", oracle
-          assert oracle["source_fixture_id"] == "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a", oracle
+          assert oracle["showdown_commit"] == case["showdown_commit"], oracle
+          assert oracle["source_fixture_id"] == case["source_fixture_id"], oracle
           assert oracle["reconstruction"]["hidden_world_count"] >= 4, oracle
-          assert len(oracle["legal_actions"]) == 12, oracle
-          assert len(oracle["transitions"]) == len(oracle["worlds"]) * 12, oracle
+          assert len(oracle["legal_actions"]) == expected["legal_action_count"], oracle
+          assert len(oracle["transitions"]) == (
+              len(oracle["worlds"]) * expected["legal_action_count"]
+          ), oracle
 
-          assert trace["world_count"] == len(oracle["worlds"]), trace
-          assert trace["legal_action_count"] == 12, trace
+          assert trace["world_count"] == expected["world_count"], trace
+          assert trace["legal_action_count"] == expected["legal_action_count"], trace
           assert any(
               row["dependency_signature"]["classes_out"] < trace["world_count"]
               for row in trace["actions"]
@@ -85,11 +102,20 @@ jobs:
           )
           assert protect["dependency_signature"]["classes_out"] < trace["world_count"], protect
           assert trace["experiment_valid"] is True, trace
-          assert trace["policy_disagreement"] is False, trace
-          assert trace["hypothesis_supported"] is False, trace
-          assert trace["strategy_fusion_observation_count"] == 0, trace
-          assert trace["max_world_aware_choices_per_observation"] == 1, trace
+          assert trace["policy_disagreement"] is expected["policy_disagreement"], trace
+          assert trace["determinization"]["chosen_action"] == expected["determinization_action"], trace
+          assert trace["public_belief"]["chosen_action"] == expected["public_belief_action"], trace
+          assert (
+              trace["strategy_fusion_observation_count"]
+              == expected["strategy_fusion_observation_count"]
+          ), trace
           assert Path("/tmp/real-belief-analysis-status").read_text().strip() == "0", trace
+
+          assert mining["ranking_uses_policy_result"] is False, mining
+          assert mining["evaluated_count"] == 1, mining
+          assert mining["disagreement_count"] == 0, mining
+          assert mining["first_disagreement"] is None, mining
+          assert mining["ranked_candidates"][0]["source_fixture_id"] == case["source_fixture_id"], mining
           PY
 
       - uses: actions/upload-artifact@v4
@@ -100,4 +126,5 @@ jobs:
             /tmp/real-belief-transition-oracle.json
             /tmp/real-belief-decision-trace.json
             /tmp/real-belief-analysis-status
+            /tmp/real-belief-trace-mining.json
           if-no-files-found: warn
