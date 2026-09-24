@@ -21,13 +21,14 @@ DEFENSE_BASE = 7
 DEFENSE_IV = 8
 DEFENSE_EV = 9
 DEFENSE_NATURE = 10
-ATTACK_MOD = 11
-STAB_MOD = 12
-TYPE_MOD = 13
-BURN_MOD = 14
-FINAL_MOD = 15
-CATEGORY = 16
-PARAM_WIDTH = 17
+DEFENSE_MOD = 11
+ATTACK_MOD = 12
+STAB_MOD = 13
+TYPE_MOD = 14
+BURN_MOD = 15
+FINAL_MOD = 16
+CATEGORY = 17
+PARAM_WIDTH = 18
 
 
 def contexts_to_array(contexts: Sequence[DamageContext]) -> jax.Array:
@@ -78,6 +79,7 @@ def damage_batch(params: jax.Array, rolls: jax.Array) -> jax.Array:
         defender_level,
         params[:, DEFENSE_NATURE],
     )
+    defense = _modify(defense, params[:, DEFENSE_MOD])
 
     base = (((2 * attacker_level) // 5 + 2) * params[:, BASE_POWER] * attack) // defense
     base = base // 50 + 2
