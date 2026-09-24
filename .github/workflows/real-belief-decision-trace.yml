@@ -1,0 +1,103 @@
+name: real-belief-decision-trace
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/real_belief_trace.py"
+      - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/real-belief-source-fixture.json"
+      - "experiments/real-belief-source-gliscor-urshifu.json"
+      - "tests/test_real_belief_trace.py"
+      - ".github/workflows/real-belief-decision-trace.yml"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-belief-trace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Test information-set machinery
+        run: uv run pytest tests/test_real_belief_trace.py
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate real hidden-world transition oracle
+        run: |
+          node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             experiments/real-belief-source-gliscor-urshifu.json             > /tmp/real-belief-transition-oracle.json
+
+      - name: Analyze public information sets
+        run: |
+          set +e
+          uv run python -m azelficoast.real_belief_trace             /tmp/real-belief-transition-oracle.json             | tee /tmp/real-belief-decision-trace.json
+          echo "${PIPESTATUS[0]}" > /tmp/real-belief-analysis-status
+          set -e
+
+      - name: Verify acceptance trace
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          oracle = json.loads(Path("/tmp/real-belief-transition-oracle.json").read_text())
+          trace = json.loads(Path("/tmp/real-belief-decision-trace.json").read_text())
+
+          assert oracle["showdown_commit"] == "a5df8274e85b0889bf2a9b3422a08b39732374fc", oracle
+          assert oracle["source_fixture_id"] == "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a", oracle
+          assert oracle["reconstruction"]["hidden_world_count"] >= 4, oracle
+          assert len(oracle["legal_actions"]) == 12, oracle
+          assert len(oracle["transitions"]) == len(oracle["worlds"]) * 12, oracle
+
+          assert trace["world_count"] == len(oracle["worlds"]), trace
+          assert trace["legal_action_count"] == 12, trace
+          assert any(
+              row["dependency_signature"]["classes_out"] < trace["world_count"]
+              for row in trace["actions"]
+          ), trace
+          protect = next(
+              row for row in trace["actions"]
+              if row["action"] == "/choose move protect"
+          )
+          assert protect["dependency_signature"]["classes_out"] < trace["world_count"], protect
+          assert trace["experiment_valid"] is True, trace
+          assert trace["policy_disagreement"] is False, trace
+          assert trace["hypothesis_supported"] is False, trace
+          assert trace["strategy_fusion_observation_count"] == 0, trace
+          assert trace["max_world_aware_choices_per_observation"] == 1, trace
+          assert Path("/tmp/real-belief-analysis-status").read_text().strip() == "0", trace
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-belief-decision-trace
+          path: |
+            /tmp/real-belief-transition-oracle.json
+            /tmp/real-belief-decision-trace.json
+            /tmp/real-belief-analysis-status
+          if-no-files-found: warn

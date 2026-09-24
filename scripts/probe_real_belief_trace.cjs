@@ -1,0 +1,536 @@
+#!/usr/bin/env node
+"use strict";
+
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+const {execFileSync} = require("node:child_process");
+
+function fail(message) {
+  process.stderr.write(`${message}\n`);
+  process.exit(2);
+}
+
+const [showdownRoot, fixturePath] = process.argv.slice(2);
+if (!showdownRoot || !fixturePath) {
+  fail("usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON");
+}
+
+const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
+const GENERATOR_ROUNDS = 2048;
+const ROOT_CHANCE_SAMPLES = 8;
+const CONTINUATION_CHANCE_SAMPLES = 8;
+const DEPENDENCY_CANDIDATES = [
+  "opponent.active.item",
+  "opponent.active.ability",
+  "opponent.active.moves",
+  "opponent.active.tera_type",
+  "opponent.active.exact_hp",
+];
+
+const actualCommit = execFileSync(
+  "git",
+  ["-C", showdownRoot, "rev-parse", "HEAD"],
+  {encoding: "utf8"}
+).trim();
+if (actualCommit !== SHOWDOWN_COMMIT) {
+  fail(`expected Showdown ${SHOWDOWN_COMMIT}, got ${actualCommit}`);
+}
+
+const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
+  fail("unexpected source fixture schema");
+}
+if (source.showdown_commit !== SHOWDOWN_COMMIT) {
+  fail("source fixture is bound to a different Showdown revision");
+}
+const fixture = source.fixture || {
+  fixture_id: source.fixture_id,
+  state: source.state,
+  protocol_prefix: source.protocol_prefix,
+  control_decisions: source.control_decisions || [],
+};
+if (!fixture || fixture.fixture_id !== source.fixture_id) fail("fixture identity mismatch");
+
+const common = require(path.join(showdownRoot, "test", "common.js"));
+const {Battle, extractChannelMessages} = require(path.join(showdownRoot, "dist", "sim", "battle.js"));
+const {Teams} = require(path.join(showdownRoot, "dist", "sim", "teams.js"));
+const randomSets = require(
+  path.join(showdownRoot, "data", "random-battles", "gen9", "sets.json")
+);
+
+function stable(value) {
+  if (Array.isArray(value)) return value.map(stable);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map(key => [key, stable(value[key])]));
+  }
+  return value;
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(stable(value))).digest("hex");
+}
+
+function toID(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function seed(index, salt) {
+  const base = index + 1 + salt * 257;
+  return [
+    base & 0xffff,
+    (base * 17 + 11) & 0xffff,
+    (base * 97 + 23) & 0xffff,
+    (base * 193 + 47) & 0xffff,
+  ];
+}
+
+function observedOpponentMoves() {
+  if (Array.isArray(source.observed_opponent_moves)) {
+    return [...new Set(source.observed_opponent_moves.map(toID))].sort();
+  }
+  const species = toID(fixture.state.opponent_active.species);
+  const moves = new Set();
+  let active = "";
+  for (const batch of fixture.protocol_prefix) {
+    for (const message of batch) {
+      if (message[0] !== "" || message.length < 2) continue;
+      if (["switch", "drag"].includes(message[1]) && String(message[2] || "").startsWith("p2")) {
+        active = toID(String(message[3] || "").split(",", 1)[0]);
+      }
+      if (message[1] === "move" && String(message[2] || "").startsWith("p2") && active === species) {
+        moves.add(toID(message[3]));
+      }
+    }
+  }
+  return [...moves].sort();
+}
+
+function lastOpponentMove() {
+  if (source.opponent_response_move) return toID(source.opponent_response_move);
+  let last = null;
+  for (const batch of fixture.protocol_prefix) {
+    for (const message of batch) {
+      if (message[0] === "" && message[1] === "move" && String(message[2] || "").startsWith("p2")) {
+        last = String(message[3]);
+      }
+    }
+  }
+  if (!last) fail("fixture contains no opponent move to use as bounded response policy");
+  return toID(last);
+}
+
+function generatorVariants() {
+  const requested = fixture.state.opponent_active.species;
+  const species = toID(requested);
+  if (!randomSets[species]) fail(`no randbats set data for ${requested}`);
+  const observed = new Set(observedOpponentMoves());
+  const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
+  const variants = new Map();
+  let matched = 0;
+  for (let i = 0; i < GENERATOR_ROUNDS; i++) {
+    generator.setSeed([i, i, i, i]);
+    const set = generator.randomSet(species, {}, false, false);
+    const moves = [...set.moves].map(toID).sort();
+    if (![...observed].every(move => moves.includes(move))) continue;
+    const plausibleItems = Array.isArray(source.plausible_items)
+      ? new Set(source.plausible_items)
+      : null;
+    if (plausibleItems && !plausibleItems.has(set.item)) continue;
+    matched++;
+    const semantic = {
+      species: set.species || requested,
+      ability: set.ability,
+      item: set.item,
+      level: set.level,
+      moves,
+      role: set.role,
+      teraType: set.teraType,
+    };
+    const key = JSON.stringify(stable(semantic));
+    const prior = variants.get(key) || {set: semantic, count: 0};
+    prior.count++;
+    variants.set(key, prior);
+  }
+  if (!matched) fail("generator sweep produced no Choice worlds compatible with public moves");
+  return {matched, variants: [...variants.values()]};
+}
+
+function ownSet(view, {active = false} = {}) {
+  const set = {
+    species: view.species,
+    level: view.level,
+    ability: view.ability,
+    item: view.item || "",
+    moves: view.moves,
+    nature: "Serious",
+    evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
+    ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
+  };
+  if (active) set.teraType = source.own_active_tera_type;
+  return set;
+}
+
+function opponentSet(world) {
+  return {
+    species: world.variant.species,
+    level: world.variant.level,
+    ability: world.variant.ability,
+    item: world.variant.item,
+    moves: world.variant.moves,
+    teraType: world.variant.teraType,
+    nature: "Serious",
+    evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
+    ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
+  };
+}
+
+function opponentBenchSet() {
+  const species = source.opponent_bench_species;
+  if (!species) fail("source fixture must name one surviving opponent bench species");
+  const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
+  generator.setSeed([0, 0, 0, 0]);
+  return generator.randomSet(toID(species), {}, false, false);
+}
+
+const ownState = fixture.state.team;
+const activeId = toID(fixture.state.active.species);
+const ownViews = Object.values(ownState);
+const ownOrdered = [
+  ownViews.find(view => toID(view.species) === activeId),
+  ...ownViews.filter(view => toID(view.species) !== activeId),
+];
+if (!ownOrdered[0]) fail("could not place current player active first");
+const ownTeam = ownOrdered.map((view, index) => ownSet(view, {active: index === 0}));
+const benchSet = opponentBenchSet();
+
+function applyRecordedOwnStats(battle) {
+  for (const view of ownOrdered) {
+    const pokemon = battle.p1.pokemon.find(
+      candidate => toID(candidate.species.name) === toID(view.species)
+    );
+    if (!pokemon) fail(`missing reconstructed own Pokemon ${view.species}`);
+
+    // The decision trace is authoritative for our own exact stats. Reconstruct
+    // those directly instead of guessing the randbats EV/nature spread.
+    const stored = Object.fromEntries(
+      ["atk", "def", "spa", "spd", "spe"].map(stat => [stat, Number(view.stats[stat])])
+    );
+    pokemon.baseStoredStats = {hp: Number(view.max_hp), ...stored};
+    pokemon.storedStats = {...stored};
+    pokemon.baseMaxhp = Number(view.max_hp);
+    pokemon.maxhp = Number(view.max_hp);
+    pokemon.hp = Number(view.current_hp);
+  }
+}
+
+function publicPercent(hp, maxhp) {
+  if (hp <= 0) return 0;
+  let percentage = Math.ceil(100 * hp / maxhp);
+  if (percentage === 100 && hp < maxhp) percentage = 99;
+  return percentage;
+}
+
+function hpSupportForVariant(variant) {
+  const provisional = {variant, exactHp: 1};
+  const battle = buildBattle(provisional);
+  const maxhp = battle.p2.active[0].maxhp;
+  battle.destroy();
+  const observed = Number(fixture.state.opponent_active.current_hp);
+  const support = [];
+  for (let hp = 1; hp <= maxhp; hp++) {
+    if (publicPercent(hp, maxhp) === observed) support.push(hp);
+  }
+  if (!support.length) fail(`no exact HP is compatible with public ${observed}/100`);
+  return {maxhp, support};
+}
+
+function applyFixtureState(battle, world) {
+  battle.turn = Number(fixture.state.turn);
+  for (const view of ownOrdered) {
+    const pokemon = battle.p1.pokemon.find(candidate => toID(candidate.species.name) === toID(view.species));
+    pokemon.hp = Number(view.current_hp);
+    pokemon.fainted = Boolean(view.fainted);
+    pokemon.status = view.fainted ? "" : (view.status ? toID(view.status) : "");
+    pokemon.boosts = {...view.boosts};
+  }
+  const opponent = battle.p2.active[0];
+  opponent.hp = Number(world.exactHp);
+  opponent.boosts = {...fixture.state.opponent_active.boosts};
+
+  for (const condition of Object.keys(fixture.state.side_conditions || {})) {
+    battle.p1.addSideCondition(toID(condition), "debug");
+  }
+  for (const condition of Object.keys(fixture.state.opponent_side_conditions || {})) {
+    battle.p2.addSideCondition(toID(condition), "debug");
+  }
+}
+
+function buildBattle(world) {
+  const battle = common.createBattle(
+    {preview: false, seed: [1, 2, 3, 4]},
+    [ownTeam, [opponentSet(world), benchSet]]
+  );
+  applyRecordedOwnStats(battle);
+  applyFixtureState(battle, world);
+  const tera = battle.p1.active[0].canTerastallize;
+  if (tera !== source.own_active_tera_type) {
+    fail(
+      `expected ${fixture.state.active.species} Tera ${source.own_active_tera_type}, got ${String(tera)}`
+    );
+  }
+  return battle;
+}
+
+function cloneBattle(snapshot, chanceSeed) {
+  const battle = Battle.fromJSON(snapshot);
+  battle.restart(() => {});
+  battle.prng.setSeed(chanceSeed.join(","));
+  return battle;
+}
+
+function rootChoice(action) {
+  if (!action.startsWith("/choose ")) fail(`unexpected root action ${action}`);
+  return action.slice("/choose ".length);
+}
+
+function legalP1Continuations(battle) {
+  const request = battle.p1.activeRequest;
+  if (!request || request.wait) return [];
+  const choices = [];
+  const requestSwitches = () => {
+    for (const [index, pokemon] of request.side.pokemon.entries()) {
+      if (pokemon.active || String(pokemon.condition).endsWith(" fnt")) continue;
+      choices.push(`switch ${index + 1}`);
+    }
+  };
+  if (request.forceSwitch) {
+    requestSwitches();
+    return choices.sort();
+  }
+  if (request.active) {
+    const activeRequest = request.active[0];
+    for (const move of activeRequest.moves || []) {
+      if (!move.disabled) choices.push(`move ${move.id}`);
+    }
+    if (!activeRequest.trapped) requestSwitches();
+  }
+  return [...new Set(choices)].sort();
+}
+
+function opponentChoice(battle) {
+  const request = battle.p2.activeRequest;
+  if (!request || request.wait) return "";
+  if (request.forceSwitch) {
+    const target = battle.p2.pokemon.find(pokemon => pokemon.hp && !pokemon.active);
+    return target ? `switch ${target.position + 1}` : "";
+  }
+  if (request.active) {
+    const moves = request.active[0].moves || [];
+    const locked = lastOpponentMove();
+    if (moves.some(move => move.id === locked && !move.disabled)) return `move ${locked}`;
+    const first = moves.find(move => !move.disabled);
+    return first ? `move ${first.id}` : "";
+  }
+  return "";
+}
+
+function observation(battle, logStart) {
+  const lines = extractChannelMessages(battle.log.slice(logStart).join("\n"), [1])[1]
+    // Server wall-clock transport metadata is public but not battle semantics.
+    // Keeping it would make equivalent simulated worlds differ by execution time.
+    .filter(line => !line.startsWith("|t:|"));
+  const request = battle.p1.activeRequest ? JSON.parse(JSON.stringify(battle.p1.activeRequest)) : null;
+  return {protocol: lines, request};
+}
+
+function stateSummary(battle, world) {
+  function pokemonSummary(pokemon, {includeItem = true} = {}) {
+    return {
+      species: pokemon.species.id,
+      hp: pokemon.hp,
+      maxhp: pokemon.maxhp,
+      status: pokemon.status || null,
+      boosts: stable(pokemon.boosts),
+      ...(includeItem ? {item: pokemon.item || null} : {}),
+      active: pokemon.active,
+      fainted: pokemon.fainted,
+      terastallized: pokemon.terastallized || null,
+      volatiles: Object.keys(pokemon.volatiles).sort(),
+    };
+  }
+  return {
+    turn: battle.turn,
+    request_state: battle.requestState,
+    ended: battle.ended,
+    winner: battle.winner || null,
+    p1: battle.p1.pokemon.map(pokemonSummary),
+    // Unchanged hidden opponent identity belongs to the world, not the transition
+    // delta. Carrying it here would make every action spuriously item-dependent.
+    p2_active: battle.p2.active[0]
+      ? {
+          ...pokemonSummary(battle.p2.active[0], {includeItem: false}),
+          // Untouched hidden HP remains carried by the hidden world itself.
+          // Only expose it in transition evidence when this action changed it.
+          hp:
+            battle.p2.active[0].hp === Number(world.exactHp)
+              ? "<unchanged>"
+              : battle.p2.active[0].hp,
+        }
+      : null,
+    weather: battle.field.weather || null,
+    pseudo_weather: Object.keys(battle.field.pseudoWeather).sort(),
+    p1_side_conditions: Object.keys(battle.p1.sideConditions).sort(),
+    p2_side_conditions: Object.keys(battle.p2.sideConditions).sort(),
+    p1_slot_conditions: battle.p1.slotConditions.map(slot => Object.keys(slot).sort()),
+    p2_slot_conditions: battle.p2.slotConditions.map(slot => Object.keys(slot).sort()),
+  };
+}
+
+function utility(battle) {
+  const ownMaterial = battle.p1.pokemon.reduce(
+    (sum, pokemon) => sum + (pokemon.maxhp ? pokemon.hp / pokemon.maxhp : 0),
+    0
+  );
+  const opponent = battle.p2.active[0];
+  const opponentActive = opponent && opponent.maxhp ? opponent.hp / opponent.maxhp : 0;
+  return ownMaterial - opponentActive;
+}
+
+function continuationValues(rootSnapshot) {
+  const probe = Battle.fromJSON(rootSnapshot);
+  probe.restart(() => {});
+  const choices = legalP1Continuations(probe);
+  if (!choices.length) {
+    const value = utility(probe);
+    probe.destroy();
+    return {terminal_utility: value};
+  }
+  probe.destroy();
+
+  const values = {};
+  for (const choice of choices) {
+    let sum = 0;
+    for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
+      const battle = cloneBattle(
+        rootSnapshot,
+        seed(i, 10_000 + sha256(choice).charCodeAt(0))
+      );
+      const foe = opponentChoice(battle);
+      battle.makeChoices(choice, foe);
+      sum += utility(battle);
+      battle.destroy();
+    }
+    values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
+  }
+  return {continuations: values};
+}
+
+function declaredReads(_action) {
+  // Pokémon Showdown is an external oracle rather than an instrumented lowering.
+  // Declare the whole hidden adapter boundary conservatively; the analyzer then
+  // derives the empirically required subset from exact mechanics outcomes.
+  return [...DEPENDENCY_CANDIDATES];
+}
+
+const {matched, variants} = generatorVariants();
+const worlds = [];
+for (const entry of variants) {
+  const {maxhp, support} = hpSupportForVariant(entry.set);
+  for (const exactHp of support) {
+    const hidden = {
+      "opponent.active.item": entry.set.item,
+      "opponent.active.ability": entry.set.ability,
+      "opponent.active.moves": entry.set.moves,
+      "opponent.active.tera_type": entry.set.teraType,
+      "opponent.active.exact_hp": exactHp,
+    };
+    worlds.push({
+      world_id: sha256(hidden),
+      weight: (entry.count / matched) / support.length,
+      hidden,
+      variant: entry.set,
+      exactHp,
+      opponent_max_hp: maxhp,
+      generator_count: entry.count,
+    });
+  }
+}
+if (worlds.length < 2) fail("real trace did not reconstruct multiple hidden worlds");
+
+const legalActions = fixture.state.legal_actions.map(String);
+const transitions = [];
+for (const world of worlds) {
+  const base = buildBattle(world);
+  const baseSnapshot = JSON.stringify(base);
+  base.destroy();
+
+  for (const action of legalActions) {
+    const outcomes = [];
+    for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
+      const battle = cloneBattle(
+        baseSnapshot,
+        seed(i, 1_000 + legalActions.indexOf(action))
+      );
+      const logStart = battle.log.length;
+      battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+      const rootObservation = observation(battle, logStart);
+      const successor = stateSummary(battle, world);
+      const rootSnapshot = JSON.stringify(battle);
+      const continuation = continuationValues(rootSnapshot);
+      outcomes.push({
+        probability: 1 / ROOT_CHANCE_SAMPLES,
+        observation: rootObservation,
+        successor,
+        ...continuation,
+      });
+      battle.destroy();
+    }
+    transitions.push({world_id: world.world_id, action, outcomes});
+  }
+}
+
+const declared = Object.fromEntries(
+  legalActions.map(action => [action, declaredReads(action)])
+);
+const outputWorlds = worlds.map(world => ({
+  world_id: world.world_id,
+  weight: world.weight,
+  hidden: world.hidden,
+  provenance: {
+    generator_count: world.generator_count,
+    generator_rounds: GENERATOR_ROUNDS,
+    opponent_max_hp: world.opponent_max_hp,
+    hp_prior: "uniform-within-public-percentage-bucket",
+  },
+}));
+
+process.stdout.write(JSON.stringify({
+  schema: "azelficoast.real-belief-transition-oracle",
+  schema_version: 1,
+  source_fixture_id: fixture.fixture_id,
+  source_artifact: source.source_artifact,
+  showdown_commit: actualCommit,
+  mechanics: {
+    engine: "pokemon-showdown",
+    format: "gen9customgame state reconstruction",
+    root_chance_samples: ROOT_CHANCE_SAMPLES,
+    continuation_chance_samples: CONTINUATION_CHANCE_SAMPLES,
+    opponent_response: `repeat observed ${lastOpponentMove()}`,
+    continuation_scope: "all non-Tera player choices at the next decision",
+    utility: "sum own team HP fractions minus opposing active HP fraction",
+  },
+  reconstruction: {
+    generator_rounds: GENERATOR_ROUNDS,
+    generator_matches: matched,
+    observed_opponent_moves: observedOpponentMoves(),
+    hidden_world_count: outputWorlds.length,
+    own_active_tera_type: source.own_active_tera_type,
+    declared_read_mode: "conservative-external-oracle-boundary",
+  },
+  dependency_candidates: DEPENDENCY_CANDIDATES,
+  declared_reads: declared,
+  worlds: outputWorlds,
+  legal_actions: legalActions,
+  transitions,
+}, null, 2) + "\n");
