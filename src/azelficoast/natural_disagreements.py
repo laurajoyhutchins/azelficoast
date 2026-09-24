@@ -29,6 +29,19 @@ SPEED_ABILITIES = {
     "unburden",
 }
 
+PROTECT_MOVES = frozenset(
+    {
+        "banefulbunker",
+        "burningbulwark",
+        "detect",
+        "kingsshield",
+        "obstruct",
+        "protect",
+        "silktrap",
+        "spikyshield",
+    }
+)
+
 TYPE_IMMUNITIES: dict[str, frozenset[str]] = {
     "normal": frozenset({"ghost"}),
     "fighting": frozenset({"ghost"}),
@@ -325,6 +338,30 @@ def _switch_view(
     return matches[0] if len(matches) == 1 else None
 
 
+def _persistent_protect_actions(
+    fixture: DecisionFixture,
+    *,
+    current_speed_fork: bool,
+) -> list[dict[str, Any]]:
+    if not current_speed_fork:
+        return []
+    persistent: list[dict[str, Any]] = []
+    for action in fixture.legal_actions:
+        if not action.startswith("/choose move "):
+            continue
+        move = action.removeprefix("/choose move ").split(" ", 1)[0]
+        if _to_id(move) not in PROTECT_MOVES:
+            continue
+        persistent.append(
+            {
+                "action": action,
+                "kind": "protect",
+                "observation": "blocked-no-item-reveal",
+            }
+        )
+    return persistent
+
+
 def _persistent_immunity_switches(
     fixture: DecisionFixture,
     *,
@@ -562,6 +599,10 @@ def mine_candidates(
             if move_type is not None
             else []
         )
+        persistent_protect_actions = _persistent_protect_actions(
+            fixture,
+            current_speed_fork=current_speed_fork,
+        )
         if not current_speed_fork and not persistent_switches:
             skip("no-speed-order-fork")
             continue
@@ -615,6 +656,7 @@ def mine_candidates(
             "active_speed": own_speed,
             "current_speed_fork": current_speed_fork,
             "persistent_switches": persistent_switches,
+            "persistent_protect_actions": persistent_protect_actions,
             "opponent_species": opponent_species,
             "generator_species": sample["species"],
             "opponent_level": opponent_level,
@@ -645,7 +687,9 @@ def mine_candidates(
         "sampled_world_queries": len(cache),
         "candidate_count": len(candidates),
         "persistent_candidate_count": sum(
-            bool(candidate["persistent_switches"]) for candidate in candidates
+            bool(candidate["persistent_switches"])
+            or bool(candidate["persistent_protect_actions"])
+            for candidate in candidates
         ),
         "candidates": candidates,
         "skipped": dict(sorted(skipped.items())),
