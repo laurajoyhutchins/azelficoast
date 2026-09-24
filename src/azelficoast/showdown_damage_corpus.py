@@ -8,7 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.gen9_damage import DamageContext, damage
+from azelficoast.gen9_damage import MOD_ONE, DamageContext, damage
 
 PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
 
@@ -50,6 +50,7 @@ def _context(raw: Mapping[str, Any]) -> DamageContext:
         attacker_item=str(raw.get("attacker_item") or ""),
         type_mod=int(raw["type_mod"]),
         burned=bool(raw.get("burned", False)),
+        defender_stat_modifier=int(raw.get("defender_stat_modifier", MOD_ONE)),
     )
 
 
@@ -110,6 +111,7 @@ def analyze_document(
     tera_negative_detected = False
     burn_negative_detected = False
     unequal_level_negative_detected = False
+    defender_stat_modifier_negative_detected = False
 
     for fixture in fixtures:
         if not isinstance(fixture, Mapping):
@@ -155,6 +157,11 @@ def analyze_document(
                 replace(context, defender_level=context.attacker_level),
                 rolls,
             ) > 0
+        if context.defender_stat_modifier != MOD_ONE:
+            defender_stat_modifier_negative_detected |= _mismatch_count(
+                replace(context, defender_stat_modifier=MOD_ONE),
+                rolls,
+            ) > 0
 
     passed = (
         exact_cases == total_cases
@@ -164,6 +171,7 @@ def analyze_document(
         and tera_negative_detected
         and burn_negative_detected
         and unequal_level_negative_detected
+        and defender_stat_modifier_negative_detected
     )
     return {
         "schema": "azelficoast.showdown-gen9-damage-analysis",
@@ -177,6 +185,9 @@ def analyze_document(
         "tera_negative_control_detected": tera_negative_detected,
         "burn_negative_control_detected": burn_negative_detected,
         "unequal_level_negative_control_detected": unequal_level_negative_detected,
+        "defender_stat_modifier_negative_control_detected": (
+            defender_stat_modifier_negative_detected
+        ),
         "passed": passed,
     }
 
