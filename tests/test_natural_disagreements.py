@@ -251,7 +251,7 @@ def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> Non
 
     # 206 * 1.5 is faster than both Gardevoir worlds, so the fork disappears.
     assert result["candidate_count"] == 0
-    assert result["skipped"]["no-speed-order-fork"] == 1
+    assert result["skipped"]["no-speed-or-persistent-information-fork"] == 1
 
 
 
@@ -396,3 +396,34 @@ def test_nonimmune_switch_does_not_create_persistent_information_set(monkeypatch
     assert result["candidate_count"] == 0
     assert result["persistent_candidate_count"] == 0
     assert result["skipped"]["no-speed-order-fork"] == 1
+
+
+
+def test_protect_preserves_worlds_even_without_current_speed_fork(monkeypatch) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    active = dict(state["active"])
+    active["stats"] = {"spe": 300}
+    state["active"] = active
+    no_speed_fork = DecisionFixture(
+        fixture_id="protect-persistent",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [no_speed_fork],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["persistent_candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["current_speed_fork"] is False
+    assert candidate["persistent_protect_actions"][0]["action"] == "/choose move protect"
