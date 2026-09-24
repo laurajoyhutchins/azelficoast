@@ -160,30 +160,84 @@ jobs:
             --source /tmp/source.json \
             --particles 100000 \
             --alpha 0.08 \
-            | tee /tmp/team-belief.json
+            --seed-offset 0 \
+            > /tmp/team-belief-a.json
 
-      - name: Verify weighted hidden-team posterior
+          node scripts/sample_conditioned_random_teams.cjs \
+            /tmp/pokemon-showdown \
+            --source /tmp/source.json \
+            --particles 100000 \
+            --alpha 0.08 \
+            --seed-offset 100000 \
+            > /tmp/team-belief-b.json
+
+      - name: Verify replicated hidden-team posterior
         run: |
           python - <<'PY'
           import json
           from pathlib import Path
 
-          result = json.loads(Path("/tmp/team-belief.json").read_text())
-          assert result["mode"] == "public-fixture", result
-          assert result["event_particle_count"] > 0, result
-          assert result["effective_sample_size"] >= 50, result
-          assert result["species_posterior"], result
-          total = sum(row["probability"] for row in result["species_posterior"])
-          assert abs(total - 1.0) <= 1e-9, total
-          assert len(result["required_species"]) == 5, result
+          first = json.loads(Path("/tmp/team-belief-a.json").read_text())
+          second = json.loads(Path("/tmp/team-belief-b.json").read_text())
+
+          def posterior(document):
+              return {
+                  row["species_id"]: float(row["probability"])
+                  for row in document["species_posterior"]
+              }
+
+          for result in (first, second):
+              assert result["mode"] == "public-fixture", result
+              assert result["event_particle_count"] > 0, result
+              assert result["effective_sample_size"] >= 50, result
+              assert result["species_posterior"], result
+              total = sum(row["probability"] for row in result["species_posterior"])
+              assert abs(total - 1.0) <= 1e-9, total
+              assert len(result["required_species"]) == 5, result
+              assert 0.5 <= result["mean_importance_weight"] <= 1.5, result
+
+          a = posterior(first)
+          b = posterior(second)
+          species = set(a) | set(b)
+          total_variation = 0.5 * sum(
+              abs(a.get(name, 0.0) - b.get(name, 0.0))
+              for name in species
+          )
+
+          top_a = {row["species_id"] for row in first["species_posterior"][:20]}
+          top_b = {row["species_id"] for row in second["species_posterior"][:20]}
+          top20_jaccard = len(top_a & top_b) / len(top_a | top_b)
+
+          assert total_variation <= 0.45, {
+              "total_variation": total_variation,
+              "first_ess": first["effective_sample_size"],
+              "second_ess": second["effective_sample_size"],
+          }
+          assert top20_jaccard >= 0.20, {
+              "top20_jaccard": top20_jaccard,
+              "first_top20": sorted(top_a),
+              "second_top20": sorted(top_b),
+          }
 
           print(json.dumps({
-              "event_particle_count": result["event_particle_count"],
-              "effective_sample_size": result["effective_sample_size"],
-              "estimated_event_probability": result["estimated_event_probability"],
-              "hidden_species_support_count": len(result["species_posterior"]),
-              "top_10": result["species_posterior"][:10],
-              "evidence_sha256": result["evidence_sha256"],
+              "first": {
+                  "event_particle_count": first["event_particle_count"],
+                  "effective_sample_size": first["effective_sample_size"],
+                  "estimated_event_probability": first["estimated_event_probability"],
+                  "hidden_species_support_count": len(first["species_posterior"]),
+                  "top_10": first["species_posterior"][:10],
+                  "evidence_sha256": first["evidence_sha256"],
+              },
+              "second": {
+                  "event_particle_count": second["event_particle_count"],
+                  "effective_sample_size": second["effective_sample_size"],
+                  "estimated_event_probability": second["estimated_event_probability"],
+                  "hidden_species_support_count": len(second["species_posterior"]),
+                  "top_10": second["species_posterior"][:10],
+                  "evidence_sha256": second["evidence_sha256"],
+              },
+              "posterior_total_variation": total_variation,
+              "top20_jaccard": top20_jaccard,
           }, sort_keys=True))
           PY
 
@@ -193,5 +247,6 @@ jobs:
           path: |
             /tmp/control-naive.json
             /tmp/control-biased.json
-            /tmp/team-belief.json
+            /tmp/team-belief-a.json
+            /tmp/team-belief-b.json
           if-no-files-found: error
