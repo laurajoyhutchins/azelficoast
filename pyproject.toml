@@ -11,6 +11,11 @@ dependencies = [
   "poke-env==0.16.1",
 ]
 
+[project.optional-dependencies]
+simulator = [
+  "jax==0.11.2; python_version >= '3.12'",
+]
+
 [project.scripts]
 azelficoast = "azelficoast.harness:main"
 

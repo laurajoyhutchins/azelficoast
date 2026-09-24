@@ -262,6 +262,27 @@ This validates a narrow state-dependency partition against real Showdown executi
 not claim complete mechanics coverage or accelerator speed. RNG is held by exact Showdown seed
 here; the synthetic experiment separately checks explicit RNG dependency declarations.
 
+## JAX simulator lowering
+
+The next simulator rung lowers the validated reference microkernel into JAX without changing its
+semantics. JAX is an opt-in dependency so the ordinary battle/evidence harness stays lightweight:
+
+```bash
+uv sync --extra simulator
+uv run python -m azelficoast.jax_simulator_experiment
+```
+
+The hosted experiment checks the JAX batch kernels against the scalar reference, then measures
+CPU execution at 2,048, 32,768, and 524,288 logical worlds. It compares direct per-world execution
+with already-partitioned dependency classes: one class for the Protect slice and two classes for
+Choice-item-sensitive damage. The reduced path carries class weights and verifies the same
+aggregate result without expanding every world.
+
+The timing deliberately excludes dependency-partition construction. Reported reduced throughput
+therefore means logical worlds represented per second by the class computation, not physical
+transition evaluations per second. Hosted GitHub evidence is CPU evidence only. The JAX kernels
+still implement the small reference microkernel, not complete Showdown damage or battle mechanics.
+
 ## Development
 
 ```bash
