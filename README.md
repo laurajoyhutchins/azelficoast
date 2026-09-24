@@ -309,6 +309,41 @@ This remains a bounded mechanics slice. Critical hits, weather, spread damage, e
 abilities, variable base power, Stellar Tera, multihit sequencing, and other effects remain
 outside the claim until separate Showdown-backed evidence covers them.
 
+## Class-native belief state
+
+The simulator no longer needs to treat a belief as a flat particle bag merely to exploit
+dependency classes. The class-native experiment represents a finite belief as integer
+multiplicities over a compact canonical semantic support. Effect-specific projection maps then
+select only the distinctions needed by the current mechanic.
+
+For the Showdown-backed damage corpus, the hosted treatment adds eight nuisance bench variants
+and all sixteen damage rolls. That creates 1,408 canonical support classes while representing up
+to 524,288 logical worlds. The same belief can be viewed as:
+
+- 1 execution class for Protect;
+- 176 classes for the damage kernel;
+- 8 classes for a bench-only dependency;
+- all 1,408 classes when every modeled distinction matters;
+- then 1 class again for Protect.
+
+The belief weights never expand into 524,288 mutable particles during the class-native path.
+Exact-damage observations filter canonical weights directly. A raw expansion is retained only as
+an oracle and benchmark baseline.
+
+The performance treatment includes the projection cost on every class-native call. It compares
+that path both against already-materialized, device-resident direct JAX execution and against
+materializing every logical world and rediscovering dependency classes with generic
+`numpy.unique`. The direct baseline is intentionally favorable to raw particles: its timed
+region excludes materialization and host-to-device transfer, while the class-native timed region
+pays projection and transfer each time. A negative control removes the Choice Band/Specs-derived
+attack modifier from the
+damage signature and must merge mechanically distinct worlds, producing the wrong weighted
+damage.
+
+This proves only the bounded finite-class representation used here. It does not establish that
+all Pokémon hidden variables factor into a small canonical support, nor that every future
+mechanic admits a cheap projection. Those remain empirical questions as mechanics coverage grows.
+
 ## Development
 
 ```bash

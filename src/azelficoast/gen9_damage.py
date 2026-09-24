@@ -27,6 +27,12 @@ MOD_ONE_POINT_FIVE = 6144
 MOD_TWO = 8192
 MOD_LIFE_ORB = 5324
 
+# Stable columns emitted by compile_numeric_context(). Keeping these beside the
+# compiler lets non-JAX machinery consume dependency signatures without importing
+# the optional accelerator backend.
+COMPILED_ATTACK_MOD_COLUMN = 12
+COMPILED_CATEGORY_COLUMN = 17
+
 
 @dataclass(frozen=True)
 class DamageContext:
