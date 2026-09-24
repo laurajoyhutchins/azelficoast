@@ -48,6 +48,10 @@ def _to_id(value: str | None) -> str:
     return "".join(character for character in value.lower() if character.isalnum())
 
 
+def _item_is_hidden(value: Any) -> bool:
+    return value is None or _to_id(str(value)) == _to_id(GenData.UNKNOWN_ITEM)
+
+
 def _slot_side(actor: str) -> str | None:
     slot = actor.split(":", 1)[0].strip()
     if slot.startswith("p1"):
@@ -369,7 +373,7 @@ def mine_candidates(
         if not isinstance(active, Mapping) or not isinstance(opponent_active, Mapping):
             skip("missing-active-state")
             continue
-        if opponent_active.get("item") is not None:
+        if not _item_is_hidden(opponent_active.get("item")):
             skip("opponent-item-known")
             continue
 
