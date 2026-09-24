@@ -1,8 +1,8 @@
 # Azelficoast
 
-Competitive Pokemon battle AI research with a reproducible Gen 9 Random Battle evaluation harness.
+Competitive Pokemon battle AI research, beginning with a reproducible Gen 9 Random Battle evaluation harness.
 
-The repository deliberately separates battle orchestration from decision machinery. `AzelficoastPlayer` can now route supported live hidden-Choice information states through the same pinned-Showdown public-belief evaluator used by the natural strategy-fusion experiments. States outside that bounded model, probe failures, and search timeouts fail closed to `poke-env`'s simple-heuristics policy rather than inventing unsupported mechanics.
+The repository deliberately separates the battle orchestration surface from the decision system. `AzelficoastPlayer` is currently a `poke-env` simple-heuristics baseline; future belief tracking, opponent modeling, and search can replace that implementation without changing how experiments are run.
 
 ## Install
 
@@ -52,25 +52,6 @@ uv run azelficoast ladder --battles 5
 ```
 
 Official Showdown play uses one concurrent battle.
-
-### Enable bounded live public-belief search
-
-Live belief search needs a local built checkout of the exact Pokemon Showdown revision used by the mechanics evidence:
-
-```bash
-git clone https://github.com/smogon/pokemon-showdown.git /tmp/pokemon-showdown
-git -C /tmp/pokemon-showdown checkout a5df8274e85b0889bf2a9b3422a08b39732374fc
-cd /tmp/pokemon-showdown
-npm ci
-npm run build
-
-export AZELFICOAST_SHOWDOWN_ROOT=/tmp/pokemon-showdown
-uv run azelficoast ladder --battles 5
-```
-
-You can also pass `--showdown-root PATH` before the subcommand. `--belief-timeout SECONDS` bounds one exact probe and defaults to 20 seconds. If the checkout is absent, at the wrong revision, unbuilt, the position is outside the admitted hidden-Choice slice, or the probe cannot finish safely, the live player uses the heuristic fallback.
-
-Decision traces record `decision_metadata.selected_policy` plus the belief attempt, including the reason for fallback or the exact public-belief diagnostics used for a selected move.
 
 ## Evidence
 
