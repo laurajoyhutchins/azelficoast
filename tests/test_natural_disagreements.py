@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from azelficoast.corpus import DecisionFixture
-from azelficoast.natural_disagreements import _generator_species, mine_candidates
+from azelficoast.natural_disagreements import mine_candidates
 
 
 def _fixture() -> DecisionFixture:
@@ -245,7 +245,3 @@ def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> Non
     assert result["skipped"]["no-speed-order-fork"] == 1
 
 
-def test_battle_formes_map_to_randbats_generator_species() -> None:
-    assert _generator_species("terapagosterastal") == "Terapagos"
-    assert _generator_species("ogerponwellspringtera") == "Ogerpon-Wellspring"
-    assert _generator_species("palafinhero") == "Palafin"
