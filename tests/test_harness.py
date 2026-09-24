@@ -14,6 +14,38 @@ def test_challenge_parsing() -> None:
     assert args.battles == 3
 
 
+def test_corpus_build_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "corpus",
+            "build",
+            "one.jsonl",
+            "two.jsonl",
+            "--output",
+            "fixtures.jsonl",
+        ]
+    )
+    assert args.command == "corpus"
+    assert args.corpus_command == "build"
+    assert [path.name for path in args.traces] == ["one.jsonl", "two.jsonl"]
+    assert args.output.name == "fixtures.jsonl"
+
+
+def test_corpus_evaluate_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "corpus",
+            "evaluate",
+            "fixtures.jsonl",
+            "--policy",
+            "first-legal",
+        ]
+    )
+    assert args.corpus_command == "evaluate"
+    assert args.corpus_path.name == "fixtures.jsonl"
+    assert args.policy == "first-legal"
+
+
 def test_positive_int_rejects_zero() -> None:
     with pytest.raises(argparse.ArgumentTypeError):
         _positive_int("0")
