@@ -51,7 +51,25 @@ uv run azelficoast accept --opponent Jaxcalibur --battles 1
 uv run azelficoast ladder --battles 5
 ```
 
-Official Showdown play uses one concurrent battle. Results are appended to `artifacts/results.jsonl`, while `poke-env` replay HTML is written under `artifacts/replays/`. Both are ignored by Git so experimental evidence can be reviewed before anything is promoted into the repository.
+Official Showdown play uses one concurrent battle.
+
+## Evidence
+
+Every run produces three complementary evidence surfaces under ignored `artifacts/` paths:
+
+- `results.jsonl` stores one compact outcome record per battle.
+- `decisions.jsonl` stores the exact inbound Showdown protocol batches, each decision-time information state, legal actions, the chosen action, and the terminal observable state.
+- `replays/` stores `poke-env` replay HTML.
+
+Decision traces use schema `azelficoast.decision-trace` with an integer `schema_version` and a monotonic `event_index`. Unknown opponent information remains unknown in the snapshots; the recorder does not fill hidden fields from later knowledge.
+
+To place traces elsewhere, pass the global option before the command:
+
+```bash
+uv run azelficoast --decisions /tmp/jaxcalibur.jsonl challenge Jaxcalibur --battles 1
+```
+
+Future policy probabilities, beliefs, values, and search diagnostics can be added to the decision records without changing battle orchestration.
 
 ## Development
 
@@ -65,11 +83,13 @@ Current source boundary:
 ```text
 Pokemon Showdown
       |
-      v
-poke-env harness  ---> JSONL results + replay HTML
-      |
-      v
-AzelficoastPlayer
+      +----> protocol observations ----+
+      |                                |
+      v                                v
+poke-env harness                decision trace
+      |                                ^
+      v                                |
+AzelficoastPlayer ---- chosen action --+
       |
       v
 simple heuristic baseline (replace this)
