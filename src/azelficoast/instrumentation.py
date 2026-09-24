@@ -11,6 +11,9 @@ from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.battle.pokemon import Pokemon
 from poke_env.player.battle_order import BattleOrder
 
+TRACE_SCHEMA = "azelficoast.decision-trace"
+TRACE_SCHEMA_VERSION = 1
+
 
 def _name(value: Any) -> str | None:
     if value is None:
@@ -86,14 +89,19 @@ class DecisionTraceWriter:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._event_index = 0
         self._decision_index: dict[str, int] = {}
         self._protocol_index: dict[str, int] = {}
 
     def _append(self, record: dict[str, Any]) -> None:
         record = {
+            "schema": TRACE_SCHEMA,
+            "schema_version": TRACE_SCHEMA_VERSION,
+            "event_index": self._event_index,
             "observed_at": datetime.now(UTC).isoformat(),
             **record,
         }
+        self._event_index += 1
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
 
