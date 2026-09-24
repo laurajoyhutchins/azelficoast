@@ -1,0 +1,67 @@
+name: protect-action-survival-experiment
+
+on:
+  pull_request:
+    paths:
+      - "experiments/protect-action-survival.json"
+      - "src/azelficoast/action_survival.py"
+      - "src/azelficoast/gen9_damage.py"
+      - "tests/test_action_survival.py"
+      - ".github/workflows/protect-action-survival-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Analyze frozen natural witness
+        run: |
+          uv run python -m azelficoast.action_survival             experiments/protect-action-survival.json             | tee /tmp/protect-action-survival.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/protect-action-survival.json").read_text()
+          )
+          assert result["passed"] is True, result
+          assert result["damage"]["Choice Scarf"] == {
+              "min": 153,
+              "max": 180,
+          }, result
+          assert result["damage"]["Choice Specs"] == {
+              "min": 229,
+              "max": 270,
+          }, result
+          assert result["defender_full_hp"] == 229, result
+          assert result["full_hp_survival_split"] is True, result
+          assert result["observed_hp_survival_split"] is True, result
+          assert (
+              result["negative_control_collapses_full_hp_split"] is True
+          ), result
+          PY
+
+      - name: Test action-survival machinery
+        run: uv run pytest tests/test_action_survival.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protect-action-survival-evidence
+          path: /tmp/protect-action-survival.json
+          if-no-files-found: error
