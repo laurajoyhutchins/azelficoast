@@ -1,0 +1,173 @@
+name: importance-sampled-team-belief
+
+on:
+  pull_request:
+    paths:
+      - "scripts/sample_conditioned_random_teams.cjs"
+      - ".github/workflows/importance-sampled-team-belief.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch frozen Staraptor discovery fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10827665365/zip" \
+            --output /tmp/discovery.zip
+
+          python - <<'PY'
+          import json
+          import zipfile
+          from pathlib import Path
+
+          fixture_id = (
+              "6314b9a24e28265bb3b36c490c0297357ece57e7963ac653c3d798f4d3b82821"
+          )
+          with zipfile.ZipFile("/tmp/discovery.zip") as archive:
+              fixture = next(
+                  json.loads(raw)
+                  for raw in archive.open("speed-fork-fixtures.jsonl")
+                  if json.loads(raw).get("fixture_id") == fixture_id
+              )
+              candidates = json.load(archive.open("speed-fork-candidates.json"))
+              candidate = next(
+                  row
+                  for row in candidates["candidates"]
+                  if row["fixture_id"] == fixture_id
+              )
+
+          source = {
+              "schema": "azelficoast.conditioned-team-source",
+              "schema_version": 1,
+              "fixture": fixture,
+              "plausible_items": sorted(candidate["item_counts"]),
+              "source_artifact": {
+                  "id": 10827665365,
+                  "digest": (
+                      "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34"
+                  ),
+              },
+          }
+          Path("/tmp/source.json").write_text(
+              json.dumps(source, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Naive one-species rejection control
+        run: |
+          node scripts/sample_conditioned_random_teams.cjs \
+            /tmp/pokemon-showdown \
+            --control-species staraptor \
+            --particles 50000 \
+            --alpha 0 \
+            > /tmp/control-naive.json
+
+      - name: Importance-sampled one-species control
+        run: |
+          node scripts/sample_conditioned_random_teams.cjs \
+            /tmp/pokemon-showdown \
+            --control-species staraptor \
+            --particles 20000 \
+            --alpha 0.85 \
+            > /tmp/control-biased.json
+
+      - name: Validate importance weights against rejection sampling
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          naive = json.loads(Path("/tmp/control-naive.json").read_text())
+          biased = json.loads(Path("/tmp/control-biased.json").read_text())
+
+          assert naive["event_particle_count"] >= 200, naive
+          assert biased["event_particle_count"] >= 1000, biased
+
+          baseline = naive["estimated_event_probability"]
+          estimate = biased["estimated_event_probability"]
+          relative_error = abs(estimate - baseline) / baseline
+          assert relative_error <= 0.20, {
+              "naive": baseline,
+              "importance": estimate,
+              "relative_error": relative_error,
+          }
+          assert 0.75 <= biased["mean_importance_weight"] <= 1.25, biased
+          assert biased["effective_sample_size"] >= 200, biased
+
+          print(json.dumps({
+              "naive_probability": baseline,
+              "importance_probability": estimate,
+              "relative_error": relative_error,
+              "importance_mean_weight": biased["mean_importance_weight"],
+              "importance_ess": biased["effective_sample_size"],
+          }, sort_keys=True))
+          PY
+
+      - name: Condition on the five public species and revealed sets
+        run: |
+          node scripts/sample_conditioned_random_teams.cjs \
+            /tmp/pokemon-showdown \
+            --source /tmp/source.json \
+            --particles 50000 \
+            --alpha 0.85 \
+            | tee /tmp/team-belief.json
+
+      - name: Verify weighted hidden-team posterior
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/team-belief.json").read_text())
+          assert result["mode"] == "public-fixture", result
+          assert result["event_particle_count"] > 0, result
+          assert result["effective_sample_size"] >= 20, result
+          assert result["species_posterior"], result
+          total = sum(row["probability"] for row in result["species_posterior"])
+          assert abs(total - 1.0) <= 1e-9, total
+          assert len(result["required_species"]) == 5, result
+
+          print(json.dumps({
+              "event_particle_count": result["event_particle_count"],
+              "effective_sample_size": result["effective_sample_size"],
+              "estimated_event_probability": result["estimated_event_probability"],
+              "hidden_species_support_count": len(result["species_posterior"]),
+              "top_10": result["species_posterior"][:10],
+              "evidence_sha256": result["evidence_sha256"],
+          }, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: importance-sampled-team-belief
+          path: |
+            /tmp/control-naive.json
+            /tmp/control-biased.json
+            /tmp/team-belief.json
+          if-no-files-found: error
