@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "azelficoast"
+version = "0.1.0"
+description = "Competitive Pokemon battle AI research and evaluation harness"
+requires-python = ">=3.11"
+dependencies = [
+  "poke-env==0.15.0",
+]
+
+[project.scripts]
+azelficoast = "azelficoast.harness:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<9",
+  "ruff>=0.13,<0.14",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/azelficoast"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
