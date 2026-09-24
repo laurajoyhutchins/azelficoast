@@ -156,6 +156,77 @@ function generatorVariants() {
   return {matched, variants: [...variants.values()]};
 }
 
+function ownActiveTeraType() {
+  if (source.own_active_tera_type) return String(source.own_active_tera_type);
+
+  let inferred = null;
+  for (const batch of fixture.protocol_prefix || []) {
+    for (const message of batch) {
+      if (
+        message[0] !== "" ||
+        message[1] !== "request" ||
+        typeof message[2] !== "string"
+      ) {
+        continue;
+      }
+      try {
+        const request = JSON.parse(message[2]);
+        const tera = request.active?.[0]?.canTerastallize;
+        if (tera) inferred = String(tera);
+      } catch (_error) {
+        // Non-request protocol text is irrelevant to this inference.
+      }
+    }
+  }
+  if (!inferred) {
+    fail("source fixture must expose the active player's Tera type in a request or override");
+  }
+  return inferred;
+}
+
+function opponentBenchSpecies() {
+  if (source.opponent_bench_species) return String(source.opponent_bench_species);
+
+  let active = null;
+  const seen = [];
+  const fainted = new Set();
+  for (const batch of fixture.protocol_prefix || []) {
+    for (const message of batch) {
+      if (message[0] !== "" || message.length < 2) continue;
+      if (
+        ["switch", "drag"].includes(message[1]) &&
+        String(message[2] || "").startsWith("p2")
+      ) {
+        active = String(message[3] || "").split(",", 1)[0];
+        if (active && !seen.some(species => toID(species) === toID(active))) {
+          seen.push(active);
+        }
+      }
+      if (
+        message[1] === "faint" &&
+        String(message[2] || "").startsWith("p2") &&
+        active
+      ) {
+        fainted.add(toID(active));
+      }
+    }
+  }
+
+  const current = toID(fixture.state.opponent_active.species);
+  const candidate = [...seen].reverse().find(
+    species => toID(species) !== current && !fainted.has(toID(species))
+  );
+  if (!candidate) {
+    fail(
+      "source fixture must expose one surviving public opponent bench species or override"
+    );
+  }
+  return candidate;
+}
+
+const OWN_ACTIVE_TERA_TYPE = ownActiveTeraType();
+const OPPONENT_BENCH_SPECIES = opponentBenchSpecies();
+
 function ownSet(view, {active = false} = {}) {
   const set = {
     species: view.species,
@@ -167,7 +238,7 @@ function ownSet(view, {active = false} = {}) {
     evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
     ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
   };
-  if (active) set.teraType = source.own_active_tera_type;
+  if (active) set.teraType = OWN_ACTIVE_TERA_TYPE;
   return set;
 }
 
@@ -186,8 +257,7 @@ function opponentSet(world) {
 }
 
 function opponentBenchSet() {
-  const species = source.opponent_bench_species;
-  if (!species) fail("source fixture must name one surviving opponent bench species");
+  const species = OPPONENT_BENCH_SPECIES;
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   generator.setSeed([0, 0, 0, 0]);
   return generator.randomSet(toID(species), {}, false, false);
@@ -274,9 +344,9 @@ function buildBattle(world) {
   applyRecordedOwnStats(battle);
   applyFixtureState(battle, world);
   const tera = battle.p1.active[0].canTerastallize;
-  if (tera !== source.own_active_tera_type) {
+  if (tera !== OWN_ACTIVE_TERA_TYPE) {
     fail(
-      `expected ${fixture.state.active.species} Tera ${source.own_active_tera_type}, got ${String(tera)}`
+      `expected ${fixture.state.active.species} Tera ${OWN_ACTIVE_TERA_TYPE}, got ${String(tera)}`
     );
   }
   return battle;
@@ -525,7 +595,8 @@ process.stdout.write(JSON.stringify({
     generator_matches: matched,
     observed_opponent_moves: observedOpponentMoves(),
     hidden_world_count: outputWorlds.length,
-    own_active_tera_type: source.own_active_tera_type,
+    own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+    opponent_bench_species: OPPONENT_BENCH_SPECIES,
     declared_read_mode: "conservative-external-oracle-boundary",
   },
   dependency_candidates: DEPENDENCY_CANDIDATES,

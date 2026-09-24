@@ -1,0 +1,113 @@
+name: real-belief-candidate-corpus
+
+on:
+  pull_request:
+    paths:
+      - "scripts/probe_real_belief_trace.cjs"
+      - "src/azelficoast/real_belief_trace.py"
+      - "src/azelficoast/real_belief_miner.py"
+      - "experiments/real-belief-source-fixture.json"
+      - "experiments/real-belief-source-gliscor-urshifu.json"
+      - ".github/workflows/real-belief-candidate-corpus.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  candidate-corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate candidate oracles
+        run: |
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            experiments/real-belief-source-gliscor-urshifu.json \
+            > /tmp/oracle-gliscor-urshifu.json
+
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            experiments/real-belief-source-fixture.json \
+            > /tmp/oracle-dachsbun-typhlosion.json
+
+      - name: Analyze both decision traces
+        run: |
+          uv run python -m azelficoast.real_belief_trace \
+            /tmp/oracle-gliscor-urshifu.json \
+            | tee /tmp/trace-gliscor-urshifu.json
+
+          uv run python -m azelficoast.real_belief_trace \
+            /tmp/oracle-dachsbun-typhlosion.json \
+            | tee /tmp/trace-dachsbun-typhlosion.json
+
+      - name: Mine structurally ranked candidates
+        run: |
+          uv run python -m azelficoast.real_belief_miner \
+            /tmp/oracle-gliscor-urshifu.json \
+            /tmp/oracle-dachsbun-typhlosion.json \
+            | tee /tmp/real-belief-candidate-mining.json
+
+      - name: Verify bounded corpus treatment
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          gliscor = json.loads(Path("/tmp/trace-gliscor-urshifu.json").read_text())
+          dachsbun = json.loads(Path("/tmp/trace-dachsbun-typhlosion.json").read_text())
+          mining = json.loads(Path("/tmp/real-belief-candidate-mining.json").read_text())
+
+          assert gliscor["source_fixture_id"] == (
+              "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a"
+          ), gliscor
+          assert gliscor["experiment_valid"] is True, gliscor
+          assert gliscor["policy_disagreement"] is False, gliscor
+
+          assert dachsbun["source_fixture_id"] == (
+              "90322c79fa3101b1dc66bcd7554888d37b1e1d9da112e09746e2082278525664"
+          ), dachsbun
+          assert dachsbun["experiment_valid"] is True, dachsbun
+          assert dachsbun["world_count"] >= 2, dachsbun
+          assert dachsbun["legal_action_count"] == 13, dachsbun
+
+          assert mining["ranking_uses_policy_result"] is False, mining
+          assert mining["evaluated_count"] == 2, mining
+          assert len(mining["ranked_candidates"]) == 2, mining
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-belief-candidate-corpus
+          path: |
+            /tmp/oracle-gliscor-urshifu.json
+            /tmp/oracle-dachsbun-typhlosion.json
+            /tmp/trace-gliscor-urshifu.json
+            /tmp/trace-dachsbun-typhlosion.json
+            /tmp/real-belief-candidate-mining.json
+          if-no-files-found: warn
