@@ -294,3 +294,97 @@ def test_transformed_active_state_is_excluded_until_copied_stats_are_modeled(
 
     assert result["candidate_count"] == 0
     assert result["skipped"]["active-transformed"] == 1
+
+
+
+def _persistent_fixture(*, immune: bool = True) -> DecisionFixture:
+    fixture = _fixture()
+    state = dict(fixture.state)
+
+    active = dict(state["active"])
+    active["stats"] = {"spe": 300}
+    state["active"] = active
+
+    switch_species = "Umbreon" if immune else "Vaporeon"
+    switch_types = ["DARK"] if immune else ["WATER"]
+    state["available_switches"] = [switch_species.lower()]
+    state["legal_actions"] = [
+        "/choose move ironhead",
+        f"/choose switch {switch_species}",
+    ]
+    state["team"] = {
+        f"p1: {switch_species}": {
+            "species": switch_species.lower(),
+            "level": 80,
+            "transformed": False,
+            "fainted": False,
+            "status": None,
+            "item": "leftovers",
+            "ability": "synchronize" if immune else "waterabsorb",
+            "stats": {"spe": 206},
+            "boosts": {
+                "atk": 0,
+                "def": 0,
+                "spa": 0,
+                "spd": 0,
+                "spe": 0,
+                "accuracy": 0,
+                "evasion": 0,
+            },
+            "types": switch_types,
+        }
+    }
+
+    prefix = list(list(message) for message in fixture.protocol_prefix[0])
+    for message in prefix:
+        if len(message) >= 4 and message[1] == "move":
+            message[3] = "Psychic"
+    return DecisionFixture(
+        fixture_id="persistent" if immune else "nonimmune",
+        state=state,
+        protocol_prefix=(tuple(tuple(field for field in message) for message in prefix),),
+        control_decisions=fixture.control_decisions,
+    )
+
+
+def test_mines_immunity_switch_that_preserves_hidden_item_worlds(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [_persistent_fixture()],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["persistent_candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["current_speed_fork"] is False
+    assert candidate["persistent_switches"] == [
+        {
+            "action": "/choose switch Umbreon",
+            "species": "umbreon",
+            "speed": 206,
+            "observation": "immune:psychic",
+        }
+    ]
+
+
+def test_nonimmune_switch_does_not_create_persistent_information_set(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [_persistent_fixture(immune=False)],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["persistent_candidate_count"] == 0
+    assert result["skipped"]["no-speed-order-fork"] == 1
