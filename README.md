@@ -216,6 +216,29 @@ The networked/historical experiment lives in `replay-world-experiment.yml`; ordi
 
 This validates replay-to-hidden-world reconstruction. It does not yet demonstrate a determinization/public-belief action disagreement from a naturally occurring full Azelficoast decision state, because a public opponent replay does not expose our own hidden bench and complete legal-action state. Azelficoast's instrumented live/local traces do, which is the next search surface.
 
+## Dependency-aware simulator experiment
+
+The first simulator rung is intentionally a tiny reference IR rather than a fast backend. Each
+effect declares the state fields it reads, the fields it may write, and its random inputs.
+Hidden worlds can then be grouped by the fields that are actually relevant to a transition.
+
+Run the finite treatment:
+
+```bash
+uv run python -m azelficoast.simulator_experiment
+```
+
+The preregistered slice creates 4,096 hidden worlds. A Protect-like transition must collapse
+them to one unique computation because the hidden Choice item and bench signature cannot affect
+the blocked result. A Choice-item-sensitive special-damage transition must retain exactly two
+classes, one for Scarf and one for Specs, while still discarding the irrelevant bench dimension.
+Expanded collapsed execution must exactly equal direct per-world execution. A negative control
+deliberately omits the item dependency and must be rejected.
+
+This is a dependency/collapse proof over a synthetic microkernel, not yet a claim of complete
+Pokémon Showdown mechanics or accelerator performance. The next rung is to bind the same IR to
+real Showdown-derived transition fixtures before introducing JAX/Pallas kernels.
+
 ## Development
 
 ```bash
