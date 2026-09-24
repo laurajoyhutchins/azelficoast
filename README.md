@@ -344,6 +344,44 @@ This proves only the bounded finite-class representation used here. It does not 
 all Pokémon hidden variables factor into a small canonical support, nor that every future
 mechanic admits a cheap projection. Those remain empirical questions as mechanics coverage grows.
 
+## Adaptive simulator dispatch
+
+Direct batched execution and class-native execution have different cost curves, so the simulator
+does not encode one global population-size cutoff. The adaptive-dispatch experiment separates
+measurement from execution:
+
+```text
+backend + effect signature
+          |
+   calibration profile
+          |
+logical multiplicity
+active canonical classes
+active execution classes
+          |
+          v
+ deterministic cost estimate
+      /             \
+  direct          projected
+```
+
+A calibration profile contains non-negative linear cost terms for direct logical-world work and
+projected class work. The runtime selector is deterministic and fails closed if the profile's
+backend or effect signature does not match the requested execution. Exact predicted ties choose
+the simpler direct path.
+
+Hosted calibration uses only a preregistered training grid. A disjoint held-out grid then measures
+both real paths and checks the selector against the empirical faster path. Acceptance requires at
+least 75% held-out choice accuracy, no more than 15% aggregate latency regret versus a per-case
+oracle, selection of both execution paths, and lower aggregate latency than both trivial policies
+(always direct and always projected). Direct JAX is intentionally given the favorable benchmark:
+its logical worlds are already materialized and device-resident, while the projected timed path
+still pays weight projection, active-class compaction, representative assembly, and transfer.
+
+The fitted hosted-CPU coefficients are evidence, not portable constants. A different accelerator
+or changed effect signature requires its own calibration profile; GPU crossover behavior remains
+unclaimed.
+
 ## Development
 
 ```bash
