@@ -536,13 +536,12 @@ def _target_replay_observation(events: Sequence[ProtocolEvent]) -> DamageObserva
     return observation
 
 
-def reconstruct_replay_belief(
-    world_sample_path: str | Path,
-    replay_url: str = REPLAY_URL,
+def build_replay_belief(
+    replay: ReplayEvidence,
+    events: Sequence[ProtocolEvent],
+    sample: Mapping[str, Any],
 ) -> dict[str, Any]:
-    replay = fetch_replay(replay_url)
-    events = parse_protocol(replay.log)
-    sample = load_world_sample(world_sample_path)
+    """Build a deterministic belief certificate from already-acquired public evidence."""
     observation = _target_replay_observation(events)
     inference = infer_item_posterior(sample, observation)
 
@@ -582,6 +581,16 @@ def reconstruct_replay_belief(
         "compatible_worlds": inference["compatible"],
         "belief_sha256": _sha256(evidence),
     }
+
+
+def reconstruct_replay_belief(
+    world_sample_path: str | Path,
+    replay_url: str = REPLAY_URL,
+) -> dict[str, Any]:
+    replay = fetch_replay(replay_url)
+    events = parse_protocol(replay.log)
+    sample = load_world_sample(world_sample_path)
+    return build_replay_belief(replay, events, sample)
 
 
 def probe_replay(url: str = REPLAY_URL) -> dict[str, Any]:
