@@ -505,3 +505,90 @@ def test_unseen_fist_contact_move_is_not_protect_persistence(monkeypatch) -> Non
     assert result["candidate_count"] == 0
     assert result["sampled_world_queries"] == 0
     assert result["skipped"]["no-persistent-information-branch"] == 1
+
+
+
+def test_prior_equal_priority_move_order_eliminates_scarf_world(monkeypatch) -> None:
+    fixture = _fixture()
+    prefix = [
+        [
+            ("", "player", "p1", "azelficoast"),
+            ("", "player", "p2", "opponent"),
+            ("", "switch", "p1a: Jirachi", "Jirachi, L80", "200/200"),
+            ("", "switch", "p2a: Gardevoir", "Gardevoir, L83", "200/200"),
+            ("", "turn", "1"),
+            ("", "move", "p1a: Jirachi", "Iron Head", "p2a: Gardevoir"),
+            ("", "-damage", "p2a: Gardevoir", "150/200"),
+            ("", "move", "p2a: Gardevoir", "Moonblast", "p1a: Jirachi"),
+            ("", "-damage", "p1a: Jirachi", "120/200"),
+            ("", "turn", "2"),
+        ]
+    ]
+    ordered = DecisionFixture(
+        fixture_id="prior-order",
+        state=fixture.state,
+        protocol_prefix=tuple(
+            tuple(tuple(field for field in message) for message in batch)
+            for batch in prefix
+        ),
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [ordered],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    # Jirachi's exact 206 Speed lies between base Gardevoir (180) and
+    # Scarf Gardevoir (270). Seeing Jirachi move first on the prior turn
+    # therefore makes the Scarf world inconsistent with public evidence.
+    assert result["candidate_count"] == 0
+    assert (
+        result["skipped"]["choice-world-eliminated-by-prior-speed-order"]
+        == 1
+    )
+
+
+def test_priority_mismatch_does_not_overinterpret_move_order(monkeypatch) -> None:
+    fixture = _fixture()
+    prefix = [
+        [
+            ("", "player", "p1", "azelficoast"),
+            ("", "player", "p2", "opponent"),
+            ("", "switch", "p1a: Jirachi", "Jirachi, L80", "200/200"),
+            ("", "switch", "p2a: Gardevoir", "Gardevoir, L83", "200/200"),
+            ("", "turn", "1"),
+            ("", "move", "p1a: Jirachi", "Quick Attack", "p2a: Gardevoir"),
+            ("", "-damage", "p2a: Gardevoir", "190/200"),
+            ("", "move", "p2a: Gardevoir", "Moonblast", "p1a: Jirachi"),
+            ("", "-damage", "p1a: Jirachi", "120/200"),
+            ("", "turn", "2"),
+        ]
+    ]
+    priority = DecisionFixture(
+        fixture_id="priority-order",
+        state=fixture.state,
+        protocol_prefix=tuple(
+            tuple(tuple(field for field in message) for message in batch)
+            for batch in prefix
+        ),
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [priority],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["candidates"][0]["prior_speed_order_evidence"] is None
