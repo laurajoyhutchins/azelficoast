@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.battle.pokemon import Pokemon
+from poke_env.data import GenData
 from poke_env.player.battle_order import BattleOrder
 
 TRACE_SCHEMA = "azelficoast.decision-trace"
@@ -33,9 +34,12 @@ def _named_mapping(mapping: Mapping[Any, Any] | None) -> dict[str, Any]:
 
 
 def pokemon_view(pokemon: Pokemon | None) -> dict[str, Any] | None:
-    """Return only state exposed by the current poke-env Pokemon object."""
+    """Return semantic observable state, hiding poke-env's unknown-item sentinel."""
     if pokemon is None:
         return None
+    item = pokemon.item
+    if item == GenData.UNKNOWN_ITEM:
+        item = None
     return {
         "species": pokemon.species,
         "level": pokemon.level,
@@ -47,7 +51,7 @@ def pokemon_view(pokemon: Pokemon | None) -> dict[str, Any] | None:
         "base_stats": dict(sorted(pokemon.base_stats.items())),
         "stats": dict(sorted(pokemon.stats.items())),
         "status": _name(pokemon.status),
-        "item": pokemon.item,
+        "item": item,
         "ability": pokemon.ability,
         "moves": sorted(pokemon.moves),
         "boosts": dict(sorted(pokemon.boosts.items())),
