@@ -12,7 +12,7 @@ Requires Python 3.11+ and `uv`.
 uv sync
 ```
 
-`poke-env` 0.15.0 is pinned because its player/server APIs are part of the experiment boundary.
+`poke-env` 0.16.1 is pinned because its player/server APIs are part of the experiment boundary.
 
 ## Local smoke battle
 
