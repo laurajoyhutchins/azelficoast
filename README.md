@@ -344,6 +344,39 @@ This proves only the bounded finite-class representation used here. It does not 
 all Pokémon hidden variables factor into a small canonical support, nor that every future
 mechanic admits a cheap projection. Those remain empirical questions as mechanics coverage grows.
 
+## Ordered attack transition
+
+The compiled simulator now extends the bounded whole-attack transition through one layer of
+turn ordering and one observable secondary effect. The ordered transition resolves:
+
+- move priority before Speed;
+- Speed before a final speed-tie outcome;
+- the previously validated accuracy/damage/HP/PP/Life Orb attack path;
+- a Shadow Ball-shaped 20% Special Defense drop, bounded at -6;
+- one packed post-state containing HP, PP, SpD stage, and whether the attacker acted first.
+
+The opponent action in this rung is deliberately a no-op. This isolates ordering semantics from
+the much larger problem of executing two mutually interacting attacks.
+
+One dependency signature covers the whole ordered transition. It cryptographically binds the
+underlying whole-attack signature and conditionally includes the order-tie outcome and secondary
+RNG only where they can change the result. The hosted experiment carries two independent hostile
+controls: omitting the tie-order dependency and omitting the secondary dependency must each merge
+states that produce different transition results.
+
+Pinned Showdown fixtures cover priority overriding Speed, faster and slower attackers, both final
+speed-tie outcomes under Gen 9's dynamic queue re-sorting, and the secondary-effect boundary.
+Python, the generated C kernel, and the JAX lowering must all match the full packed Showdown
+post-state exactly.
+
+The adaptive dispatcher is calibrated on this entire ordered transition rather than on damage
+alone. Its confirmation grid spans the direct/class-native crossover and requires exact aggregate
+semantics while measuring both execution paths.
+
+This remains a bounded rung. The opponent move does not yet alter state, and protection,
+immunities, multihit sequencing, contact hooks, status secondaries, and mutually interacting
+attacks remain outside the claim.
+
 ## Adaptive simulator dispatch
 
 The dispatcher models the two execution paths according to the work they actually perform rather
