@@ -324,4 +324,19 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"error": detail[-1000:]},
             )
 
+        if oracle.get("source_fixture_id") != fixture.fixture_id:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="oracle-fixture-mismatch",
+                diagnostics={"oracle_fixture_id": oracle.get("source_fixture_id")},
+            )
+        if oracle.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="oracle-revision-mismatch",
+                diagnostics={"showdown_commit": oracle.get("showdown_commit")},
+            )
+
         return public_belief_result(oracle, fixture.legal_actions)
