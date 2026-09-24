@@ -411,6 +411,32 @@ POST is therefore no longer a project dependency. The compiler remains intention
 than evolving into a general Python implementation. A mechanic that needs new syntax must extend
 the supported language explicitly, with rejection tests and Showdown-backed semantic evidence.
 
+## Real public-belief trace mining
+
+The search-level experiment now treats naturally occurring policy agreement as evidence rather
+than as a failed test. A pinned real Gliscor versus Urshifu decision reconstructs 33 plausible
+hidden worlds, executes all 12 legal root actions in Pokémon Showdown, derives dependency
+signatures from the observed transitions, and regroups successor states by the exact public
+observation available to the player.
+
+That trace is a durable negative corpus case: both world-aware determinization and public-belief
+search choose Earthquake under the bounded continuation model. The result is retained with the
+hosted artifact identity instead of changing the utility model to manufacture a disagreement.
+
+`real_belief_miner.py` accepts one or more such mechanics oracles and ranks candidates only by
+structural information available before inspecting the policy result:
+
+- how many actions are sensitive to hidden state;
+- how many actions collapse the hidden-world support;
+- how many actions branch into multiple public observations;
+- the size of the resulting observation partition;
+- world and legal-action counts.
+
+The rank does not use either policy's value or whether the policies disagree. After structural
+ordering, the miner separately reports the first naturally occurring determinization/public-belief
+disagreement, if one exists. This makes additional instrumented battle traces a corpus search
+problem rather than a sequence of hand-curated tactical examples.
+
 ## Development
 
 ```bash
