@@ -382,29 +382,29 @@ The fitted hosted-CPU coefficients are evidence, not portable constants. A diffe
 or changed effect signature requires its own calibration profile; GPU crossover behavior remains
 unclaimed.
 
-## POST Python native CPU experiment
+## Native damage compiler
 
-A separate experiment asks whether the exact Gen 9 damage semantics can remain readable Python
-while also compiling ahead of time to a small native CPU kernel. It uses POST Python 0.3.0 only
-as research machinery; the ordinary battle harness and simulator do not depend on it.
+The exact numeric damage formula now has one executable definition in `gen9_damage.py`. Ordinary
+CPython executes that function directly. Azelficoast's deliberately tiny native compiler extracts
+the same function and its three helpers from the Python AST, rejects syntax outside its supported
+subset, and emits standalone C99 with 64-bit intermediates and Python-compatible floor division.
 
 ```bash
-uv sync --extra simulator --extra post
-uv run python -m azelficoast.post_gen9_damage_experiment \
+uv sync --extra simulator
+uv run python -m azelficoast.native_damage_experiment \
   /tmp/showdown-gen9-damage-fixtures.json
 ```
 
-The POST source consumes the same 18-column integer context as the JAX lowering and compiles into
-a CPython extension backed by C99. The hosted treatment requires exact agreement with the scalar
-Showdown-compatible kernel and JAX over every scenario and all 16 damage rolls. It then measures
-batch sizes from one transition through 524,288 transitions, including first-call versus steady
-JAX timing, and separately measures the class-native case where 524,288 logical worlds collapse
-to the 192 Showdown damage classes.
+Hosted correctness requires the interpreted numeric function, generated native code, JAX lowering,
+and pinned Pokémon Showdown corpus to agree exactly. A transitional comparison against POST Python
+0.3.0 established that the external compiler was not necessary for this workload: with 524,288
+logical worlds represented by 192 execution classes, the owned weighted kernel measured 0.0168 ms
+versus 0.0157 ms for POST and 0.136 ms for JAX on the comparison runner. At 524,288 direct
+transitions the owned batch path was faster than the POST control in that same treatment.
 
-Performance is observational rather than an acceptance threshold. A fast result does not promote
-POST Python into the simulator by itself. The experiment is intended to discover whether a native
-CPU path is useful for the small dependency classes that remain after belief projection while
-JAX remains the accelerator-oriented backend.
+POST is therefore no longer a project dependency. The compiler remains intentionally narrow rather
+than evolving into a general Python implementation. A mechanic that needs new syntax must extend
+the supported language explicitly, with rejection tests and Showdown-backed semantic evidence.
 
 ## Development
 

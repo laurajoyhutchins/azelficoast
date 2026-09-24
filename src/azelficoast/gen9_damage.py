@@ -32,6 +32,7 @@ MOD_LIFE_ORB = 5324
 # the optional accelerator backend.
 COMPILED_ATTACK_MOD_COLUMN = 12
 COMPILED_CATEGORY_COLUMN = 17
+COMPILED_CONTEXT_WIDTH = 18
 
 
 @dataclass(frozen=True)
@@ -73,10 +74,25 @@ def showdown_modify(value: int, numerator: int, denominator: int = 1) -> int:
     return (value * modifier + 2047) // 4096
 
 
+def _kernel_modify(value: int, modifier: int) -> int:
+    return (value * modifier + 2047) // 4096
+
+
 def showdown_modify_fixed(value: int, modifier: int) -> int:
     if value < 0 or modifier < 0:
         raise DamageKernelError("fixed modifier inputs must be non-negative")
-    return (value * modifier + 2047) // 4096
+    return _kernel_modify(value, modifier)
+
+
+def _kernel_ordinary_stat(
+    base: int,
+    iv: int,
+    ev: int,
+    level: int,
+    nature_percent: int,
+) -> int:
+    stat = ((2 * base + iv + ev // 4) * level) // 100 + 5
+    return stat * nature_percent // 100
 
 
 def ordinary_stat(
@@ -96,8 +112,7 @@ def ordinary_stat(
     if nature_percent not in (90, 100, 110):
         raise DamageKernelError(f"unsupported nature modifier {nature_percent}")
 
-    stat = ((2 * base + iv + ev // 4) * level) // 100 + 5
-    return stat * nature_percent // 100
+    return _kernel_ordinary_stat(base, iv, ev, level, nature_percent)
 
 
 def attack_modifier(context: DamageContext) -> int:
@@ -154,12 +169,53 @@ def resolved_defense(context: DamageContext) -> int:
     return showdown_modify_fixed(stat, context.defender_stat_modifier)
 
 
+def _kernel_type_effectiveness(damage: int, type_mod: int) -> int:
+    factor = 1
+    if type_mod >= 0:
+        for _index in range(type_mod):
+            factor *= 2
+        return damage * factor
+    for _index in range(-type_mod):
+        factor *= 2
+    return damage // factor
+
+
 def apply_type_effectiveness(damage: int, type_mod: int) -> int:
     if not -6 <= type_mod <= 6:
         raise DamageKernelError(f"unsupported type modifier exponent {type_mod}")
-    if type_mod >= 0:
-        return damage * (1 << type_mod)
-    return damage // (1 << (-type_mod))
+    return _kernel_type_effectiveness(damage, type_mod)
+
+
+def damage_numeric(params: tuple[int, ...], roll: int) -> int:
+    """Execute the compiled numeric damage context using plain Python integer semantics."""
+    attacker_level = params[0]
+    attack = _kernel_ordinary_stat(
+        params[3],
+        params[4],
+        params[5],
+        attacker_level,
+        params[6],
+    )
+    attack = _kernel_modify(attack, params[12])
+    defense = _kernel_ordinary_stat(
+        params[7],
+        params[8],
+        params[9],
+        params[1],
+        params[10],
+    )
+    defense = _kernel_modify(defense, params[11])
+
+    result = (((2 * attacker_level) // 5 + 2) * params[2] * attack) // defense
+    result = result // 50 + 2
+    result = (result * (100 - roll)) // 100
+    result = _kernel_modify(result, params[13])
+    result = _kernel_type_effectiveness(result, params[14])
+    result = _kernel_modify(result, params[15])
+    result = _kernel_modify(result, params[16])
+    if result < 1:
+        result = 1
+    return result
 
 
 def damage(context: DamageContext, roll: int) -> int:
@@ -169,25 +225,12 @@ def damage(context: DamageContext, roll: int) -> int:
     if context.base_power <= 0:
         raise DamageKernelError("fixed positive base power is required")
 
-    attack = resolved_attack(context)
-    defense = resolved_defense(context)
-    if defense <= 0:
+    if resolved_defense(context) <= 0:
         raise DamageKernelError("defense must be positive")
 
-    level_term = (2 * context.attacker_level) // 5 + 2
-    base_damage = ((level_term * context.base_power * attack) // defense) // 50
-    base_damage += 2
-
-    # Battle.randomizer(baseDamage): floor(floor(baseDamage * (100-roll)) / 100).
-    base_damage = base_damage * (100 - roll) // 100
-
-    base_damage = showdown_modify_fixed(base_damage, stab_modifier(context))
-    base_damage = apply_type_effectiveness(base_damage, context.type_mod)
-    base_damage = showdown_modify_fixed(base_damage, burn_modifier(context))
-    base_damage = showdown_modify_fixed(base_damage, final_damage_modifier(context))
-
-    # Gen 9 minimum damage check occurs after final damage modifiers.
-    return max(1, base_damage)
+    # The numeric kernel is intentionally ordinary Python. The native compiler
+    # extracts this same function and its three helpers from this source file.
+    return damage_numeric(compile_numeric_context(context), roll)
 
 
 def compile_numeric_context(context: DamageContext) -> tuple[int, ...]:
