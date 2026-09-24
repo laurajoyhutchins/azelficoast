@@ -21,6 +21,7 @@ function parseArgs(argv) {
     controlSpecies: null,
     particles: 20000,
     alpha: 0.85,
+    seedOffset: 0,
   };
   while (args.length) {
     const flag = args.shift();
@@ -30,6 +31,7 @@ function parseArgs(argv) {
     else if (flag === "--control-species") options.controlSpecies = value;
     else if (flag === "--particles") options.particles = Number(value);
     else if (flag === "--alpha") options.alpha = Number(value);
+    else if (flag === "--seed-offset") options.seedOffset = Number(value);
     else fail(`unknown argument ${flag}`);
   }
   if (!!options.source === !!options.controlSpecies) {
@@ -41,6 +43,9 @@ function parseArgs(argv) {
   if (!(options.alpha >= 0 && options.alpha < 1)) {
     fail("--alpha must satisfy 0 <= alpha < 1");
   }
+  if (!Number.isInteger(options.seedOffset) || options.seedOffset < 0) {
+    fail("--seed-offset must be a nonnegative integer");
+  }
   return {showdownRoot, ...options};
 }
 
@@ -50,6 +55,7 @@ const {
   controlSpecies,
   particles,
   alpha,
+  seedOffset,
 } = parseArgs(process.argv.slice(2));
 
 const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
@@ -86,7 +92,7 @@ function toID(value) {
 }
 
 function seed(index) {
-  const n = index + 1;
+  const n = index + seedOffset + 1;
   return [
     n & 0xffff,
     (n * 17 + 11) & 0xffff,
@@ -98,7 +104,7 @@ function seed(index) {
 function proposalRng(index) {
   const digest = crypto
     .createHash("sha256")
-    .update(`azelficoast-team-proposal:${index}`)
+    .update(`azelficoast-team-proposal:${seedOffset + index}`)
     .digest();
   let state = digest.readUInt32LE(0) || 1;
   return () => {
@@ -471,6 +477,7 @@ const evidence = {
   control_species: controlSpecies ? toID(controlSpecies) : null,
   particles,
   proposal_alpha: alpha,
+  seed_offset: seedOffset,
   required_species: [...conditioning.required.keys()].sort(),
   event_particle_count: eventParticles.length,
   generation_error_count: generationErrors,
