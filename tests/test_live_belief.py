@@ -13,7 +13,12 @@ from azelficoast.live_belief import (
 from azelficoast.player import AzelficoastPlayer
 
 
-def _state(*, opponent_item=None, tera_type="Steel") -> dict[str, object]:
+def _state(
+    *,
+    opponent_item=None,
+    tera_type="Steel",
+    opponent_species="Zapdos-Galar",
+) -> dict[str, object]:
     return {
         "battle_tag": "battle-live",
         "player": "Azelficoast",
@@ -23,7 +28,7 @@ def _state(*, opponent_item=None, tera_type="Steel") -> dict[str, object]:
             "tera_type": tera_type,
         },
         "opponent_active": {
-            "species": "Zapdos-Galar",
+            "species": opponent_species,
             "level": 77,
             "item": opponent_item,
         },
@@ -75,6 +80,44 @@ def test_probe_source_rejects_known_opponent_item() -> None:
 
     assert source is None
     assert reason == "opponent-item-known"
+
+
+def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None:
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+            ("", "switch", "p2a: Zapdos-Galar", "Zapdos-Galar, L77", "100/100"),
+            ("", "move", "p2a: Zapdos-Galar", "U-turn", "p1a: Tinkaton"),
+            ("", "switch", "p2a: Gouging Fire", "Gouging Fire, L77", "100/100"),
+        ),
+    )
+    fixture = live_fixture(_state(opponent_species="Gouging Fire"), protocol)
+
+    source, reason = build_probe_source(fixture)
+
+    assert source is None
+    assert reason == "opponent-side-or-last-move-unresolved"
+
+
+def test_probe_source_can_reuse_current_species_move_after_switching_back() -> None:
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+            ("", "switch", "p2a: Zapdos-Galar", "Zapdos-Galar, L77", "100/100"),
+            ("", "move", "p2a: Zapdos-Galar", "U-turn", "p1a: Tinkaton"),
+            ("", "switch", "p2a: Gouging Fire", "Gouging Fire, L77", "100/100"),
+            ("", "switch", "p2a: Zapdos-Galar", "Zapdos-Galar, L77", "100/100"),
+        ),
+    )
+    fixture = live_fixture(_state(), protocol)
+
+    source, reason = build_probe_source(fixture)
+
+    assert reason == "admitted"
+    assert source is not None
+    assert source["opponent_response_move"] == "U-turn"
 
 
 def test_probe_source_recovers_current_species_tera_from_prior_public_request() -> None:
