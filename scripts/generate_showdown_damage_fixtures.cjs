@@ -24,13 +24,13 @@ const common = require(path.join(showdownRoot, "test", "common.js"));
 
 const DEFAULT_IVS = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
 
-function attackerSet(species, move, category, item = "") {
+function attackerSet(species, move, category, item = "", level = 100) {
   const physical = category === "Physical";
   return {
     species,
     ability: species === "Lucario" ? "Steadfast" : "Synchronize",
     item,
-    level: 100,
+    level,
     nature: physical ? "Adamant" : "Modest",
     evs: {
       hp: 0,
@@ -45,7 +45,7 @@ function attackerSet(species, move, category, item = "") {
   };
 }
 
-function defenderSet(species, category) {
+function defenderSet(species, category, level = 100) {
   const physical = category === "Physical";
   const ability = species === "Lapras" ? "Shell Armor" :
     species === "Blastoise" ? "Torrent" : "Synchronize";
@@ -53,7 +53,7 @@ function defenderSet(species, category) {
     species,
     ability,
     item: "",
-    level: 100,
+    level,
     nature: physical ? "Bold" : "Calm",
     evs: {
       hp: 252,
@@ -69,7 +69,14 @@ function defenderSet(species, category) {
 }
 
 const SCENARIOS = [
-  {id: "mew-aura-lapras", attacker: "Mew", defender: "Lapras", move: "Aura Sphere"},
+  {
+    id: "mew-aura-lapras",
+    attacker: "Mew",
+    defender: "Lapras",
+    move: "Aura Sphere",
+    attackerLevel: 78,
+    defenderLevel: 88,
+  },
   {id: "lucario-aura-lapras", attacker: "Lucario", defender: "Lapras", move: "Aura Sphere"},
   {
     id: "mew-tera-fighting-aura-lapras",
@@ -110,6 +117,8 @@ const SCENARIOS = [
     attacker: "Lucario",
     defender: "Blastoise",
     move: "Aura Sphere",
+    attackerLevel: 82,
+    defenderLevel: 74,
   },
   {
     id: "lucario-closecombat-lapras",
@@ -150,8 +159,16 @@ function runScenario(scenario) {
   const battle = common.createBattle(
     {preview: false, seed: [11, 22, 33, 44]},
     [
-      [attackerSet(scenario.attacker, scenario.move, category, scenario.item || "")],
-      [defenderSet(scenario.defender, category)],
+      [
+        attackerSet(
+          scenario.attacker,
+          scenario.move,
+          category,
+          scenario.item || "",
+          scenario.attackerLevel || 100
+        ),
+      ],
+      [defenderSet(scenario.defender, category, scenario.defenderLevel || 100)],
     ]
   );
 
@@ -169,7 +186,8 @@ function runScenario(scenario) {
   const typeMod = target.runEffectiveness(moveForContext);
 
   const context = {
-    level: source.level,
+    attacker_level: source.level,
+    defender_level: target.level,
     base_power: moveForContext.basePower,
     category,
     move_id: moveForContext.id,

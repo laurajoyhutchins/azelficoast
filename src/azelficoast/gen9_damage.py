@@ -28,7 +28,8 @@ MOD_LIFE_ORB = 5324
 
 @dataclass(frozen=True)
 class DamageContext:
-    level: int
+    attacker_level: int
+    defender_level: int
     base_power: int
     category: Category
     move_id: str
@@ -127,7 +128,7 @@ def resolved_attack(context: DamageContext) -> int:
         context.attacker_base_stat,
         context.attacker_iv,
         context.attacker_ev,
-        context.level,
+        context.attacker_level,
         context.attacker_nature_percent,
     )
     return showdown_modify_fixed(stat, attack_modifier(context))
@@ -138,7 +139,7 @@ def resolved_defense(context: DamageContext) -> int:
         context.defender_base_stat,
         context.defender_iv,
         context.defender_ev,
-        context.level,
+        context.defender_level,
         context.defender_nature_percent,
     )
 
@@ -163,7 +164,7 @@ def damage(context: DamageContext, roll: int) -> int:
     if defense <= 0:
         raise DamageKernelError("defense must be positive")
 
-    level_term = (2 * context.level) // 5 + 2
+    level_term = (2 * context.attacker_level) // 5 + 2
     base_damage = ((level_term * context.base_power * attack) // defense) // 50
     base_damage += 2
 
@@ -183,7 +184,8 @@ def compile_numeric_context(context: DamageContext) -> tuple[int, ...]:
     """Lower semantic context into the integer columns consumed by the JAX kernel."""
     category_code = 1 if context.category == "Physical" else 2
     return (
-        context.level,
+        context.attacker_level,
+        context.defender_level,
         context.base_power,
         context.attacker_base_stat,
         context.attacker_iv,

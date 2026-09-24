@@ -14,7 +14,8 @@ from azelficoast.jax_gen9_damage import contexts_to_array, damage_batch
 def _contexts() -> tuple[DamageContext, ...]:
     return (
         DamageContext(
-            level=100,
+            attacker_level=100,
+            defender_level=100,
             base_power=80,
             category="Special",
             move_id="aurasphere",
@@ -34,7 +35,8 @@ def _contexts() -> tuple[DamageContext, ...]:
             burned=False,
         ),
         DamageContext(
-            level=100,
+            attacker_level=100,
+            defender_level=100,
             base_power=120,
             category="Physical",
             move_id="closecombat",

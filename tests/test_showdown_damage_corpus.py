@@ -24,7 +24,8 @@ def _fixture(
     from azelficoast.gen9_damage import DamageContext, damage
 
     context = DamageContext(
-        level=100,
+        attacker_level=100,
+        defender_level=100,
         base_power=120 if burned else 80,
         category="Physical" if burned else "Special",
         move_id="closecombat" if burned else "aurasphere",
@@ -44,7 +45,8 @@ def _fixture(
         burned=burned,
     )
     raw = {
-        "level": context.level,
+        "attacker_level": context.attacker_level,
+        "defender_level": context.defender_level,
         "base_power": context.base_power,
         "category": context.category,
         "move_id": context.move_id,

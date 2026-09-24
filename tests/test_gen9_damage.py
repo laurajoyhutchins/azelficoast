@@ -20,7 +20,8 @@ from azelficoast.gen9_damage import (
 
 def _context(**overrides: object) -> DamageContext:
     values: dict[str, object] = {
-        "level": 100,
+        "attacker_level": 100,
+        "defender_level": 100,
         "base_power": 80,
         "category": "Special",
         "move_id": "aurasphere",
@@ -97,3 +98,12 @@ def test_item_and_burn_modifiers_change_damage() -> None:
 def test_stellar_is_explicitly_outside_scope() -> None:
     with pytest.raises(DamageKernelError, match="Stellar"):
         stab_modifier(replace(_context(), tera_type="Stellar"))
+
+
+def test_attacker_and_defender_levels_are_independent() -> None:
+    baseline = _context(attacker_level=78, defender_level=88)
+    stronger_defender = _context(attacker_level=78, defender_level=100)
+    stronger_attacker = _context(attacker_level=100, defender_level=88)
+
+    assert damage(stronger_defender, 7) < damage(baseline, 7)
+    assert damage(stronger_attacker, 7) > damage(baseline, 7)

@@ -31,7 +31,8 @@ def _context(raw: Mapping[str, Any]) -> DamageContext:
         raise ShowdownDamageCorpusError(f"unsupported category {category!r}")
 
     return DamageContext(
-        level=int(raw["level"]),
+        attacker_level=int(raw["attacker_level"]),
+        defender_level=int(raw["defender_level"]),
         base_power=int(raw["base_power"]),
         category=category,  # type: ignore[arg-type]
         move_id=str(raw["move_id"]),

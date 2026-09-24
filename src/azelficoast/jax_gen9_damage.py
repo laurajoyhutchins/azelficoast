@@ -10,23 +10,24 @@ import numpy as np
 
 from azelficoast.gen9_damage import DamageContext, compile_numeric_context
 
-LEVEL = 0
-BASE_POWER = 1
-ATTACK_BASE = 2
-ATTACK_IV = 3
-ATTACK_EV = 4
-ATTACK_NATURE = 5
-DEFENSE_BASE = 6
-DEFENSE_IV = 7
-DEFENSE_EV = 8
-DEFENSE_NATURE = 9
-ATTACK_MOD = 10
-STAB_MOD = 11
-TYPE_MOD = 12
-BURN_MOD = 13
-FINAL_MOD = 14
-CATEGORY = 15
-PARAM_WIDTH = 16
+ATTACKER_LEVEL = 0
+DEFENDER_LEVEL = 1
+BASE_POWER = 2
+ATTACK_BASE = 3
+ATTACK_IV = 4
+ATTACK_EV = 5
+ATTACK_NATURE = 6
+DEFENSE_BASE = 7
+DEFENSE_IV = 8
+DEFENSE_EV = 9
+DEFENSE_NATURE = 10
+ATTACK_MOD = 11
+STAB_MOD = 12
+TYPE_MOD = 13
+BURN_MOD = 14
+FINAL_MOD = 15
+CATEGORY = 16
+PARAM_WIDTH = 17
 
 
 def contexts_to_array(contexts: Sequence[DamageContext]) -> jax.Array:
@@ -60,12 +61,13 @@ def _ordinary_stat(
 
 @jax.jit
 def damage_batch(params: jax.Array, rolls: jax.Array) -> jax.Array:
-    level = params[:, LEVEL]
+    attacker_level = params[:, ATTACKER_LEVEL]
+    defender_level = params[:, DEFENDER_LEVEL]
     attack = _ordinary_stat(
         params[:, ATTACK_BASE],
         params[:, ATTACK_IV],
         params[:, ATTACK_EV],
-        level,
+        attacker_level,
         params[:, ATTACK_NATURE],
     )
     attack = _modify(attack, params[:, ATTACK_MOD])
@@ -73,11 +75,11 @@ def damage_batch(params: jax.Array, rolls: jax.Array) -> jax.Array:
         params[:, DEFENSE_BASE],
         params[:, DEFENSE_IV],
         params[:, DEFENSE_EV],
-        level,
+        defender_level,
         params[:, DEFENSE_NATURE],
     )
 
-    base = (((2 * level) // 5 + 2) * params[:, BASE_POWER] * attack) // defense
+    base = (((2 * attacker_level) // 5 + 2) * params[:, BASE_POWER] * attack) // defense
     base = base // 50 + 2
     base = (base * (100 - rolls)) // 100
     base = _modify(base, params[:, STAB_MOD])
