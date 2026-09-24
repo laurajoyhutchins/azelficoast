@@ -155,6 +155,49 @@ def test_control_action_is_evidence_not_fixture_identity(tmp_path) -> None:
     }
 
 
+def test_transport_timestamps_do_not_change_fixture_identity(tmp_path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    records = []
+    for run, timestamp in (("a", "100"), ("b", "200")):
+        records.extend(
+            [
+                _record(
+                    run=run,
+                    event=0,
+                    kind="protocol",
+                    room="battle-gen9randombattle-test",
+                    protocol_index=0,
+                    messages=[
+                        ["", "t:", timestamp],
+                        ["", "turn", "4"],
+                    ],
+                ),
+                _record(
+                    run=run,
+                    event=1,
+                    kind="decision",
+                    battle_tag="battle-gen9randombattle-test",
+                    decision_index=0,
+                    state=_state(),
+                    chosen_action="/choose move thunderbolt",
+                ),
+            ]
+        )
+    _write_trace(trace, records)
+
+    [fixture] = build_fixtures([trace])
+
+    assert len(fixture.control_decisions) == 2
+    fields = [
+        field
+        for batch in fixture.protocol_prefix
+        for message in batch
+        for field in message
+    ]
+    assert "100" not in fields
+    assert "200" not in fields
+
+
 def test_public_history_is_part_of_fixture_identity(tmp_path) -> None:
     trace = tmp_path / "trace.jsonl"
     records = []
