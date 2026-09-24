@@ -11,55 +11,248 @@
   "fixture_id": "90322c79fa3101b1dc66bcd7554888d37b1e1d9da112e09746e2082278525664",
   "protocol_prefix": [
     [
-      ["","switch","p1a: Dachsbun","Dachsbun, L92, F","254/254"],
-      ["","switch","p2a: Arceus","Arceus, L68","100/100"],
-      ["","turn","1"]
+      [
+        "",
+        "switch",
+        "p1a: Dachsbun",
+        "Dachsbun, L92, F",
+        "254/254"
+      ],
+      [
+        "",
+        "switch",
+        "p2a: Arceus",
+        "Arceus, L68",
+        "100/100"
+      ],
+      [
+        "",
+        "turn",
+        "1"
+      ]
     ],
     [
-      ["","move","p2a: Arceus","Extreme Speed","p1a: Dachsbun"],
-      ["","-damage","p1a: Dachsbun","192/254"],
-      ["","-damage","p2a: Arceus","91/100","[from] item: Life Orb"],
-      ["","move","p1a: Dachsbun","Play Rough","p2a: Arceus"],
-      ["","-damage","p2a: Arceus","59/100"],
-      ["","-heal","p1a: Dachsbun","207/254","[from] item: Leftovers"],
-      ["","turn","2"]
+      [
+        "",
+        "move",
+        "p2a: Arceus",
+        "Extreme Speed",
+        "p1a: Dachsbun"
+      ],
+      [
+        "",
+        "-damage",
+        "p1a: Dachsbun",
+        "192/254"
+      ],
+      [
+        "",
+        "-damage",
+        "p2a: Arceus",
+        "91/100",
+        "[from] item: Life Orb"
+      ],
+      [
+        "",
+        "move",
+        "p1a: Dachsbun",
+        "Play Rough",
+        "p2a: Arceus"
+      ],
+      [
+        "",
+        "-damage",
+        "p2a: Arceus",
+        "59/100"
+      ],
+      [
+        "",
+        "-heal",
+        "p1a: Dachsbun",
+        "207/254",
+        "[from] item: Leftovers"
+      ],
+      [
+        "",
+        "turn",
+        "2"
+      ]
     ],
     [
-      ["","move","p2a: Arceus","Extreme Speed","p1a: Dachsbun"],
-      ["","-damage","p1a: Dachsbun","113/254"],
-      ["","-damage","p2a: Arceus","49/100","[from] item: Life Orb"],
-      ["","move","p1a: Dachsbun","Play Rough","p2a: Arceus"],
-      ["","-damage","p2a: Arceus","16/100"],
-      ["","-heal","p1a: Dachsbun","128/254","[from] item: Leftovers"],
-      ["","turn","3"]
+      [
+        "",
+        "move",
+        "p2a: Arceus",
+        "Extreme Speed",
+        "p1a: Dachsbun"
+      ],
+      [
+        "",
+        "-damage",
+        "p1a: Dachsbun",
+        "113/254"
+      ],
+      [
+        "",
+        "-damage",
+        "p2a: Arceus",
+        "49/100",
+        "[from] item: Life Orb"
+      ],
+      [
+        "",
+        "move",
+        "p1a: Dachsbun",
+        "Play Rough",
+        "p2a: Arceus"
+      ],
+      [
+        "",
+        "-damage",
+        "p2a: Arceus",
+        "16/100"
+      ],
+      [
+        "",
+        "-heal",
+        "p1a: Dachsbun",
+        "128/254",
+        "[from] item: Leftovers"
+      ],
+      [
+        "",
+        "turn",
+        "3"
+      ]
     ],
     [
-      ["","move","p1a: Dachsbun","Play Rough","p2a: Arceus"],
-      ["","-damage","p2a: Arceus","0 fnt"],
-      ["","faint","p2a: Arceus"],
-      ["","-heal","p1a: Dachsbun","143/254","[from] item: Leftovers"]
+      [
+        "",
+        "move",
+        "p1a: Dachsbun",
+        "Play Rough",
+        "p2a: Arceus"
+      ],
+      [
+        "",
+        "-damage",
+        "p2a: Arceus",
+        "0 fnt"
+      ],
+      [
+        "",
+        "faint",
+        "p2a: Arceus"
+      ],
+      [
+        "",
+        "-heal",
+        "p1a: Dachsbun",
+        "143/254",
+        "[from] item: Leftovers"
+      ]
     ],
     [
-      ["","switch","p2a: Grafaiai","Grafaiai, L86, M","100/100"],
-      ["","turn","4"]
+      [
+        "",
+        "switch",
+        "p2a: Grafaiai",
+        "Grafaiai, L86, M",
+        "100/100"
+      ],
+      [
+        "",
+        "turn",
+        "4"
+      ]
     ],
     [
-      ["","move","p2a: Grafaiai","Parting Shot","p1a: Dachsbun"],
-      ["","-unboost","p1a: Dachsbun","atk","1"],
-      ["","-unboost","p1a: Dachsbun","spa","1"]
+      [
+        "",
+        "move",
+        "p2a: Grafaiai",
+        "Parting Shot",
+        "p1a: Dachsbun"
+      ],
+      [
+        "",
+        "-unboost",
+        "p1a: Dachsbun",
+        "atk",
+        "1"
+      ],
+      [
+        "",
+        "-unboost",
+        "p1a: Dachsbun",
+        "spa",
+        "1"
+      ]
     ],
     [
-      ["","switch","p2a: Typhlosion","Typhlosion, L84, F","100/100","[from] Parting Shot"],
-      ["","move","p1a: Dachsbun","Play Rough","p2a: Typhlosion"],
-      ["","-damage","p2a: Typhlosion","88/100"],
-      ["","-heal","p1a: Dachsbun","158/254","[from] item: Leftovers"],
-      ["","turn","5"]
+      [
+        "",
+        "switch",
+        "p2a: Typhlosion",
+        "Typhlosion, L84, F",
+        "100/100",
+        "[from] Parting Shot"
+      ],
+      [
+        "",
+        "move",
+        "p1a: Dachsbun",
+        "Play Rough",
+        "p2a: Typhlosion"
+      ],
+      [
+        "",
+        "-damage",
+        "p2a: Typhlosion",
+        "88/100"
+      ],
+      [
+        "",
+        "-heal",
+        "p1a: Dachsbun",
+        "158/254",
+        "[from] item: Leftovers"
+      ],
+      [
+        "",
+        "turn",
+        "5"
+      ]
     ],
     [
-      ["","move","p2a: Typhlosion","Focus Blast","p1a: Dachsbun","[miss]"],
-      ["","move","p1a: Dachsbun","Play Rough","p2a: Typhlosion","[miss]"],
-      ["","-heal","p1a: Dachsbun","173/254","[from] item: Leftovers"],
-      ["","turn","6"]
+      [
+        "",
+        "move",
+        "p2a: Typhlosion",
+        "Focus Blast",
+        "p1a: Dachsbun",
+        "[miss]"
+      ],
+      [
+        "",
+        "move",
+        "p1a: Dachsbun",
+        "Play Rough",
+        "p2a: Typhlosion",
+        "[miss]"
+      ],
+      [
+        "",
+        "-heal",
+        "p1a: Dachsbun",
+        "173/254",
+        "[from] item: Leftovers"
+      ],
+      [
+        "",
+        "turn",
+        "6"
+      ]
     ]
   ],
   "schema": "azelficoast.real-belief-source-fixture",
@@ -74,21 +267,50 @@
     "active": {
       "ability": "wellbakedbody",
       "active": true,
-      "base_stats": {"atk":80,"def":115,"hp":57,"spa":50,"spd":80,"spe":95},
-      "boosts": {"accuracy":0,"atk":-1,"def":0,"evasion":0,"spa":-1,"spd":0,"spe":0},
+      "base_stats": {
+        "atk": 80,
+        "def": 115,
+        "hp": 57,
+        "spa": 50,
+        "spd": 80,
+        "spe": 95
+      },
+      "boosts": {
+        "accuracy": 0,
+        "atk": -1,
+        "def": 0,
+        "evasion": 0,
+        "spa": -1,
+        "spd": 0,
+        "spe": 0
+      },
       "current_hp": 173,
       "fainted": false,
       "hp_fraction": 0.6811023622047244,
       "item": "leftovers",
       "level": 92,
       "max_hp": 254,
-      "moves": ["playrough","protect","wish","yawn"],
+      "moves": [
+        "playrough",
+        "protect",
+        "wish",
+        "yawn"
+      ],
       "species": "dachsbun",
-      "stats": {"atk":200,"def":264,"hp":254,"spa":144,"spd":200,"spe":227},
+      "stats": {
+        "atk": 200,
+        "def": 264,
+        "hp": 254,
+        "spa": 144,
+        "spd": 200,
+        "spe": 227
+      },
       "status": null,
       "tera_type": null,
       "transformed": false,
-      "types": ["FAIRY"]
+      "types": [
+        "FAIRY"
+      ]
     },
     "legal_actions": [
       "/choose switch Cetitan",
@@ -108,78 +330,344 @@
     "opponent_active": {
       "ability": null,
       "active": true,
-      "base_stats": {"atk":84,"def":78,"hp":78,"spa":109,"spd":85,"spe":100},
-      "boosts": {"accuracy":0,"atk":0,"def":0,"evasion":0,"spa":0,"spd":0,"spe":0},
+      "base_stats": {
+        "atk": 84,
+        "def": 78,
+        "hp": 78,
+        "spa": 109,
+        "spd": 85,
+        "spe": 100
+      },
+      "boosts": {
+        "accuracy": 0,
+        "atk": 0,
+        "def": 0,
+        "evasion": 0,
+        "spa": 0,
+        "spd": 0,
+        "spe": 0
+      },
       "current_hp": 88,
       "fainted": false,
       "hp_fraction": 0.88,
       "item": null,
       "level": 84,
       "max_hp": 100,
-      "moves": ["focusblast"],
+      "moves": [
+        "focusblast"
+      ],
       "species": "typhlosion",
-      "stats": {"atk":null,"def":null,"hp":null,"spa":null,"spd":null,"spe":null},
+      "stats": {
+        "atk": null,
+        "def": null,
+        "hp": null,
+        "spa": null,
+        "spd": null,
+        "spe": null
+      },
       "status": null,
       "tera_type": null,
       "transformed": false,
-      "types": ["FIRE"]
+      "types": [
+        "FIRE"
+      ]
     },
     "team": {
       "p1: Cetitan": {
-        "ability":"sheerforce","active":false,
-        "base_stats":{"atk":113,"def":65,"hp":170,"spa":45,"spd":55,"spe":73},
-        "boosts":{"accuracy":0,"atk":0,"def":0,"evasion":0,"spa":0,"spd":0,"spe":0},
-        "current_hp":413,"fainted":false,"hp_fraction":1.0,"item":"lifeorb","level":82,"max_hp":413,
-        "moves":["iceshard","iciclecrash","liquidation","superpower"],"species":"cetitan",
-        "stats":{"atk":232,"def":154,"hp":413,"spa":121,"spd":137,"spe":167},
-        "status":null,"tera_type":null,"transformed":false,"types":["ICE"]
+        "ability": "sheerforce",
+        "active": false,
+        "base_stats": {
+          "atk": 113,
+          "def": 65,
+          "hp": 170,
+          "spa": 45,
+          "spd": 55,
+          "spe": 73
+        },
+        "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+        },
+        "current_hp": 413,
+        "fainted": false,
+        "hp_fraction": 1,
+        "item": "lifeorb",
+        "level": 82,
+        "max_hp": 413,
+        "moves": [
+          "iceshard",
+          "iciclecrash",
+          "liquidation",
+          "superpower"
+        ],
+        "species": "cetitan",
+        "stats": {
+          "atk": 232,
+          "def": 154,
+          "hp": 413,
+          "spa": 121,
+          "spd": 137,
+          "spe": 167
+        },
+        "status": null,
+        "tera_type": null,
+        "transformed": false,
+        "types": [
+          "ICE"
+        ]
       },
       "p1: Chansey": {
-        "ability":"naturalcure","active":false,
-        "base_stats":{"atk":5,"def":5,"hp":250,"spa":35,"spd":105,"spe":50},
-        "boosts":{"accuracy":0,"atk":0,"def":0,"evasion":0,"spa":0,"spd":0,"spe":0},
-        "current_hp":564,"fainted":false,"hp_fraction":1.0,"item":"eviolite","level":85,"max_hp":564,
-        "moves":["healbell","seismictoss","softboiled","thunderwave"],"species":"chansey",
-        "stats":{"atk":13,"def":57,"hp":564,"spa":108,"spd":227,"spe":134},
-        "status":null,"tera_type":null,"transformed":false,"types":["NORMAL"]
+        "ability": "naturalcure",
+        "active": false,
+        "base_stats": {
+          "atk": 5,
+          "def": 5,
+          "hp": 250,
+          "spa": 35,
+          "spd": 105,
+          "spe": 50
+        },
+        "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+        },
+        "current_hp": 564,
+        "fainted": false,
+        "hp_fraction": 1,
+        "item": "eviolite",
+        "level": 85,
+        "max_hp": 564,
+        "moves": [
+          "healbell",
+          "seismictoss",
+          "softboiled",
+          "thunderwave"
+        ],
+        "species": "chansey",
+        "stats": {
+          "atk": 13,
+          "def": 57,
+          "hp": 564,
+          "spa": 108,
+          "spd": 227,
+          "spe": 134
+        },
+        "status": null,
+        "tera_type": null,
+        "transformed": false,
+        "types": [
+          "NORMAL"
+        ]
       },
       "p1: Dachsbun": {
-        "ability":"wellbakedbody","active":true,
-        "base_stats":{"atk":80,"def":115,"hp":57,"spa":50,"spd":80,"spe":95},
-        "boosts":{"accuracy":0,"atk":-1,"def":0,"evasion":0,"spa":-1,"spd":0,"spe":0},
-        "current_hp":173,"fainted":false,"hp_fraction":0.6811023622047244,"item":"leftovers","level":92,"max_hp":254,
-        "moves":["playrough","protect","wish","yawn"],"species":"dachsbun",
-        "stats":{"atk":200,"def":264,"hp":254,"spa":144,"spd":200,"spe":227},
-        "status":null,"tera_type":null,"transformed":false,"types":["FAIRY"]
+        "ability": "wellbakedbody",
+        "active": true,
+        "base_stats": {
+          "atk": 80,
+          "def": 115,
+          "hp": 57,
+          "spa": 50,
+          "spd": 80,
+          "spe": 95
+        },
+        "boosts": {
+          "accuracy": 0,
+          "atk": -1,
+          "def": 0,
+          "evasion": 0,
+          "spa": -1,
+          "spd": 0,
+          "spe": 0
+        },
+        "current_hp": 173,
+        "fainted": false,
+        "hp_fraction": 0.6811023622047244,
+        "item": "leftovers",
+        "level": 92,
+        "max_hp": 254,
+        "moves": [
+          "playrough",
+          "protect",
+          "wish",
+          "yawn"
+        ],
+        "species": "dachsbun",
+        "stats": {
+          "atk": 200,
+          "def": 264,
+          "hp": 254,
+          "spa": 144,
+          "spd": 200,
+          "spe": 227
+        },
+        "status": null,
+        "tera_type": null,
+        "transformed": false,
+        "types": [
+          "FAIRY"
+        ]
       },
       "p1: Golduck": {
-        "ability":"cloudnine","active":false,
-        "base_stats":{"atk":82,"def":78,"hp":80,"spa":95,"spd":80,"spe":85},
-        "boosts":{"accuracy":0,"atk":0,"def":0,"evasion":0,"spa":0,"spd":0,"spe":0},
-        "current_hp":290,"fainted":false,"hp_fraction":1.0,"item":"choicespecs","level":90,"max_hp":290,
-        "moves":["flipturn","grassknot","hydropump","icebeam"],"species":"golduck",
-        "stats":{"atk":199,"def":192,"hp":290,"spa":222,"spd":195,"spe":204},
-        "status":null,"tera_type":null,"transformed":false,"types":["WATER"]
+        "ability": "cloudnine",
+        "active": false,
+        "base_stats": {
+          "atk": 82,
+          "def": 78,
+          "hp": 80,
+          "spa": 95,
+          "spd": 80,
+          "spe": 85
+        },
+        "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+        },
+        "current_hp": 290,
+        "fainted": false,
+        "hp_fraction": 1,
+        "item": "choicespecs",
+        "level": 90,
+        "max_hp": 290,
+        "moves": [
+          "flipturn",
+          "grassknot",
+          "hydropump",
+          "icebeam"
+        ],
+        "species": "golduck",
+        "stats": {
+          "atk": 199,
+          "def": 192,
+          "hp": 290,
+          "spa": 222,
+          "spd": 195,
+          "spe": 204
+        },
+        "status": null,
+        "tera_type": null,
+        "transformed": false,
+        "types": [
+          "WATER"
+        ]
       },
       "p1: Hawlucha": {
-        "ability":"unburden","active":false,
-        "base_stats":{"atk":92,"def":75,"hp":78,"spa":74,"spd":63,"spe":118},
-        "boosts":{"accuracy":0,"atk":0,"def":0,"evasion":0,"spa":0,"spd":0,"spe":0},
-        "current_hp":256,"fainted":false,"hp_fraction":1.0,"item":"whiteherb","level":80,"max_hp":256,
-        "moves":["acrobatics","bravebird","closecombat","swordsdance"],"species":"hawlucha",
-        "stats":{"atk":193,"def":166,"hp":256,"spa":165,"spd":147,"spe":235},
-        "status":null,"tera_type":null,"transformed":false,"types":["FIGHTING","FLYING"]
+        "ability": "unburden",
+        "active": false,
+        "base_stats": {
+          "atk": 92,
+          "def": 75,
+          "hp": 78,
+          "spa": 74,
+          "spd": 63,
+          "spe": 118
+        },
+        "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+        },
+        "current_hp": 256,
+        "fainted": false,
+        "hp_fraction": 1,
+        "item": "whiteherb",
+        "level": 80,
+        "max_hp": 256,
+        "moves": [
+          "acrobatics",
+          "bravebird",
+          "closecombat",
+          "swordsdance"
+        ],
+        "species": "hawlucha",
+        "stats": {
+          "atk": 193,
+          "def": 166,
+          "hp": 256,
+          "spa": 165,
+          "spd": 147,
+          "spe": 235
+        },
+        "status": null,
+        "tera_type": null,
+        "transformed": false,
+        "types": [
+          "FIGHTING",
+          "FLYING"
+        ]
       },
       "p1: Whiscash": {
-        "ability":"oblivious","active":false,
-        "base_stats":{"atk":78,"def":73,"hp":110,"spa":76,"spd":71,"spe":60},
-        "boosts":{"accuracy":0,"atk":0,"def":0,"evasion":0,"spa":0,"spd":0,"spe":0},
-        "current_hp":337,"fainted":false,"hp_fraction":1.0,"item":"leftovers","level":88,"max_hp":337,
-        "moves":["earthquake","icebeam","spikes","stealthrock"],"species":"whiscash",
-        "stats":{"atk":188,"def":179,"hp":337,"spa":184,"spd":175,"spe":156},
-        "status":null,"tera_type":null,"transformed":false,"types":["WATER","GROUND"]
+        "ability": "oblivious",
+        "active": false,
+        "base_stats": {
+          "atk": 78,
+          "def": 73,
+          "hp": 110,
+          "spa": 76,
+          "spd": 71,
+          "spe": 60
+        },
+        "boosts": {
+          "accuracy": 0,
+          "atk": 0,
+          "def": 0,
+          "evasion": 0,
+          "spa": 0,
+          "spd": 0,
+          "spe": 0
+        },
+        "current_hp": 337,
+        "fainted": false,
+        "hp_fraction": 1,
+        "item": "leftovers",
+        "level": 88,
+        "max_hp": 337,
+        "moves": [
+          "earthquake",
+          "icebeam",
+          "spikes",
+          "stealthrock"
+        ],
+        "species": "whiscash",
+        "stats": {
+          "atk": 188,
+          "def": 179,
+          "hp": 337,
+          "spa": 184,
+          "spd": 175,
+          "spe": 156
+        },
+        "status": null,
+        "tera_type": null,
+        "transformed": false,
+        "types": [
+          "WATER",
+          "GROUND"
+        ]
       }
     },
     "turn": 6
-  }
+  },
+  "plausible_items": [
+    "Choice Scarf",
+    "Choice Specs"
+  ]
 }
