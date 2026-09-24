@@ -1,4 +1,4 @@
-"""Run Azelficoast against local or official Pokemon Showdown opponents."""
+"""Run Azelficoast battle and offline evaluation workflows."""
 
 from __future__ import annotations
 
@@ -13,12 +13,14 @@ from typing import Sequence
 from poke_env import AccountConfiguration, ShowdownServerConfiguration
 from poke_env.player import Player, RandomPlayer
 
+from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.player import AzelficoastPlayer
 
 BATTLE_FORMAT = "gen9randombattle"
 DEFAULT_RESULTS = Path("artifacts/results.jsonl")
 DEFAULT_DECISIONS = Path("artifacts/decisions.jsonl")
 DEFAULT_REPLAYS = Path("artifacts/replays")
+DEFAULT_CORPUS = Path("artifacts/corpus.jsonl")
 
 
 def _positive_int(value: str) -> int:
@@ -84,6 +86,35 @@ def _build_parser() -> argparse.ArgumentParser:
     ladder.add_argument(
         "--username",
         help="Showdown account name; defaults to SHOWDOWN_USERNAME",
+    )
+
+    corpus = subparsers.add_parser(
+        "corpus",
+        help="build or evaluate replayable frozen decision fixtures",
+    )
+    corpus_commands = corpus.add_subparsers(dest="corpus_command", required=True)
+
+    corpus_build = corpus_commands.add_parser(
+        "build",
+        help="extract immutable fixtures from one or more decision traces",
+    )
+    corpus_build.add_argument("traces", nargs="+", type=Path)
+    corpus_build.add_argument("--output", type=Path, default=DEFAULT_CORPUS)
+
+    corpus_evaluate = corpus_commands.add_parser(
+        "evaluate",
+        help="run a deterministic policy over every frozen fixture",
+    )
+    corpus_evaluate.add_argument("corpus_path", type=Path)
+    corpus_evaluate.add_argument(
+        "--policy",
+        choices=sorted(BUILTIN_POLICIES),
+        required=True,
+    )
+    corpus_evaluate.add_argument(
+        "--output",
+        type=Path,
+        help="optional JSONL file for per-fixture evaluation results",
     )
 
     return parser
@@ -209,11 +240,24 @@ async def _async_main(args: argparse.Namespace) -> None:
         await _run_live(args)
 
 
+def _run_corpus(args: argparse.Namespace) -> None:
+    if args.corpus_command == "build":
+        summary = build_corpus(args.traces, args.output)
+    elif args.corpus_command == "evaluate":
+        summary = evaluate_corpus(args.corpus_path, args.policy, args.output)
+    else:
+        raise AssertionError(f"unsupported corpus command: {args.corpus_command}")
+    print(json.dumps(summary, sort_keys=True))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        asyncio.run(_async_main(args))
+        if args.command == "corpus":
+            _run_corpus(args)
+        else:
+            asyncio.run(_async_main(args))
     except ValueError as error:
         parser.error(str(error))
     return 0
