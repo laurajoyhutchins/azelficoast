@@ -65,6 +65,7 @@ def _write_trace(
     state = _state(item=item)
     records = [
         _record(
+            run=run,
             event=0,
             kind="protocol",
             room="battle-coverage",
@@ -76,6 +77,7 @@ def _write_trace(
             ],
         ),
         _record(
+            run=run,
             event=1,
             kind="decision",
             battle_tag="battle-coverage",
@@ -143,7 +145,6 @@ def test_coverage_handles_legacy_trace_without_decision_metadata(tmp_path) -> No
     state = _state()
     records = [
         _record(
-            run=run,
             event=0,
             kind="protocol",
             room="battle-coverage",
@@ -155,7 +156,6 @@ def test_coverage_handles_legacy_trace_without_decision_metadata(tmp_path) -> No
             ],
         ),
         _record(
-            run=run,
             event=1,
             kind="decision",
             battle_tag="battle-coverage",
