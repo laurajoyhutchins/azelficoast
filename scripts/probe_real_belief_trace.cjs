@@ -257,10 +257,35 @@ function opponentSet(world) {
 }
 
 function opponentBenchSet() {
-  const species = OPPONENT_BENCH_SPECIES;
+  const speciesName = OPPONENT_BENCH_SPECIES;
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   generator.setSeed([0, 0, 0, 0]);
-  return generator.randomSet(toID(species), {}, false, false);
+
+  const requested = generator.dex.species.get(speciesName);
+  if (!requested.exists) fail(`unknown opponent bench species ${speciesName}`);
+
+  if (generator.randomSets[requested.id]) {
+    return generator.randomSet(requested, {}, false, false);
+  }
+
+  const base = generator.dex.species.get(requested.baseSpecies);
+  if (!base.exists || !generator.randomSets[base.id]) {
+    fail(`no random-set data for opponent bench ${speciesName}`);
+  }
+
+  const sameBattleData =
+    JSON.stringify(requested.baseStats) === JSON.stringify(base.baseStats) &&
+    JSON.stringify(requested.types) === JSON.stringify(base.types) &&
+    JSON.stringify(requested.abilities) === JSON.stringify(base.abilities);
+  if (!sameBattleData) {
+    fail(
+      `opponent bench forme ${speciesName} lacks exact random-set data and is not cosmetic`
+    );
+  }
+
+  const set = generator.randomSet(base, {}, false, false);
+  set.species = requested.name;
+  return set;
 }
 
 const ownState = fixture.state.team;
