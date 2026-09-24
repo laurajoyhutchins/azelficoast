@@ -15,6 +15,8 @@ from typing import Any, Mapping, Sequence
 
 SCHEMA = "azelficoast.real-belief-transition-oracle"
 SCHEMA_VERSION = 1
+RESULT_SCHEMA = "azelficoast.real-belief-decision-trace"
+RESULT_SCHEMA_VERSION = 3
 
 
 class BeliefTraceError(ValueError):
@@ -389,8 +391,8 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
     )
 
     return {
-        "schema": "azelficoast.real-belief-decision-trace",
-        "schema_version": 2,
+        "schema": RESULT_SCHEMA,
+        "schema_version": RESULT_SCHEMA_VERSION,
         "source_fixture_id": document.get("source_fixture_id"),
         "showdown_commit": document.get("showdown_commit"),
         "world_count": len(worlds),
