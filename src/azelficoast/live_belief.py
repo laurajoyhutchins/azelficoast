@@ -85,9 +85,21 @@ def _to_id(value: Any) -> str:
 
 
 def opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
-    """Return the latest publicly observed opponent move for either Showdown side."""
+    """Return the latest observed move belonging to the current opponent active.
+
+    A move made before an opponent switch must not become the bounded response
+    policy for the newly active Pokémon. Keep move history species-bound and
+    return only evidence for the species that is active in the frozen state.
+    """
 
     opponent = _to_id(fixture.state.get("opponent"))
+    opponent_active = fixture.state.get("opponent_active")
+    if not isinstance(opponent_active, Mapping):
+        return None
+    current_species = _to_id(opponent_active.get("species"))
+    if not current_species:
+        return None
+
     opponent_side: str | None = None
     for batch in fixture.protocol_prefix:
         for message in batch:
@@ -102,17 +114,31 @@ def opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
     if opponent_side is None:
         return None
 
-    last_move: str | None = None
+    active_species: str | None = None
+    last_move_by_species: dict[str, str] = {}
     for batch in fixture.protocol_prefix:
         for message in batch:
-            if (
-                len(message) >= 4
-                and message[0] == ""
-                and message[1] == "move"
-                and str(message[2]).startswith(opponent_side)
-            ):
-                last_move = str(message[3])
-    return last_move
+            if len(message) < 4 or message[0] != "":
+                continue
+            actor = str(message[2])
+            if not actor.startswith(opponent_side):
+                continue
+
+            if message[1] in {"switch", "drag", "replace"}:
+                active_species = str(message[3]).split(",", 1)[0].strip()
+                continue
+
+            if message[1] != "move":
+                continue
+
+            observed_species = active_species
+            if observed_species is None and ":" in actor:
+                observed_species = actor.split(":", 1)[1].strip()
+            species_id = _to_id(observed_species)
+            if species_id:
+                last_move_by_species[species_id] = str(message[3])
+
+    return last_move_by_species.get(current_species)
 
 
 def _choice_items_for_move(move_name: str) -> tuple[str, str] | None:

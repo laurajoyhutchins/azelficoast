@@ -1,57 +1,66 @@
 {
   "schema": "azelficoast.live-belief-coverage-results",
-  "schema_version": 1,
-  "source": {
-    "workflow_run_id": 36067812926,
-    "artifact_id": 10837355836,
-    "artifact_digest": "sha256:aba2a656c2e38a583be5b891c7507f24537e2dfd3b20a10cb6ad3ccd40710b1e",
-    "head_sha": "04d2bfd5380fda3c5abcf2668cc4e6ac299b9d01",
+  "schema_version": 2,
+  "corrected_source": {
+    "workflow_run_id": 36068967462,
+    "artifact_id": 10836574187,
+    "artifact_digest": "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2",
+    "head_sha": "50f035e785f805a15b44cc2d83f4f3d42ce837bf",
     "battle_count": 256,
-    "decision_count": 6139
+    "decision_count": 6485
   },
-  "baseline": {
-    "admitted_decision_count": 2339,
-    "admission_rate": 0.3810066786121518,
-    "fallback_decision_count": 3800,
+  "current_admission": {
+    "admitted_decision_count": 1827,
+    "admission_rate": 0.2817270624518119,
+    "fallback_decision_count": 4658,
     "fallback_reasons": {
-      "opponent-item-known": 2055,
-      "last-opponent-move-not-fixed-damage-category": 1026,
-      "opponent-side-or-last-move-unresolved": 412,
-      "own-active-tera-type-unavailable": 307
+      "opponent-item-known": 2019,
+      "opponent-side-or-last-move-unresolved": 1949,
+      "last-opponent-move-not-fixed-damage-category": 690
     }
+  },
+  "current_active_response_fence": {
+    "rule": "A bounded opponent response move must have been publicly observed from the species that is active in the frozen decision state.",
+    "switch_back_rule": "A current species may reuse its own previously observed move after switching out and returning.",
+    "motivation": "The prior helper returned the latest opponent move across species, allowing a previous active Pokemon's move to become the response policy for a newly active Pokemon.",
+    "effect": "The corrected sample moves 1,949 decisions to unresolved current-active response evidence and reduces static admission to 28.17%."
   },
   "public_tera_recovery": {
-    "method": "recover the current active species' Tera type only from an earlier public request naming that same active species",
-    "baseline_tera_blocked_fixed_damage_decisions": 307,
-    "recoverable_from_prior_matching_request": 304,
-    "still_unavailable": 3,
+    "method": "Recover the current active species' Tera type only from an earlier public request naming that same active species.",
+    "status": "retained",
     "non_claim": "No hidden state is inferred and no new battle mechanic is modeled; this only reuses public information already present in the protocol prefix."
-  },
-  "same_trace_after_public_tera_recovery": {
-    "admitted_decision_count": 2643,
-    "admission_rate": 0.43052614432317965,
-    "absolute_admission_rate_gain": 0.04951946571102785,
-    "fallback_decision_count": 3496,
-    "fallback_reasons": {
-      "opponent-item-known": 2055,
-      "last-opponent-move-not-fixed-damage-category": 1026,
-      "opponent-side-or-last-move-unresolved": 412,
-      "own-active-tera-type-unavailable": 3
-    }
   },
   "next_research_frontier": {
     "reason": "last-opponent-move-not-fixed-damage-category",
-    "decision_count": 1026,
+    "decision_count": 690,
     "largest_observed_status_moves": [
-      {"move": "Roost", "count": 82},
-      {"move": "Swords Dance", "count": 73},
-      {"move": "Calm Mind", "count": 62},
-      {"move": "Thunder Wave", "count": 58},
-      {"move": "Nasty Plot", "count": 52},
-      {"move": "Recover", "count": 48},
-      {"move": "Stealth Rock", "count": 45},
-      {"move": "Protect", "count": 41}
+      {"move": "Rest", "count": 68},
+      {"move": "Roost", "count": 58},
+      {"move": "Protect", "count": 49},
+      {"move": "Swords Dance", "count": 43},
+      {"move": "Thunder Wave", "count": 38},
+      {"move": "Recover", "count": 34},
+      {"move": "Encore", "count": 31},
+      {"move": "Nasty Plot", "count": 26},
+      {"move": "Will-O-Wisp", "count": 26},
+      {"move": "Iron Defense", "count": 24},
+      {"move": "Calm Mind", "count": 23},
+      {"move": "Stealth Rock", "count": 23}
     ],
     "required_before_promotion": "Test a generator-conditioned hidden-world prior for status-move observations instead of inventing a Choice Band/Specs analogue."
-  }
+  },
+  "invalidated_measurements": [
+    {
+      "workflow_run_id": 36067812926,
+      "artifact_id": 10837355836,
+      "reported_admission_rate": 0.3810066786121518,
+      "reason": "Latest opponent move was not species-bound and could cross an opponent switch."
+    },
+    {
+      "workflow_run_id": 36068448478,
+      "artifact_id": 10837645083,
+      "reported_admission_rate": 0.43421671632429043,
+      "reason": "Latest opponent move was not species-bound and could cross an opponent switch."
+    }
+  ]
 }
