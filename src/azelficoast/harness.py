@@ -17,6 +17,7 @@ from azelficoast.player import AzelficoastPlayer
 
 BATTLE_FORMAT = "gen9randombattle"
 DEFAULT_RESULTS = Path("artifacts/results.jsonl")
+DEFAULT_DECISIONS = Path("artifacts/decisions.jsonl")
 DEFAULT_REPLAYS = Path("artifacts/replays")
 
 
@@ -37,6 +38,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_RESULTS,
         help=f"append one JSON record per battle (default: {DEFAULT_RESULTS})",
+    )
+    parser.add_argument(
+        "--decisions",
+        type=Path,
+        default=DEFAULT_DECISIONS,
+        help=f"append protocol and decision evidence (default: {DEFAULT_DECISIONS})",
     )
     parser.add_argument(
         "--replays",
@@ -98,18 +105,25 @@ def _resolve_live_credentials(username_override: str | None) -> tuple[str, str]:
     return username, password
 
 
-def _prepare_output_paths(results: Path, replays: Path) -> None:
+def _prepare_output_paths(results: Path, decisions: Path, replays: Path) -> None:
     results.parent.mkdir(parents=True, exist_ok=True)
+    decisions.parent.mkdir(parents=True, exist_ok=True)
     replays.mkdir(parents=True, exist_ok=True)
 
 
-def _live_player(username: str, password: str, replays: Path) -> AzelficoastPlayer:
+def _live_player(
+    username: str,
+    password: str,
+    replays: Path,
+    decisions: Path,
+) -> AzelficoastPlayer:
     return AzelficoastPlayer(
         account_configuration=AccountConfiguration(username, password),
         server_configuration=ShowdownServerConfiguration,
         battle_format=BATTLE_FORMAT,
         max_concurrent_battles=1,
         save_replays=str(replays),
+        decision_log=decisions,
     )
 
 
@@ -146,11 +160,17 @@ def _print_summary(player: Player) -> None:
     )
 
 
-async def _run_local(battles: int, results: Path, replays: Path) -> None:
+async def _run_local(
+    battles: int,
+    results: Path,
+    decisions: Path,
+    replays: Path,
+) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
         max_concurrent_battles=1,
         save_replays=str(replays),
+        decision_log=decisions,
     )
     opponent = RandomPlayer(
         battle_format=BATTLE_FORMAT,
@@ -163,7 +183,7 @@ async def _run_local(battles: int, results: Path, replays: Path) -> None:
 
 async def _run_live(args: argparse.Namespace) -> None:
     username, password = _resolve_live_credentials(args.username)
-    player = _live_player(username, password, args.replays)
+    player = _live_player(username, password, args.replays, args.decisions)
 
     if args.command == "challenge":
         await player.send_challenges(args.opponent, n_challenges=args.battles)
@@ -182,9 +202,9 @@ async def _run_live(args: argparse.Namespace) -> None:
 
 
 async def _async_main(args: argparse.Namespace) -> None:
-    _prepare_output_paths(args.results, args.replays)
+    _prepare_output_paths(args.results, args.decisions, args.replays)
     if args.command == "local":
-        await _run_local(args.battles, args.results, args.replays)
+        await _run_local(args.battles, args.results, args.decisions, args.replays)
     else:
         await _run_live(args)
 
