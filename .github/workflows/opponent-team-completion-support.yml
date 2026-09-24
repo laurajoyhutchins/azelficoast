@@ -1,0 +1,127 @@
+name: opponent-team-completion-support
+
+on:
+  pull_request:
+    paths:
+      - "scripts/enumerate_team_completion_support.cjs"
+      - ".github/workflows/opponent-team-completion-support.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  enumerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch frozen discovery artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10827665365/zip" \
+            --output /tmp/discovery.zip
+
+      - name: Extract two one-slot-hidden Staraptor fixtures
+        run: |
+          python - <<'PY'
+          import json
+          import zipfile
+          from pathlib import Path
+
+          ids = {
+              "turn12": (
+                  "6314b9a24e28265bb3b36c490c0297357ece57e7963ac653c3d798f4d3b82821"
+              ),
+              "turn13": (
+                  "ce6f0239a59d5d64bd303bce884ea063f9c1305bcbe6b2b55b18c51b349d5b46"
+              ),
+          }
+          found = {}
+          with zipfile.ZipFile("/tmp/discovery.zip") as archive:
+              with archive.open("speed-fork-fixtures.jsonl") as stream:
+                  for raw in stream:
+                      row = json.loads(raw)
+                      for name, fixture_id in ids.items():
+                          if row.get("fixture_id") == fixture_id:
+                              found[name] = row
+
+          assert set(found) == set(ids), found
+          for name, row in found.items():
+              Path(f"/tmp/{name}.json").write_text(
+                  json.dumps(row, sort_keys=True),
+                  encoding="utf-8",
+              )
+          PY
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Enumerate species-level sixth-slot support
+        run: |
+          node scripts/enumerate_team_completion_support.cjs \
+            /tmp/pokemon-showdown /tmp/turn12.json \
+            | tee /tmp/turn12-support.json
+          node scripts/enumerate_team_completion_support.cjs \
+            /tmp/pokemon-showdown /tmp/turn13.json \
+            | tee /tmp/turn13-support.json
+
+      - name: Verify deterministic public-prefix support
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          first = json.loads(Path("/tmp/turn12-support.json").read_text())
+          second = json.loads(Path("/tmp/turn13-support.json").read_text())
+
+          expected_known = sorted(
+              ["camerupt", "clawitzer", "hitmonchan", "ironthorns", "staraptor"]
+          )
+          for result in (first, second):
+              assert result["public_team_size"] == 6, result
+              assert result["unknown_slots"] == 1, result
+              assert result["known_species"] == expected_known, result
+              assert result["support_count"] > 0, result
+              assert result["support_count"] < result["random_set_species_count"], result
+              assert (
+                  "support-is-not-a-probability-distribution" in result["caveats"]
+              ), result
+
+          assert first["support_set_sha256"] == second["support_set_sha256"], (
+              first["support_set_sha256"],
+              second["support_set_sha256"],
+          )
+          assert [row["species_id"] for row in first["support"]] == [
+              row["species_id"] for row in second["support"]
+          ]
+          print(json.dumps({
+              "support_count": first["support_count"],
+              "random_set_species_count": first["random_set_species_count"],
+              "support_set_sha256": first["support_set_sha256"],
+              "rejection_counts": first["rejection_counts"],
+          }, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opponent-team-completion-support
+          path: |
+            /tmp/turn12-support.json
+            /tmp/turn13-support.json
+          if-no-files-found: error
