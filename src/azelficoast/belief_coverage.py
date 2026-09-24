@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from azelficoast.corpus import DecisionFixture, build_fixtures
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.live_belief import build_probe_source
+from azelficoast.live_belief import build_probe_source, opponent_move_from_protocol
 
 REPORT_SCHEMA = "azelficoast.live-belief-coverage"
 REPORT_SCHEMA_VERSION = 1
@@ -59,6 +59,7 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
     reason_decisions: Counter[str] = Counter()
     reason_fixtures: Counter[str] = Counter()
     opponent_species_by_reason: dict[str, Counter[str]] = defaultdict(Counter)
+    opponent_move_by_reason: dict[str, Counter[str]] = defaultdict(Counter)
     decision_count = 0
 
     for fixture in fixture_list:
@@ -76,6 +77,8 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
             else "<unknown>"
         )
         opponent_species_by_reason[category][species] += weight
+        move = opponent_move_from_protocol(fixture) or "<unresolved>"
+        opponent_move_by_reason[category][move] += weight
 
     admitted = reason_decisions[ADMITTED]
     fallback = decision_count - admitted
@@ -92,6 +95,16 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
         "fixture_reason_counts": _ranked(reason_fixtures),
         "fallback_reason_counts": _ranked(fallback_reasons),
         "opponent_species_by_reason": _species_ranked(opponent_species_by_reason),
+        "opponent_move_by_reason": {
+            reason: [
+                {"opponent_move": move, "count": count}
+                for move, count in sorted(
+                    move_counts.items(),
+                    key=lambda item: (-item[1], item[0]),
+                )
+            ]
+            for reason, move_counts in sorted(opponent_move_by_reason.items())
+        },
     }
 
 
