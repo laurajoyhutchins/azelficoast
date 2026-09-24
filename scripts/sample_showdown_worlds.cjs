@@ -9,10 +9,11 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, species, observedMovesCsv, roundsText, isLeadText] = process.argv.slice(2);
+const [showdownRoot, species, observedMovesCsv, roundsText, isLeadText, seedOffsetText] =
+  process.argv.slice(2);
 if (!showdownRoot || !species || !observedMovesCsv) {
   fail(
-    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS]"
+    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET]"
   );
 }
 
@@ -24,6 +25,16 @@ if (!Number.isInteger(rounds) || rounds < 1 || rounds > 65536) {
 const isLead = isLeadText === "true";
 if (isLeadText !== undefined && !["true", "false"].includes(isLeadText)) {
   fail("IS_LEAD must be true or false");
+}
+
+const seedOffset = seedOffsetText ? Number(seedOffsetText) : 0;
+if (
+  !Number.isInteger(seedOffset) ||
+  seedOffset < 0 ||
+  seedOffset >= 65536 ||
+  seedOffset + rounds > 65536
+) {
+  fail("SEED_OFFSET must define a non-wrapping seed window within 0..65535");
 }
 
 const observedMoves = new Set(
@@ -72,7 +83,8 @@ const itemCounts = new Map();
 const variants = new Map();
 let matched = 0;
 
-for (let seed = 0; seed < rounds; seed++) {
+for (let index = 0; index < rounds; index++) {
+  const seed = seedOffset + index;
   generator.setSeed([seed, seed, seed, seed]);
   const set = generator.randomSet(generatorSpecies, {}, isLead, false);
   const moves = [...set.moves].sort();
@@ -127,7 +139,8 @@ process.stdout.write(
       requested_species: species,
       observed_moves: [...observedMoves].sort(),
       showdown_commit: showdownCommit,
-      seed_family: "[i,i,i,i]",
+      seed_family: "[offset+i,offset+i,offset+i,offset+i]",
+      seed_offset: seedOffset,
       generator_context: {
         format: "gen9randombattle",
         teamDetails: {},
