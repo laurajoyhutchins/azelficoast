@@ -14,9 +14,14 @@ from azelficoast.instrumentation import (
 def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         species=species,
+        level=80,
         active=True,
         fainted=False,
+        current_hp=150,
+        max_hp=200,
         current_hp_fraction=0.75,
+        base_stats={"hp": 100, "atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+        stats={"hp": 200, "atk": 120, "def": 130, "spa": 110, "spd": 120, "spe": 90},
         status=None,
         item=None if opponent else "leftovers",
         ability=None if opponent else "pressure",
@@ -61,6 +66,10 @@ def test_battle_view_contains_decision_information_without_inventing_hidden_stat
     assert view["turn"] == 7
     assert view["legal_actions"] == ["/choose move recover"]
     assert view["active"]["item"] == "leftovers"
+    assert view["active"]["level"] == 80
+    assert view["active"]["current_hp"] == 150
+    assert view["active"]["max_hp"] == 200
+    assert view["active"]["stats"]["spe"] == 90
     assert view["opponent_active"]["item"] is None
     assert view["opponent_active"]["ability"] is None
     assert view["opponent_active"]["moves"] == ["protect"]
