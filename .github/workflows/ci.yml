@@ -29,5 +29,3 @@ jobs:
         run: uv run python -m azelficoast.imperfect_information
       - name: Pokémon-shaped counterexample
         run: uv run python -m azelficoast.pokemon_counterexample
-      - name: Public replay observation probe
-        run: uv run python -m azelficoast.replay_worlds
