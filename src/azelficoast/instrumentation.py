@@ -61,20 +61,47 @@ def pokemon_view(pokemon: Pokemon | None) -> dict[str, Any] | None:
     }
 
 
+def _active_tera_type_from_request(battle: AbstractBattle) -> str | None:
+    """Recover the player's known Tera type that poke-env reduces to can_tera=True."""
+    request = getattr(battle, "_last_request", None)
+    if not isinstance(request, Mapping):
+        return None
+    active = request.get("active")
+    if (
+        not isinstance(active, Sequence)
+        or isinstance(active, (str, bytes))
+        or not active
+        or not isinstance(active[0], Mapping)
+    ):
+        return None
+    tera_type = active[0].get("canTerastallize")
+    return tera_type if isinstance(tera_type, str) and tera_type else None
+
+
 def battle_view(battle: AbstractBattle) -> dict[str, Any]:
     """Snapshot the information state available to the player at this instant."""
     valid_orders = getattr(battle, "valid_orders", ())
+    active_pokemon = battle.active_pokemon
+    active = pokemon_view(active_pokemon)
+    team = {
+        key: pokemon_view(pokemon)
+        for key, pokemon in sorted(battle.team.items())
+    }
+    request_tera_type = _active_tera_type_from_request(battle)
+    if request_tera_type is not None and active is not None:
+        active = {**active, "tera_type": request_tera_type}
+        for key, pokemon in battle.team.items():
+            if pokemon is active_pokemon and team.get(key) is not None:
+                team[key] = {**team[key], "tera_type": request_tera_type}
+
     return {
         "battle_tag": battle.battle_tag,
         "turn": battle.turn,
         "player": battle.player_username,
         "opponent": battle.opponent_username,
-        "active": pokemon_view(battle.active_pokemon),
+        "active": active,
         "opponent_active": pokemon_view(battle.opponent_active_pokemon),
-        "team": {
-            key: pokemon_view(pokemon)
-            for key, pokemon in sorted(battle.team.items())
-        },
+        "team": team,
         "opponent_team": {
             key: pokemon_view(pokemon)
             for key, pokemon in sorted(battle.opponent_team.items())
