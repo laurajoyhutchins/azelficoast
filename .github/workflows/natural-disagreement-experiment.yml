@@ -1,0 +1,116 @@
+name: natural-disagreement-experiment
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/instrumentation.py"
+      - "src/azelficoast/natural_disagreements.py"
+      - "scripts/sample_showdown_worlds.cjs"
+      - "tests/test_instrumentation.py"
+      - "tests/test_natural_disagreements.py"
+      - ".github/workflows/natural-disagreement-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          cp config/config-example.js config/config.js
+
+      - name: Start local Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          nohup node pokemon-showdown start --no-security >/tmp/showdown.log 2>&1 &
+          echo $! >/tmp/showdown.pid
+          python - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection(("127.0.0.1", 8000), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              raise SystemExit("Showdown did not open port 8000")
+          PY
+
+      - name: Generate real Azelficoast battles
+        run: |
+          uv run azelficoast \
+            --results /tmp/results.jsonl \
+            --decisions /tmp/decisions.jsonl \
+            --replays /tmp/replays \
+            local --battles 64
+
+      - name: Freeze decision corpus
+        run: |
+          uv run azelficoast corpus build /tmp/decisions.jsonl \
+            --output /tmp/corpus.jsonl \
+            | tee /tmp/corpus-summary.json
+
+      - name: Mine natural strategy-fusion candidates
+        run: |
+          uv run python -m azelficoast.natural_disagreements \
+            /tmp/corpus.jsonl \
+            --showdown-root /tmp/pokemon-showdown \
+            --rounds 2048 \
+            | tee /tmp/candidates.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/candidates.json").read_text())
+          assert result["fixture_count"] > 0, result
+          assert result["schema"] == "azelficoast.natural-fusion-candidates", result
+          print(
+              "candidate_count=",
+              result["candidate_count"],
+              "sampled_world_queries=",
+              result["sampled_world_queries"],
+          )
+          PY
+
+      - name: Show local server log on failure
+        if: failure()
+        run: tail -200 /tmp/showdown.log || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natural-disagreement-evidence
+          path: |
+            /tmp/results.jsonl
+            /tmp/decisions.jsonl
+            /tmp/corpus.jsonl
+            /tmp/corpus-summary.json
+            /tmp/candidates.json
+          if-no-files-found: error
