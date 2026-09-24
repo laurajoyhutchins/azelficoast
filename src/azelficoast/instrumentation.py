@@ -128,13 +128,15 @@ class DecisionTraceWriter:
         )
 
     def record_terminal(self, battle: AbstractBattle) -> None:
+        won = battle.won
+        lost = battle.lost
         self._append(
             {
                 "kind": "terminal",
                 "battle_tag": battle.battle_tag,
-                "won": battle.won,
-                "lost": battle.lost,
-                "tied": battle.tied,
+                "won": won,
+                "lost": lost,
+                "tied": battle.finished and won is None and lost is None,
                 "final_state": battle_view(battle),
             }
         )
