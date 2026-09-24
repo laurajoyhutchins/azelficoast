@@ -5,6 +5,8 @@ on:
     paths:
       - ".github/workflows/public-belief-feasibility-search.yml"
       - "src/azelficoast/harness.py"
+      - "tests/test_instrumentation.py"
+      - "src/azelficoast/instrumentation.py"
       - "src/azelficoast/corpus.py"
       - "src/azelficoast/protect_continuations.py"
       - "tests/test_corpus.py"
