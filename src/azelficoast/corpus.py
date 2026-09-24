@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Protocol, Sequence
 
+from poke_env.player import Player
+
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 
 CORPUS_SCHEMA = "azelficoast.decision-corpus"
@@ -164,6 +166,21 @@ def _load_trace_records(paths: Sequence[Path]) -> list[dict[str, Any]]:
     return records
 
 
+def _semantic_protocol_batch(messages: list[Any]) -> list[list[str]]:
+    """Keep only observations that can participate in battle semantics."""
+    semantic: list[list[str]] = []
+    for message in messages:
+        if not isinstance(message, list) or not all(
+            isinstance(field, str) for field in message
+        ):
+            raise CorpusError("protocol messages must be arrays of strings")
+        if len(message) <= 1:
+            semantic.append(message)
+        elif message[1] == "" or message[1] not in Player.MESSAGES_TO_IGNORE:
+            semantic.append(message)
+    return semantic
+
+
 def _fixture_material(
     state: Mapping[str, Any],
     protocol_prefix: Sequence[Sequence[Sequence[str]]],
@@ -222,7 +239,9 @@ def build_fixtures(trace_paths: Sequence[str | Path]) -> list[DecisionFixture]:
                     raise CorpusError(
                         f"run {run_id!r} event {event_index}: malformed protocol record"
                     )
-                history[room].append(messages)
+                semantic_batch = _semantic_protocol_batch(messages)
+                if semantic_batch:
+                    history[room].append(semantic_batch)
                 continue
 
             if kind != "decision":
