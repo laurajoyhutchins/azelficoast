@@ -78,6 +78,8 @@ jobs:
           assert result["projection"]["execution_classes"] == 49, result
           assert result["projection"]["direct_equals_projected"] is True, result
           assert result["projection"]["missing_attack_modifier_changes_result"] is True, result
+          assert result["model_selection"]["selection_policy"] == "choice-accuracy_then_complexity_then-delta-mae", result
+          assert result["model_selection"]["selected_shape"] == "direct-linear__projected-execution", result
           assert candidate["chosen_paths"] == ["direct", "projected"], result
           assert candidate["choice_accuracy"] >= 0.75, result
           assert candidate["adaptive_over_oracle"] <= 1.10, result
