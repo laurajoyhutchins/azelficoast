@@ -1,0 +1,40 @@
+{
+  "schema": "azelficoast.natural-status-move-treatment",
+  "schema_version": 1,
+  "source_artifact": {
+    "workflow_run_id": 36068967462,
+    "artifact_id": 10836574187,
+    "artifact_name": "live-belief-coverage",
+    "artifact_digest": "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
+  },
+  "selection": {
+    "trace_run_id": "7ac8f75bbb0249bd9c7d40d09a62bfb0",
+    "battle_tag": "battle-gen9randombattle-154",
+    "event_index": 14190,
+    "decision_index": 7,
+    "turn": 7,
+    "own_species": "manaphy",
+    "opponent_species": "articuno",
+    "observed_opponent_move": "Roost",
+    "opponent_response_move": "Roost",
+    "opponent_bench_species": "Swalot",
+    "own_active_tera_type": "Grass",
+    "plausible_items": ["Heavy-Duty Boots"],
+    "expected_fixture_id": "f7e71c77ecee4543e2a48533ef65071ff35f02360f1768adc0701140c68e937f"
+  },
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "hypothesis": "The existing pinned-Showdown public-belief oracle can execute this frozen natural status-move decision without status-specific transition semantics, reconstruct at least two hidden worlds after generator conditioning, execute every recorded legal root action against repeated Roost, and emit a valid public-belief trace.",
+  "acceptance": {
+    "minimum_hidden_worlds": 2,
+    "expected_legal_action_count": 12,
+    "require_singleton_item_support": true,
+    "require_policy_disagreement": false
+  },
+  "non_claims": [
+    "A policy disagreement is not required for this promotion experiment.",
+    "The opponent root response is bounded to repeat publicly observed Roost.",
+    "The existing oracle reconstructs one surviving public opponent bench species.",
+    "The utility and one-decision continuation horizon remain the existing bounded research model.",
+    "Passing this experiment does not by itself widen the live admission gate."
+  ]
+}
