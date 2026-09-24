@@ -406,6 +406,35 @@ POST Python into the simulator by itself. The experiment is intended to discover
 CPU path is useful for the small dependency classes that remain after belief projection while
 JAX remains the accelerator-oriented backend.
 
+## Owned native damage compiler experiment
+
+The POST treatment suggested that dependency-collapsed CPU mechanics can be much faster than the
+JAX CPU path, especially when a large belief projects to a small execution class set. The next
+treatment removes the semantic duplication rather than adding another hand-written backend.
+
+`gen9_damage.py` now contains one plain-Python numeric damage function plus three small helpers.
+The ordinary scalar damage path executes those functions directly. A deliberately tiny
+Azelficoast-owned compiler parses only those named functions, rejects unsupported Python syntax,
+and lowers the same AST to standalone C99 with 64-bit intermediates and Python-compatible floor
+division.
+
+The hosted comparison keeps POST 0.3.0 only as an experimental control:
+
+```bash
+uv sync --extra simulator --extra post
+uv run python -m azelficoast.owned_native_damage_experiment \
+  /tmp/showdown-gen9-damage-fixtures.json
+```
+
+Acceptance is semantic, not performance-based: the interpreted numeric kernel, generated native
+kernel, prior POST kernel, JAX lowering, and pinned Showdown corpus must all agree exactly. Timing
+then reports whether the owned lowering preserves the small-class CPU advantage closely enough to
+justify deleting the POST dependency in a later cleanup.
+
+The compiler is intentionally not a general Python compiler. New mechanics either fit the existing
+restricted subset or require an explicit compiler-language extension with tests and oracle
+evidence.
+
 ## Development
 
 ```bash
