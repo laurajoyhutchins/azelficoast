@@ -346,43 +346,43 @@ mechanic admits a cheap projection. Those remain empirical questions as mechanic
 
 ## Adaptive simulator dispatch
 
-The dispatcher models the quantity it actually needs: **projected latency minus direct latency**.
-It does not fit two independent absolute curves and subtract them later. The relative model is
-monotone by construction:
+The dispatcher models the two execution paths according to the work they actually perform rather
+than using one population-size threshold:
 
 ```text
-projected - direct =
-    fixed projection overhead
-  - logical worlds × direct per-world work
-  - logical worlds² × bounded backend-saturation term
-  + active canonical classes × projection work
+direct =
+    fixed launch cost
+  + logical worlds × per-world work
+  + optional logical worlds² × bounded saturation term
+
+projected =
+    fixed projection/transfer cost
+  + optional active canonical classes × projection work
   + active execution classes × compact execution work
 ```
 
-Every work coefficient is non-negative. More logical worlds can only favor projection; more
-canonical or execution classes can only make projection more expensive. The quadratic term is not
-a claim that the simulator is algorithmically quadratic. It is an optional local approximation
-for backend saturation/cache effects, and profiles refuse to extrapolate beyond their calibrated
-population and class-count bounds.
+All coefficients are non-negative, so the model is monotone in every work dimension. The
+quadratic direct term is not an algorithmic-complexity claim; it is an optional local
+approximation for backend saturation/cache behavior. Profiles refuse to extrapolate beyond the
+largest logical population or class counts used during calibration.
 
-Calibration alternates direct and projected measurements so slow runner drift does not
-systematically favor one path, and it fits the paired latency difference with observed-noise
-weighting. Leave-one-out model selection compares linear versus bounded-quadratic world terms and
-whether canonical-class count earns an independent coefficient. The simplest model within 5% of
-the best cross-validated error wins.
+Calibration alternates direct and projected measurements to reduce runner drift and weights fits
+by observed timing noise. Leave-one-out model selection compares four structural shapes: linear
+versus bounded-quadratic direct work, each with or without an independent canonical-class term.
+Selection first maximizes crossover-choice accuracy, then minimizes prediction error, and chooses
+the simplest model within 5% of the best error at that accuracy.
 
-Calibration also produces a workload-dependent uncertainty envelope from leave-one-out error and
-timing noise. The envelope is diagnostic: both execution paths are semantically exact, so
-uncertainty about performance does not override the path predicted to be faster. Calls outside
-the calibrated workload domain fail closed instead of extrapolating a local hardware curve.
+An uncertainty guard derived from leave-one-out error is reported with each decision, but it is
+diagnostic only. Both execution paths are semantically exact, so uncertainty about performance
+does not override the path predicted to be faster.
 
-The hosted experiment keeps the previous absolute-curve model as a control and evaluates both on
-a denser, disjoint held-out grid concentrated around the crossover. Promotion requires at least
-5% lower held-out relative-cost MAE, no material increase in dispatch regret, both paths to remain
-useful, and exact result agreement throughout.
+The hosted experiment retains the original linear absolute-curve model as a control and evaluates
+both on a denser, disjoint crossover-heavy grid. Promotion requires at least 5% lower held-out
+projected-minus-direct prediction error, no material increase in dispatch regret, both paths to
+remain useful, and exact result agreement throughout.
 
-CPU calibration remains backend-specific evidence. The owned native kernel and future GPU
-backends receive separate profiles rather than sharing JAX coefficients.
+Calibration is backend-specific. JAX CPU, the owned native kernel, and future GPU kernels receive
+separate profiles rather than sharing coefficients.
 
 ## Development
 

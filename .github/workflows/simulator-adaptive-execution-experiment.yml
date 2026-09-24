@@ -46,10 +46,10 @@ jobs:
         run: |
           node scripts/generate_showdown_damage_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/showdown-gen9-damage-fixtures.json
 
-      - name: Test deterministic relative-cost dispatcher
+      - name: Test deterministic structural-cost dispatcher
         run: uv run pytest tests/test_adaptive_execution.py
 
-      - name: Compare robust relative model with old absolute model
+      - name: Compare selected structural model with old absolute model
         run: |
           uv run python -m azelficoast.adaptive_execution_experiment             /tmp/showdown-gen9-damage-fixtures.json             | tee /tmp/adaptive-execution-experiment.json
 

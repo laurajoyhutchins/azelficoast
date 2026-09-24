@@ -1,10 +1,9 @@
-"""Deterministic execution-path selection from a calibrated relative cost profile.
+"""Deterministic execution-path selection from a calibrated structural cost profile.
 
-Dispatch needs the sign of projected_cost - direct_cost, not two independently fitted absolute
-latency curves. The profile models that paired difference directly with monotone work terms.
-Calibration uncertainty is reported separately from the path choice because both execution paths
-are semantically exact; uncertainty about performance is not a reason to override the predicted
-faster path.
+Direct and projected execution do different work. The model keeps those costs separate:
+direct work scales with logical worlds, while projected work scales with active semantic
+classes. Optional terms are admitted only by calibration/model selection, and profiles
+refuse to extrapolate beyond their measured domain.
 """
 
 from __future__ import annotations
@@ -48,13 +47,13 @@ class ExecutionFeatures:
 class ExecutionCostProfile:
     backend: str
     effect_signature: str
-    projected_fixed_overhead_ms: float
+    direct_intercept_ms: float
     direct_per_world_ms: float
     direct_per_world_squared_ms: float
+    projected_intercept_ms: float
     projected_per_canonical_class_ms: float
     projected_per_execution_class_ms: float
-    uncertainty_fixed_ms: float
-    uncertainty_per_world_ms: float
+    uncertainty_guard_ms: float
     calibrated_max_logical_world_count: int
     calibrated_max_canonical_classes: int
     calibrated_max_projected_classes: int
@@ -65,13 +64,13 @@ class ExecutionCostProfile:
         if not self.effect_signature:
             raise ValueError("effect_signature must be non-empty")
         coefficients = (
-            self.projected_fixed_overhead_ms,
+            self.direct_intercept_ms,
             self.direct_per_world_ms,
             self.direct_per_world_squared_ms,
+            self.projected_intercept_ms,
             self.projected_per_canonical_class_ms,
             self.projected_per_execution_class_ms,
-            self.uncertainty_fixed_ms,
-            self.uncertainty_per_world_ms,
+            self.uncertainty_guard_ms,
         )
         if any(not isfinite(value) or value < 0 for value in coefficients):
             raise ValueError("cost-profile coefficients must be finite and non-negative")
@@ -98,39 +97,37 @@ class ExecutionCostProfile:
         if features.active_projected_classes > self.calibrated_max_projected_classes:
             raise ValueError("projected class count is outside the calibrated cost-model domain")
 
-    def estimate_projected_minus_direct_ms(
-        self,
-        features: ExecutionFeatures,
-    ) -> float:
-        """Predict projected latency minus direct latency.
-
-        The quadratic term is a bounded empirical saturation term. Its coefficient is
-        non-negative, so increasing logical multiplicity still can only favor projection.
-        Profiles refuse extrapolation beyond their calibrated domain.
-        """
+    def estimate_direct_ms(self, features: ExecutionFeatures) -> float:
         self.validate_features(features)
         worlds = features.logical_world_count
         return (
-            self.projected_fixed_overhead_ms
-            - self.direct_per_world_ms * worlds
-            - self.direct_per_world_squared_ms * worlds * worlds
+            self.direct_intercept_ms
+            + self.direct_per_world_ms * worlds
+            + self.direct_per_world_squared_ms * worlds * worlds
+        )
+
+    def estimate_projected_ms(self, features: ExecutionFeatures) -> float:
+        self.validate_features(features)
+        return (
+            self.projected_intercept_ms
             + self.projected_per_canonical_class_ms
             * features.active_canonical_classes
             + self.projected_per_execution_class_ms
             * features.active_projected_classes
         )
 
-    def uncertainty_guard_ms(self, features: ExecutionFeatures) -> float:
-        self.validate_features(features)
-        return (
-            self.uncertainty_fixed_ms
-            + self.uncertainty_per_world_ms * features.logical_world_count
-        )
+    def estimate_projected_minus_direct_ms(
+        self,
+        features: ExecutionFeatures,
+    ) -> float:
+        return self.estimate_projected_ms(features) - self.estimate_direct_ms(features)
 
 
 @dataclass(frozen=True)
 class ExecutionDecision:
     path: ExecutionPath
+    predicted_direct_ms: float
+    predicted_projected_ms: float
     predicted_projected_minus_direct_ms: float
     uncertainty_guard_ms: float
     within_uncertainty_guard: bool
@@ -140,14 +137,17 @@ def choose_execution_path(
     profile: ExecutionCostProfile,
     features: ExecutionFeatures,
 ) -> ExecutionDecision:
-    delta = profile.estimate_projected_minus_direct_ms(features)
-    guard = profile.uncertainty_guard_ms(features)
-    # Both paths are semantically exact. Uncertainty is diagnostic, not a reason to
-    # choose a path predicted to be slower. Exact predicted ties prefer direct.
+    direct = profile.estimate_direct_ms(features)
+    projected = profile.estimate_projected_ms(features)
+    delta = projected - direct
+    # Both paths are semantically exact. Uncertainty is diagnostic rather than a
+    # reason to choose a path predicted to be slower. Exact predicted ties use direct.
     path = ExecutionPath.PROJECTED if delta < 0 else ExecutionPath.DIRECT
     return ExecutionDecision(
         path=path,
+        predicted_direct_ms=direct,
+        predicted_projected_ms=projected,
         predicted_projected_minus_direct_ms=delta,
-        uncertainty_guard_ms=guard,
-        within_uncertainty_guard=abs(delta) <= guard,
+        uncertainty_guard_ms=profile.uncertainty_guard_ms,
+        within_uncertainty_guard=abs(delta) <= profile.uncertainty_guard_ms,
     )

@@ -1,4 +1,4 @@
-"""Compare the original absolute cost model with a robust relative cost model."""
+"""Select and validate a structural adaptive-execution cost model."""
 
 from __future__ import annotations
 
@@ -54,23 +54,23 @@ class Treatment:
 
 
 @dataclass(frozen=True)
-class RelativeModelShape:
-    canonical_term: bool
-    quadratic_world_term: bool
+class CostModelShape:
+    direct_quadratic_term: bool
+    projected_canonical_term: bool
 
     @property
     def name(self) -> str:
-        pieces = ["linear-world"]
-        if self.quadratic_world_term:
-            pieces.append("saturation")
-        pieces.append("execution-classes")
-        if self.canonical_term:
-            pieces.append("canonical-classes")
-        return "+".join(pieces)
+        direct = "direct-linear+quadratic" if self.direct_quadratic_term else "direct-linear"
+        projected = (
+            "projected-canonical+execution"
+            if self.projected_canonical_term
+            else "projected-execution"
+        )
+        return f"{direct}__{projected}"
 
     @property
     def complexity(self) -> int:
-        return 3 + int(self.canonical_term) + int(self.quadratic_world_term)
+        return 4 + int(self.direct_quadratic_term) + int(self.projected_canonical_term)
 
 
 TRAINING_TREATMENTS = (
@@ -104,10 +104,10 @@ HELD_OUT_TREATMENTS = (
 )
 
 MODEL_SHAPES = (
-    RelativeModelShape(canonical_term=False, quadratic_world_term=False),
-    RelativeModelShape(canonical_term=True, quadratic_world_term=False),
-    RelativeModelShape(canonical_term=False, quadratic_world_term=True),
-    RelativeModelShape(canonical_term=True, quadratic_world_term=True),
+    CostModelShape(False, False),
+    CostModelShape(False, True),
+    CostModelShape(True, False),
+    CostModelShape(True, True),
 )
 
 
@@ -356,132 +356,149 @@ def _nonnegative_least_squares(
     return best
 
 
-def _noise_weights(rows: Sequence[Mapping[str, object]]) -> np.ndarray:
+def _noise_weights(
+    rows: Sequence[Mapping[str, object]],
+    field: str,
+) -> np.ndarray:
     noise = np.asarray(
-        [
-            max(float(row["projected_minus_direct_mad_ms"]), 1e-6)
-            for row in rows
-        ],
+        [max(float(row[field]), 1e-6) for row in rows],
         dtype=np.float64,
     )
     floor = max(0.01, float(np.median(noise)) * 0.5)
-    effective = np.maximum(noise, floor)
-    return 1.0 / effective
+    return 1.0 / np.maximum(noise, floor)
 
 
-def _relative_design(
+def _direct_design(
     rows: Sequence[Mapping[str, object]],
-    shape: RelativeModelShape,
+    shape: CostModelShape,
 ) -> np.ndarray:
-    columns = []
+    values = []
     for row in rows:
         worlds = float(row["logical_world_count"])
-        values = [1.0, -worlds]
-        if shape.quadratic_world_term:
-            values.append(-(worlds * worlds))
-        if shape.canonical_term:
-            values.append(float(row["active_canonical_classes"]))
-        values.append(float(row["active_projected_classes"]))
-        columns.append(values)
-    return np.asarray(columns, dtype=np.float64)
+        columns = [1.0, worlds]
+        if shape.direct_quadratic_term:
+            columns.append(worlds * worlds)
+        values.append(columns)
+    return np.asarray(values, dtype=np.float64)
 
 
-def _fit_relative_coefficients(
+def _projected_design(
     rows: Sequence[Mapping[str, object]],
-    shape: RelativeModelShape,
-) -> tuple[float, float, float, float, float]:
-    x = _relative_design(rows, shape)
-    y = np.asarray(
-        [float(row["projected_minus_direct_median_ms"]) for row in rows],
-        dtype=np.float64,
+    shape: CostModelShape,
+) -> np.ndarray:
+    values = []
+    for row in rows:
+        columns = [1.0]
+        if shape.projected_canonical_term:
+            columns.append(float(row["active_canonical_classes"]))
+        columns.append(float(row["active_projected_classes"]))
+        values.append(columns)
+    return np.asarray(values, dtype=np.float64)
+
+
+def _fit_structural_coefficients(
+    rows: Sequence[Mapping[str, object]],
+    shape: CostModelShape,
+    *,
+    noise_weighted: bool,
+) -> tuple[float, float, float, float, float, float]:
+    direct = _nonnegative_least_squares(
+        _direct_design(rows, shape),
+        np.asarray(
+            [float(row["direct_median_ms"]) for row in rows],
+            dtype=np.float64,
+        ),
+        row_weights=(
+            _noise_weights(rows, "direct_mad_ms")
+            if noise_weighted
+            else None
+        ),
     )
-    fitted = list(
-        _nonnegative_least_squares(
-            x,
-            y,
-            row_weights=_noise_weights(rows),
-        )
+    projected = _nonnegative_least_squares(
+        _projected_design(rows, shape),
+        np.asarray(
+            [float(row["projected_median_ms"]) for row in rows],
+            dtype=np.float64,
+        ),
+        row_weights=(
+            _noise_weights(rows, "projected_mad_ms")
+            if noise_weighted
+            else None
+        ),
     )
 
-    fixed = fitted.pop(0)
-    per_world = fitted.pop(0)
-    per_world_squared = fitted.pop(0) if shape.quadratic_world_term else 0.0
-    per_canonical = fitted.pop(0) if shape.canonical_term else 0.0
-    per_execution = fitted.pop(0)
-    if fitted:
-        raise RuntimeError("relative model coefficient layout mismatch")
+    direct_intercept = float(direct[0])
+    direct_per_world = float(direct[1])
+    direct_quadratic = float(direct[2]) if shape.direct_quadratic_term else 0.0
+    projected_intercept = float(projected[0])
+    if shape.projected_canonical_term:
+        projected_canonical = float(projected[1])
+        projected_execution = float(projected[2])
+    else:
+        projected_canonical = 0.0
+        projected_execution = float(projected[1])
     return (
-        float(fixed),
-        float(per_world),
-        float(per_world_squared),
-        float(per_canonical),
-        float(per_execution),
+        direct_intercept,
+        direct_per_world,
+        direct_quadratic,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
     )
 
 
-def _predict_relative(
-    coefficients: tuple[float, float, float, float, float],
+def _predict_costs(
+    coefficients: tuple[float, float, float, float, float, float],
     row: Mapping[str, object],
-) -> float:
-    fixed, per_world, per_world_squared, per_canonical, per_execution = coefficients
+) -> tuple[float, float]:
+    (
+        direct_intercept,
+        direct_per_world,
+        direct_quadratic,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
+    ) = coefficients
     worlds = float(row["logical_world_count"])
-    return (
-        fixed
-        - per_world * worlds
-        - per_world_squared * worlds * worlds
-        + per_canonical * float(row["active_canonical_classes"])
-        + per_execution * float(row["active_projected_classes"])
+    direct = (
+        direct_intercept
+        + direct_per_world * worlds
+        + direct_quadratic * worlds * worlds
     )
+    projected = (
+        projected_intercept
+        + projected_canonical * float(row["active_canonical_classes"])
+        + projected_execution * float(row["active_projected_classes"])
+    )
+    return direct, projected
 
 
-def _leave_one_out_errors(
+def _leave_one_out_metrics(
     rows: Sequence[Mapping[str, object]],
-    shape: RelativeModelShape,
-) -> list[float]:
-    errors = []
+    shape: CostModelShape,
+) -> dict[str, object]:
+    errors: list[float] = []
+    correct = 0
     for index, row in enumerate(rows):
         training = [candidate for j, candidate in enumerate(rows) if j != index]
-        coefficients = _fit_relative_coefficients(training, shape)
-        errors.append(
-            abs(
-                _predict_relative(coefficients, row)
-                - float(row["projected_minus_direct_median_ms"])
-            )
+        coefficients = _fit_structural_coefficients(
+            training,
+            shape,
+            noise_weighted=True,
         )
-    return errors
+        direct, projected = _predict_costs(coefficients, row)
+        predicted_delta = projected - direct
+        measured_delta = float(row["projected_minus_direct_median_ms"])
+        errors.append(abs(predicted_delta - measured_delta))
+        correct += int((predicted_delta < 0) == (measured_delta < 0))
+    return {
+        "errors": errors,
+        "mae": statistics.fmean(errors),
+        "choice_accuracy": correct / len(rows),
+    }
 
 
-def _fit_uncertainty_model(
-    rows: Sequence[Mapping[str, object]],
-    leave_one_out_errors: Sequence[float],
-) -> tuple[float, float, float]:
-    targets = np.asarray(
-        [
-            error + float(row["projected_minus_direct_mad_ms"])
-            for error, row in zip(leave_one_out_errors, rows, strict=True)
-        ],
-        dtype=np.float64,
-    )
-    x = np.asarray(
-        [
-            [1.0, float(row["logical_world_count"])]
-            for row in rows
-        ],
-        dtype=np.float64,
-    )
-    fitted = _nonnegative_least_squares(x, targets)
-    predicted = x @ fitted
-    ratios = np.divide(
-        targets,
-        np.maximum(predicted, 1e-9),
-    )
-    safety_scale = max(1.0, float(np.quantile(ratios, 0.90)))
-    fitted *= safety_scale
-    covered = float(np.mean((x @ fitted) >= targets))
-    return float(fitted[0]), float(fitted[1]), covered
-
-
-def _fit_relative_profile(
+def _fit_cost_profile(
     rows: Sequence[Mapping[str, object]],
     *,
     backend: str,
@@ -489,47 +506,68 @@ def _fit_relative_profile(
 ) -> tuple[ExecutionCostProfile, dict[str, object]]:
     candidates = []
     for shape in MODEL_SHAPES:
-        errors = _leave_one_out_errors(rows, shape)
+        metrics = _leave_one_out_metrics(rows, shape)
         candidates.append(
             {
                 "shape": shape,
-                "errors": errors,
-                "mae": statistics.fmean(errors),
+                **metrics,
             }
         )
 
-    best_mae = min(float(candidate["mae"]) for candidate in candidates)
-    eligible = [
+    best_accuracy = max(
+        float(candidate["choice_accuracy"])
+        for candidate in candidates
+    )
+    accuracy_eligible = [
         candidate
         for candidate in candidates
+        if float(candidate["choice_accuracy"]) == best_accuracy
+    ]
+    best_mae = min(float(candidate["mae"]) for candidate in accuracy_eligible)
+    eligible = [
+        candidate
+        for candidate in accuracy_eligible
         if float(candidate["mae"]) <= best_mae * 1.05
     ]
     selected = min(
         eligible,
         key=lambda candidate: (
             candidate["shape"].complexity,
-            candidate["shape"].quadratic_world_term,
-            candidate["shape"].canonical_term,
+            candidate["shape"].direct_quadratic_term,
+            candidate["shape"].projected_canonical_term,
         ),
     )
     shape = selected["shape"]
-    errors = selected["errors"]
-    coefficients = _fit_relative_coefficients(rows, shape)
-    uncertainty_fixed, uncertainty_per_world, uncertainty_coverage = (
-        _fit_uncertainty_model(rows, errors)
+    coefficients = _fit_structural_coefficients(
+        rows,
+        shape,
+        noise_weighted=True,
     )
 
-    fixed, per_world, per_world_squared, per_canonical, per_execution = coefficients
+    guarded_errors = [
+        error + float(row["projected_minus_direct_mad_ms"])
+        for error, row in zip(selected["errors"], rows, strict=True)
+    ]
+    uncertainty_guard = float(np.quantile(guarded_errors, 0.90))
+
+    (
+        direct_intercept,
+        direct_per_world,
+        direct_quadratic,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
+    ) = coefficients
     profile = ExecutionCostProfile(
         backend=backend,
         effect_signature=effect_signature,
-        projected_fixed_overhead_ms=fixed,
-        direct_per_world_ms=per_world,
-        direct_per_world_squared_ms=per_world_squared,
-        projected_per_canonical_class_ms=per_canonical,
-        projected_per_execution_class_ms=per_execution,
-        uncertainty_fixed_ms=uncertainty_fixed,
-        uncertainty_per_world_ms=uncertainty_per_world,
+        direct_intercept_ms=direct_intercept,
+        direct_per_world_ms=direct_per_world,
+        direct_per_world_squared_ms=direct_quadratic,
+        projected_intercept_ms=projected_intercept,
+        projected_per_canonical_class_ms=projected_canonical,
+        projected_per_execution_class_ms=projected_execution,
+        uncertainty_guard_ms=uncertainty_guard,
         calibrated_max_logical_world_count=max(
             int(row["logical_world_count"]) for row in rows
         ),
@@ -543,51 +581,39 @@ def _fit_relative_profile(
     return profile, {
         "selected_shape": shape.name,
         "selected_complexity": shape.complexity,
-        "leave_one_out_mae_ms": {
-            candidate["shape"].name: candidate["mae"]
+        "leave_one_out": {
+            candidate["shape"].name: {
+                "delta_mae_ms": candidate["mae"],
+                "choice_accuracy": candidate["choice_accuracy"],
+            }
             for candidate in candidates
         },
-        "best_leave_one_out_mae_ms": best_mae,
-        "selected_leave_one_out_mae_ms": selected["mae"],
-        "uncertainty_training_coverage": uncertainty_coverage,
+        "best_choice_accuracy": best_accuracy,
+        "best_delta_mae_among_best_accuracy_ms": best_mae,
+        "selected_delta_mae_ms": selected["mae"],
+        "selected_choice_accuracy": selected["choice_accuracy"],
+        "uncertainty_guard_ms": uncertainty_guard,
     }
 
 
 def _fit_absolute_baseline(
     rows: Sequence[Mapping[str, object]],
 ) -> dict[str, float]:
-    direct_x = np.asarray(
-        [[1.0, float(row["logical_world_count"])] for row in rows],
-        dtype=np.float64,
+    shape = CostModelShape(
+        direct_quadratic_term=False,
+        projected_canonical_term=True,
     )
-    direct_y = np.asarray(
-        [float(row["direct_median_ms"]) for row in rows],
-        dtype=np.float64,
+    coefficients = _fit_structural_coefficients(
+        rows,
+        shape,
+        noise_weighted=False,
     )
-    direct = _nonnegative_least_squares(direct_x, direct_y)
-
-    projected_x = np.asarray(
-        [
-            [
-                1.0,
-                float(row["active_canonical_classes"]),
-                float(row["active_projected_classes"]),
-            ]
-            for row in rows
-        ],
-        dtype=np.float64,
-    )
-    projected_y = np.asarray(
-        [float(row["projected_median_ms"]) for row in rows],
-        dtype=np.float64,
-    )
-    projected = _nonnegative_least_squares(projected_x, projected_y)
     return {
-        "direct_intercept_ms": float(direct[0]),
-        "direct_per_world_ms": float(direct[1]),
-        "projected_intercept_ms": float(projected[0]),
-        "projected_per_canonical_class_ms": float(projected[1]),
-        "projected_per_execution_class_ms": float(projected[2]),
+        "direct_intercept_ms": coefficients[0],
+        "direct_per_world_ms": coefficients[1],
+        "projected_intercept_ms": coefficients[3],
+        "projected_per_canonical_class_ms": coefficients[4],
+        "projected_per_execution_class_ms": coefficients[5],
     }
 
 
@@ -668,8 +694,9 @@ def _evaluate(
             {
                 **dict(row),
                 "chosen_path": decision.path.value,
+                "predicted_direct_ms": decision.predicted_direct_ms,
+                "predicted_projected_ms": decision.predicted_projected_ms,
                 "predicted_delta_ms": decision.predicted_projected_minus_direct_ms,
-                "uncertainty_guard_ms": decision.uncertainty_guard_ms,
                 "within_uncertainty_guard": decision.within_uncertainty_guard,
                 "choice_matches_oracle": decision.path.value == oracle_path,
                 "chosen_over_oracle": candidate_ratio,
@@ -739,13 +766,13 @@ def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
     return {
         "backend": profile.backend,
         "effect_signature": profile.effect_signature,
-        "projected_fixed_overhead_ms": profile.projected_fixed_overhead_ms,
+        "direct_intercept_ms": profile.direct_intercept_ms,
         "direct_per_world_ms": profile.direct_per_world_ms,
         "direct_per_world_squared_ms": profile.direct_per_world_squared_ms,
+        "projected_intercept_ms": profile.projected_intercept_ms,
         "projected_per_canonical_class_ms": profile.projected_per_canonical_class_ms,
         "projected_per_execution_class_ms": profile.projected_per_execution_class_ms,
-        "uncertainty_fixed_ms": profile.uncertainty_fixed_ms,
-        "uncertainty_per_world_ms": profile.uncertainty_per_world_ms,
+        "uncertainty_guard_ms": profile.uncertainty_guard_ms,
         "calibrated_max_logical_world_count": profile.calibrated_max_logical_world_count,
         "calibrated_max_canonical_classes": profile.calibrated_max_canonical_classes,
         "calibrated_max_projected_classes": profile.calibrated_max_projected_classes,
@@ -761,7 +788,7 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
         _benchmark_treatment(contexts, treatment)
         for treatment in TRAINING_TREATMENTS
     ]
-    profile, selection = _fit_relative_profile(
+    profile, selection = _fit_cost_profile(
         training,
         backend=backend,
         effect_signature=effect_signature,
@@ -839,9 +866,9 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
             "the hosted coefficients are calibration evidence, not portable constants",
             "the direct timed path receives pre-materialized device-resident worlds",
             "the projected path pays projection, compaction, representative assembly, and transfer",
-            "the uncertainty envelope is diagnostic, not a probabilistic confidence interval",
-            "the quadratic term is a bounded empirical saturation approximation",
-            "GPU and native-backend crossover behavior remain separately calibratable",
+            "the uncertainty guard is diagnostic, not a probabilistic confidence interval",
+            "the quadratic direct term is a bounded empirical saturation approximation",
+            "native and GPU backends remain separately calibratable",
         ],
     }
 
