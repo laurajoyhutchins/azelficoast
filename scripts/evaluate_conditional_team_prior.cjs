@@ -77,7 +77,7 @@ function seed(index) {
 function generatedTeam(index) {
   generator.setSeed(seed(index));
   const team = generator.getTeam();
-  const species = team.map(set => toID(set.species));
+  const species = team.map(set => canonicalTeamSpecies(set.species));
   if (species.length !== 6 || new Set(species).size !== 6) {
     fail("unexpected generated team at seed " + index + ": " + JSON.stringify(species));
   }
@@ -87,6 +87,30 @@ function generatedTeam(index) {
 const candidateIds = [...new Set(Object.keys(generator.randomSets).map(toID))].sort();
 const candidateSet = new Set(candidateIds);
 const candidateCount = candidateIds.length;
+
+const candidateIdsByBaseSpecies = new Map();
+for (const candidateId of candidateIds) {
+  const species = dex.species.get(candidateId);
+  const ids = candidateIdsByBaseSpecies.get(species.baseSpecies) || [];
+  ids.push(candidateId);
+  candidateIdsByBaseSpecies.set(species.baseSpecies, ids);
+}
+
+function canonicalTeamSpecies(value) {
+  const id = toID(value);
+  if (candidateSet.has(id)) return id;
+
+  const emitted = dex.species.get(id);
+  if (!emitted.exists) fail("unknown emitted species " + value);
+  const candidates = candidateIdsByBaseSpecies.get(emitted.baseSpecies) || [];
+  if (candidates.length !== 1) {
+    fail(
+      "cannot uniquely map emitted species " + id +
+      " to a random-set family: " + JSON.stringify(candidates)
+    );
+  }
+  return candidates[0];
+}
 
 const featureById = new Map();
 for (const speciesId of candidateIds) {
@@ -397,6 +421,7 @@ const evidence = {
   },
   caveats: [
     "model-is-a-learned-team-composition-prior-not-an-exact-generator-posterior",
+    "emitted-species-not-having-their-own-random-set-key-are-canonicalized-to-a-unique-base-species-set-family",
     "conditioning-uses-team-species-only-not-revealed-moves-items-abilities-or-tera",
     "pairwise-model-ignores-higher-order-team-correlations",
     "lambda-is-selected-only-on-the-validation-seed-range",
