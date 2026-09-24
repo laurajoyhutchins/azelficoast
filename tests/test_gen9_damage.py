@@ -8,6 +8,7 @@ from azelficoast.gen9_damage import (
     DamageContext,
     DamageKernelError,
     MOD_ONE_POINT_FIVE,
+    MOD_THREE_QUARTERS,
     MOD_TWO,
     apply_type_effectiveness,
     attack_modifier,
@@ -93,6 +94,15 @@ def test_item_and_burn_modifiers_change_damage() -> None:
         burned=True,
     )
     assert damage(physical, 7) < damage(replace(physical, burned=False), 7)
+
+
+def test_defender_stat_modifier_changes_damage() -> None:
+    baseline = _context(type_mod=0)
+    beads = replace(
+        baseline,
+        defender_stat_modifier=MOD_THREE_QUARTERS,
+    )
+    assert damage(beads, 7) > damage(baseline, 7)
 
 
 def test_stellar_is_explicitly_outside_scope() -> None:

@@ -60,10 +60,11 @@ jobs:
 
           result = json.loads(Path("/tmp/showdown-gen9-damage-analysis.json").read_text())
           assert result["passed"] is True, result
-          assert result["scenario_count"] == 11, result
-          assert result["roll_case_count"] == 176, result
-          assert result["exact_case_count"] == 176, result
+          assert result["scenario_count"] == 12, result
+          assert result["roll_case_count"] == 192, result
+          assert result["exact_case_count"] == 192, result
           assert result["unequal_level_negative_control_detected"] is True, result
+          assert result["defender_stat_modifier_negative_control_detected"] is True, result
           PY
 
       - name: Test damage machinery
@@ -81,7 +82,7 @@ jobs:
           result = json.loads(Path("/tmp/gen9-damage-jax-experiment.json").read_text())
           assert result["passed"] is True, result
           assert result["correctness"]["exact"] is True, result
-          assert result["correctness"]["roll_case_count"] == 176, result
+          assert result["correctness"]["roll_case_count"] == 192, result
           assert all(row["score_equal"] for row in result["benchmarks"]), result
           PY
 

@@ -20,6 +20,7 @@ def _fixture(
     burned: bool = False,
     attacker_level: int = 100,
     defender_level: int = 100,
+    defender_stat_modifier: int = 4096,
 ) -> dict[str, object]:
     # Values here are generated from the local scalar kernel solely to test corpus
     # structure. Hosted evidence is generated independently by Showdown.
@@ -45,6 +46,7 @@ def _fixture(
         attacker_item=item,
         type_mod=type_mod,
         burned=burned,
+        defender_stat_modifier=defender_stat_modifier,
     )
     raw = {
         "attacker_level": context.attacker_level,
@@ -66,6 +68,7 @@ def _fixture(
         "attacker_item": context.attacker_item,
         "type_mod": context.type_mod,
         "burned": context.burned,
+        "defender_stat_modifier": context.defender_stat_modifier,
     }
     return {
         "scenario": scenario,
@@ -89,6 +92,11 @@ def _document() -> dict[str, object]:
             attacker_level=78,
             defender_level=88,
         ),
+        _fixture(
+            scenario="defender-modifier",
+            type_mod=0,
+            defender_stat_modifier=3072,
+        ),
     ]
     return {
         "schema": "azelficoast.showdown-gen9-damage-fixtures",
@@ -102,13 +110,14 @@ def _document() -> dict[str, object]:
 def test_damage_corpus_requires_exact_roll_agreement_and_negative_controls() -> None:
     result = analyze_document(_document())
     assert result["passed"] is True
-    assert result["roll_case_count"] == 80
-    assert result["exact_case_count"] == 80
+    assert result["roll_case_count"] == 96
+    assert result["exact_case_count"] == 96
     assert result["type_negative_control_detected"] is True
     assert result["item_negative_control_detected"] is True
     assert result["tera_negative_control_detected"] is True
     assert result["burn_negative_control_detected"] is True
     assert result["unequal_level_negative_control_detected"] is True
+    assert result["defender_stat_modifier_negative_control_detected"] is True
 
 
 def test_damage_corpus_rejects_one_wrong_damage_roll() -> None:
