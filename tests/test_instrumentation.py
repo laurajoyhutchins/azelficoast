@@ -67,6 +67,7 @@ def test_battle_view_contains_decision_information_without_inventing_hidden_stat
     assert view["legal_actions"] == ["/choose move recover"]
     assert view["active"]["item"] == "leftovers"
     assert view["active"]["level"] == 80
+    assert view["active"]["transformed"] is False
     assert view["active"]["current_hp"] == 150
     assert view["active"]["max_hp"] == 200
     assert view["active"]["stats"]["spe"] == 90
