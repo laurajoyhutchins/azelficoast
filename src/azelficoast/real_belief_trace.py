@@ -15,6 +15,8 @@ from typing import Any, Mapping, Sequence
 
 SCHEMA = "azelficoast.real-belief-transition-oracle"
 SCHEMA_VERSION = 1
+RESULT_SCHEMA = "azelficoast.real-belief-decision-trace"
+RESULT_SCHEMA_VERSION = 3
 
 
 class BeliefTraceError(ValueError):
@@ -110,6 +112,42 @@ def _continuation_values(outcome: Mapping[str, Any]) -> dict[str, float]:
     if isinstance(terminal, (int, float)):
         return {"<terminal>": float(terminal)}
     raise BeliefTraceError("outcome has neither continuations nor terminal utility")
+
+
+def _weighted_continuation_choice(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    weight_key: str,
+) -> tuple[str, float]:
+    """Choose once for an information set, averaging chance inside that set."""
+    if not members:
+        raise BeliefTraceError("cannot choose a continuation for an empty information set")
+
+    continuation_maps = [
+        _continuation_values(member["outcome"]) for member in members
+    ]
+    common = set(continuation_maps[0])
+    for mapping in continuation_maps[1:]:
+        common &= set(mapping)
+    if not common:
+        raise BeliefTraceError(
+            "successor information set has no common legal continuation"
+        )
+
+    total_weight = sum(float(member[weight_key]) for member in members)
+    if total_weight <= 0:
+        raise BeliefTraceError("successor information set has no probability mass")
+
+    values = {
+        continuation: sum(
+            float(member[weight_key])
+            * _continuation_values(member["outcome"])[continuation]
+            for member in members
+        )
+        / total_weight
+        for continuation in sorted(common)
+    }
+    return _choose(values)
 
 
 def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
@@ -211,25 +249,38 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             world_id = str(world["world_id"])
             prior = float(world["weight"]) / total_world_weight
             transition = action_transitions[world_id]
-            world_expected = 0.0
+            world_observation_members: dict[str, list[dict[str, Any]]] = defaultdict(list)
+
             for outcome_index, outcome in enumerate(_outcomes(transition)):
                 chance = float(outcome["probability"])
-                values = _continuation_values(outcome)
-                choice, value = _choose(values)
-                world_expected += chance * value
                 observation_key = _canonical(outcome.get("observation"))
-                observation_members[observation_key].append(
-                    {
-                        "world_id": world_id,
-                        "mass": prior * chance,
-                        "outcome": outcome,
-                    }
+                member = {
+                    "world_id": world_id,
+                    "chance": chance,
+                    "mass": prior * chance,
+                    "outcome_index": outcome_index,
+                    "outcome": outcome,
+                }
+                observation_members[observation_key].append(member)
+                world_observation_members[observation_key].append(member)
+
+            world_expected = 0.0
+            for observation_key, members in sorted(world_observation_members.items()):
+                group_chance = sum(float(member["chance"]) for member in members)
+                choice, value = _weighted_continuation_choice(
+                    members,
+                    weight_key="chance",
                 )
+                world_expected += group_chance * value
                 det_choices.append(
                     {
                         "world_id": world_id,
-                        "outcome_index": outcome_index,
-                        "observation_hash": hashlib.sha256(observation_key.encode()).hexdigest(),
+                        "outcome_indices": [
+                            int(member["outcome_index"]) for member in members
+                        ],
+                        "observation_hash": hashlib.sha256(
+                            observation_key.encode()
+                        ).hexdigest(),
                         "choice": choice,
                         "value": value,
                     }
@@ -246,28 +297,16 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
                 raise BeliefTraceError("public observation class has no probability mass")
 
             by_world_mass: dict[str, float] = defaultdict(float)
-            continuation_maps: list[dict[str, float]] = []
+            by_world_members: dict[str, list[dict[str, Any]]] = defaultdict(list)
             for member in members:
                 world_id = str(member["world_id"])
                 by_world_mass[world_id] += float(member["mass"])
-                continuation_maps.append(_continuation_values(member["outcome"]))
+                by_world_members[world_id].append(member)
 
-            common = set(continuation_maps[0])
-            for mapping in continuation_maps[1:]:
-                common &= set(mapping)
-            if not common:
-                raise BeliefTraceError("successor information set has no common legal continuation")
-
-            values = {
-                continuation: sum(
-                    float(member["mass"])
-                    * _continuation_values(member["outcome"])[continuation]
-                    for member in members
-                )
-                / group_mass
-                for continuation in sorted(common)
-            }
-            choice, value = _choose(values)
+            choice, value = _weighted_continuation_choice(
+                members,
+                weight_key="mass",
+            )
             public_total += group_mass * value
 
             observation_hash = hashlib.sha256(observation_key.encode()).hexdigest()
@@ -286,8 +325,11 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             )
             world_aware_choices = sorted(
                 {
-                    _choose(_continuation_values(member["outcome"]))[0]
-                    for member in members
+                    _weighted_continuation_choice(
+                        world_members,
+                        weight_key="mass",
+                    )[0]
+                    for world_members in by_world_members.values()
                 }
             )
             public_choices.append(
@@ -349,8 +391,8 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
     )
 
     return {
-        "schema": "azelficoast.real-belief-decision-trace",
-        "schema_version": 2,
+        "schema": RESULT_SCHEMA,
+        "schema_version": RESULT_SCHEMA_VERSION,
         "source_fixture_id": document.get("source_fixture_id"),
         "showdown_commit": document.get("showdown_commit"),
         "world_count": len(worlds),
