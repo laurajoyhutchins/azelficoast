@@ -7,7 +7,7 @@ pytest.importorskip("jax")
 
 import jax.numpy as jnp
 
-from azelficoast.gen9_damage import DamageContext, damage
+from azelficoast.gen9_damage import MOD_THREE_QUARTERS, DamageContext, damage
 from azelficoast.jax_gen9_damage import contexts_to_array, damage_batch
 
 
@@ -33,6 +33,7 @@ def _contexts() -> tuple[DamageContext, ...]:
             attacker_item="Choice Specs",
             type_mod=1,
             burned=False,
+            defender_stat_modifier=MOD_THREE_QUARTERS,
         ),
         DamageContext(
             attacker_level=100,
