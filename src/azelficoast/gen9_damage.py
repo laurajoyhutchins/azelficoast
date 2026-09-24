@@ -2,9 +2,10 @@
 
 This module intentionally implements only the mechanics exercised by the first real
 damage experiment: ordinary single-target damage, ordinary non-Stellar Terastallization,
-Choice Band/Specs attack modification, burn, Life Orb, STAB, and type-effectiveness
-exponents. Critical hits, weather, spread damage, abilities that modify damage/stats,
-variable base power, Stellar Tera, and other exceptional mechanics remain outside scope.
+Choice Band/Specs attack modification, burn, Life Orb, STAB, type-effectiveness
+exponents, and an explicit fixed-point defender-stat modifier validated against Beads
+of Ruin. Critical hits, weather, spread damage, variable base power, Stellar Tera,
+and other exceptional mechanics remain outside scope.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ ITEM_LIFE_ORB = "Life Orb"
 
 MOD_ONE = 4096
 MOD_HALF = 2048
+MOD_THREE_QUARTERS = 3072
 MOD_ONE_POINT_FIVE = 6144
 MOD_TWO = 8192
 MOD_LIFE_ORB = 5324
@@ -47,6 +49,7 @@ class DamageContext:
     attacker_item: str
     type_mod: int
     burned: bool = False
+    defender_stat_modifier: int = MOD_ONE
 
     def without_item(self) -> DamageContext:
         return replace(self, attacker_item=ITEM_NONE)
@@ -135,13 +138,14 @@ def resolved_attack(context: DamageContext) -> int:
 
 
 def resolved_defense(context: DamageContext) -> int:
-    return ordinary_stat(
+    stat = ordinary_stat(
         context.defender_base_stat,
         context.defender_iv,
         context.defender_ev,
         context.defender_level,
         context.defender_nature_percent,
     )
+    return showdown_modify_fixed(stat, context.defender_stat_modifier)
 
 
 def apply_type_effectiveness(damage: int, type_mod: int) -> int:
@@ -195,6 +199,7 @@ def compile_numeric_context(context: DamageContext) -> tuple[int, ...]:
         context.defender_iv,
         context.defender_ev,
         context.defender_nature_percent,
+        context.defender_stat_modifier,
         attack_modifier(context),
         stab_modifier(context),
         context.type_mod,
