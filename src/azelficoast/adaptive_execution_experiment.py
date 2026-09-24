@@ -53,8 +53,26 @@ class Treatment:
         )
 
 
-# The training grid deliberately varies canonical-class and execution-class counts
-# independently at similar logical population sizes.
+@dataclass(frozen=True)
+class RelativeModelShape:
+    canonical_term: bool
+    quadratic_world_term: bool
+
+    @property
+    def name(self) -> str:
+        pieces = ["linear-world"]
+        if self.quadratic_world_term:
+            pieces.append("saturation")
+        pieces.append("execution-classes")
+        if self.canonical_term:
+            pieces.append("canonical-classes")
+        return "+".join(pieces)
+
+    @property
+    def complexity(self) -> int:
+        return 3 + int(self.canonical_term) + int(self.quadratic_world_term)
+
+
 TRAINING_TREATMENTS = (
     Treatment(2048, 2, 1),
     Treatment(4096, 12, 1),
@@ -64,13 +82,12 @@ TRAINING_TREATMENTS = (
     Treatment(16384, 12, 2),
     Treatment(24576, 6, 4),
     Treatment(32768, 12, 8),
-    Treatment(49152, 4, 16),
     Treatment(65536, 10, 4),
     Treatment(131072, 6, 8),
     Treatment(262144, 12, 16),
+    Treatment(524288, 12, 8),
 )
 
-# Held-out points are denser around the observed crossover and use distinct geometry.
 HELD_OUT_TREATMENTS = (
     Treatment(3072, 3, 2),
     Treatment(5120, 10, 1),
@@ -83,7 +100,14 @@ HELD_OUT_TREATMENTS = (
     Treatment(57344, 12, 8),
     Treatment(98304, 10, 8),
     Treatment(196608, 6, 16),
-    Treatment(524288, 12, 8),
+    Treatment(393216, 8, 16),
+)
+
+MODEL_SHAPES = (
+    RelativeModelShape(canonical_term=False, quadratic_world_term=False),
+    RelativeModelShape(canonical_term=True, quadratic_world_term=False),
+    RelativeModelShape(canonical_term=False, quadratic_world_term=True),
+    RelativeModelShape(canonical_term=True, quadratic_world_term=True),
 )
 
 
@@ -240,7 +264,6 @@ def _benchmark_treatment(
     direct_score = direct_warm
     projected_score = projected_warm
 
-    # Alternate order so slow drift does not systematically favor one path.
     for repeat in range(repeats):
         calls = (
             (projected_call, projected_samples, "projected"),
@@ -251,8 +274,7 @@ def _benchmark_treatment(
         for call, samples, name in calls:
             start = time.perf_counter_ns()
             value = call()
-            elapsed = (time.perf_counter_ns() - start) / 1_000_000
-            samples.append(elapsed)
+            samples.append((time.perf_counter_ns() - start) / 1_000_000)
             if name == "direct":
                 direct_score = value
             else:
@@ -296,7 +318,6 @@ def _nonnegative_least_squares(
     *,
     row_weights: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Solve tiny NNLS exactly by enumerating active coefficient faces."""
     if row_weights is None:
         row_weights = np.ones(len(y), dtype=np.float64)
     sqrt_weights = np.sqrt(row_weights)
@@ -345,21 +366,20 @@ def _noise_weights(rows: Sequence[Mapping[str, object]]) -> np.ndarray:
     )
     floor = max(0.01, float(np.median(noise)) * 0.5)
     effective = np.maximum(noise, floor)
-    return 1.0 / np.square(effective)
+    return 1.0 / effective
 
 
 def _relative_design(
     rows: Sequence[Mapping[str, object]],
-    *,
-    canonical_term: bool,
+    shape: RelativeModelShape,
 ) -> np.ndarray:
     columns = []
     for row in rows:
-        values = [
-            1.0,
-            -float(row["logical_world_count"]),
-        ]
-        if canonical_term:
+        worlds = float(row["logical_world_count"])
+        values = [1.0, -worlds]
+        if shape.quadratic_world_term:
+            values.append(-(worlds * worlds))
+        if shape.canonical_term:
             values.append(float(row["active_canonical_classes"]))
         values.append(float(row["active_projected_classes"]))
         columns.append(values)
@@ -368,40 +388,47 @@ def _relative_design(
 
 def _fit_relative_coefficients(
     rows: Sequence[Mapping[str, object]],
-    *,
-    canonical_term: bool,
-) -> tuple[float, float, float, float]:
-    x = _relative_design(rows, canonical_term=canonical_term)
+    shape: RelativeModelShape,
+) -> tuple[float, float, float, float, float]:
+    x = _relative_design(rows, shape)
     y = np.asarray(
         [float(row["projected_minus_direct_median_ms"]) for row in rows],
         dtype=np.float64,
     )
-    fitted = _nonnegative_least_squares(
-        x,
-        y,
-        row_weights=_noise_weights(rows),
+    fitted = list(
+        _nonnegative_least_squares(
+            x,
+            y,
+            row_weights=_noise_weights(rows),
+        )
     )
-    if canonical_term:
-        fixed, per_world, per_canonical, per_execution = fitted
-    else:
-        fixed, per_world, per_execution = fitted
-        per_canonical = 0.0
+
+    fixed = fitted.pop(0)
+    per_world = fitted.pop(0)
+    per_world_squared = fitted.pop(0) if shape.quadratic_world_term else 0.0
+    per_canonical = fitted.pop(0) if shape.canonical_term else 0.0
+    per_execution = fitted.pop(0)
+    if fitted:
+        raise RuntimeError("relative model coefficient layout mismatch")
     return (
         float(fixed),
         float(per_world),
+        float(per_world_squared),
         float(per_canonical),
         float(per_execution),
     )
 
 
 def _predict_relative(
-    coefficients: tuple[float, float, float, float],
+    coefficients: tuple[float, float, float, float, float],
     row: Mapping[str, object],
 ) -> float:
-    fixed, per_world, per_canonical, per_execution = coefficients
+    fixed, per_world, per_world_squared, per_canonical, per_execution = coefficients
+    worlds = float(row["logical_world_count"])
     return (
         fixed
-        - per_world * float(row["logical_world_count"])
+        - per_world * worlds
+        - per_world_squared * worlds * worlds
         + per_canonical * float(row["active_canonical_classes"])
         + per_execution * float(row["active_projected_classes"])
     )
@@ -409,16 +436,12 @@ def _predict_relative(
 
 def _leave_one_out_errors(
     rows: Sequence[Mapping[str, object]],
-    *,
-    canonical_term: bool,
+    shape: RelativeModelShape,
 ) -> list[float]:
     errors = []
     for index, row in enumerate(rows):
         training = [candidate for j, candidate in enumerate(rows) if j != index]
-        coefficients = _fit_relative_coefficients(
-            training,
-            canonical_term=canonical_term,
-        )
+        coefficients = _fit_relative_coefficients(training, shape)
         errors.append(
             abs(
                 _predict_relative(coefficients, row)
@@ -428,51 +451,105 @@ def _leave_one_out_errors(
     return errors
 
 
+def _fit_uncertainty_model(
+    rows: Sequence[Mapping[str, object]],
+    leave_one_out_errors: Sequence[float],
+) -> tuple[float, float, float]:
+    targets = np.asarray(
+        [
+            error + float(row["projected_minus_direct_mad_ms"])
+            for error, row in zip(leave_one_out_errors, rows, strict=True)
+        ],
+        dtype=np.float64,
+    )
+    x = np.asarray(
+        [
+            [1.0, float(row["logical_world_count"])]
+            for row in rows
+        ],
+        dtype=np.float64,
+    )
+    fitted = _nonnegative_least_squares(x, targets)
+    predicted = x @ fitted
+    ratios = np.divide(
+        targets,
+        np.maximum(predicted, 1e-9),
+    )
+    safety_scale = max(1.0, float(np.quantile(ratios, 0.90)))
+    fitted *= safety_scale
+    covered = float(np.mean((x @ fitted) >= targets))
+    return float(fitted[0]), float(fitted[1]), covered
+
+
 def _fit_relative_profile(
     rows: Sequence[Mapping[str, object]],
     *,
     backend: str,
     effect_signature: str,
 ) -> tuple[ExecutionCostProfile, dict[str, object]]:
-    simple_errors = _leave_one_out_errors(rows, canonical_term=False)
-    rich_errors = _leave_one_out_errors(rows, canonical_term=True)
-    simple_mae = statistics.fmean(simple_errors)
-    rich_mae = statistics.fmean(rich_errors)
+    candidates = []
+    for shape in MODEL_SHAPES:
+        errors = _leave_one_out_errors(rows, shape)
+        candidates.append(
+            {
+                "shape": shape,
+                "errors": errors,
+                "mae": statistics.fmean(errors),
+            }
+        )
 
-    # Prefer the simpler model when its cross-validated error is within 5%.
-    canonical_term = not (simple_mae <= rich_mae * 1.05)
-    coefficients = _fit_relative_coefficients(
-        rows,
-        canonical_term=canonical_term,
-    )
-
-    selected_errors = (
-        rich_errors if canonical_term else simple_errors
-    )
-    guarded_errors = [
-        error + float(row["projected_minus_direct_mad_ms"])
-        for error, row in zip(selected_errors, rows, strict=True)
+    best_mae = min(float(candidate["mae"]) for candidate in candidates)
+    eligible = [
+        candidate
+        for candidate in candidates
+        if float(candidate["mae"]) <= best_mae * 1.05
     ]
-    decision_guard = float(np.quantile(guarded_errors, 0.90))
+    selected = min(
+        eligible,
+        key=lambda candidate: (
+            candidate["shape"].complexity,
+            candidate["shape"].quadratic_world_term,
+            candidate["shape"].canonical_term,
+        ),
+    )
+    shape = selected["shape"]
+    errors = selected["errors"]
+    coefficients = _fit_relative_coefficients(rows, shape)
+    uncertainty_fixed, uncertainty_per_world, uncertainty_coverage = (
+        _fit_uncertainty_model(rows, errors)
+    )
 
-    fixed, per_world, per_canonical, per_execution = coefficients
+    fixed, per_world, per_world_squared, per_canonical, per_execution = coefficients
     profile = ExecutionCostProfile(
         backend=backend,
         effect_signature=effect_signature,
         projected_fixed_overhead_ms=fixed,
         direct_per_world_ms=per_world,
+        direct_per_world_squared_ms=per_world_squared,
         projected_per_canonical_class_ms=per_canonical,
         projected_per_execution_class_ms=per_execution,
-        decision_guard_ms=decision_guard,
+        uncertainty_fixed_ms=uncertainty_fixed,
+        uncertainty_per_world_ms=uncertainty_per_world,
+        calibrated_max_logical_world_count=max(
+            int(row["logical_world_count"]) for row in rows
+        ),
+        calibrated_max_canonical_classes=max(
+            int(row["active_canonical_classes"]) for row in rows
+        ),
+        calibrated_max_projected_classes=max(
+            int(row["active_projected_classes"]) for row in rows
+        ),
     )
     return profile, {
-        "canonical_term_selected": canonical_term,
-        "simple_leave_one_out_mae_ms": simple_mae,
-        "rich_leave_one_out_mae_ms": rich_mae,
-        "selected_leave_one_out_mae_ms": (
-            rich_mae if canonical_term else simple_mae
-        ),
-        "decision_guard_ms": decision_guard,
+        "selected_shape": shape.name,
+        "selected_complexity": shape.complexity,
+        "leave_one_out_mae_ms": {
+            candidate["shape"].name: candidate["mae"]
+            for candidate in candidates
+        },
+        "best_leave_one_out_mae_ms": best_mae,
+        "selected_leave_one_out_mae_ms": selected["mae"],
+        "uncertainty_training_coverage": uncertainty_coverage,
     }
 
 
@@ -592,6 +669,7 @@ def _evaluate(
                 **dict(row),
                 "chosen_path": decision.path.value,
                 "predicted_delta_ms": decision.predicted_projected_minus_direct_ms,
+                "uncertainty_guard_ms": decision.uncertainty_guard_ms,
                 "within_uncertainty_guard": decision.within_uncertainty_guard,
                 "choice_matches_oracle": decision.path.value == oracle_path,
                 "chosen_over_oracle": candidate_ratio,
@@ -663,9 +741,14 @@ def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
         "effect_signature": profile.effect_signature,
         "projected_fixed_overhead_ms": profile.projected_fixed_overhead_ms,
         "direct_per_world_ms": profile.direct_per_world_ms,
+        "direct_per_world_squared_ms": profile.direct_per_world_squared_ms,
         "projected_per_canonical_class_ms": profile.projected_per_canonical_class_ms,
         "projected_per_execution_class_ms": profile.projected_per_execution_class_ms,
-        "decision_guard_ms": profile.decision_guard_ms,
+        "uncertainty_fixed_ms": profile.uncertainty_fixed_ms,
+        "uncertainty_per_world_ms": profile.uncertainty_per_world_ms,
+        "calibrated_max_logical_world_count": profile.calibrated_max_logical_world_count,
+        "calibrated_max_canonical_classes": profile.calibrated_max_canonical_classes,
+        "calibrated_max_projected_classes": profile.calibrated_max_projected_classes,
     }
 
 
@@ -715,7 +798,6 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
         disjoint
         and all(bool(row["score_equal"]) for row in training)
         and all(bool(row["score_equal"]) for row in held_out_rows)
-        and profile.decision_guard_ms > 0
         and candidate["choice_accuracy"] >= 0.75
         and candidate["adaptive_over_oracle"] <= 1.10
         and candidate["worst_case_over_oracle"] <= 1.20
@@ -757,7 +839,8 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
             "the hosted coefficients are calibration evidence, not portable constants",
             "the direct timed path receives pre-materialized device-resident worlds",
             "the projected path pays projection, compaction, representative assembly, and transfer",
-            "the uncertainty guard reflects calibration error, not a probabilistic confidence interval",
+            "the uncertainty envelope is diagnostic, not a probabilistic confidence interval",
+            "the quadratic term is a bounded empirical saturation approximation",
             "GPU and native-backend crossover behavior remain separately calibratable",
         ],
     }

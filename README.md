@@ -354,33 +354,35 @@ monotone by construction:
 projected - direct =
     fixed projection overhead
   - logical worlds × direct per-world work
+  - logical worlds² × bounded backend-saturation term
   + active canonical classes × projection work
   + active execution classes × compact execution work
 ```
 
-All work coefficients are non-negative. More logical worlds can only favor projection; more
-canonical or execution classes can only make projection more expensive. Profiles remain bound to
-an exact backend and effect signature and fail closed on mismatch.
+Every work coefficient is non-negative. More logical worlds can only favor projection; more
+canonical or execution classes can only make projection more expensive. The quadratic term is not
+a claim that the simulator is algorithmically quadratic. It is an optional local approximation
+for backend saturation/cache effects, and profiles refuse to extrapolate beyond their calibrated
+population and class-count bounds.
 
 Calibration alternates direct and projected measurements so slow runner drift does not
-systematically favor one path. It fits the paired latency difference with noise weighting rather
-than independently fitting two noisy curves. A leave-one-out comparison decides whether the
-canonical-class term earns its complexity; if the simpler model is within 5% cross-validated
-error, the simpler model wins.
+systematically favor one path, and it fits the paired latency difference with observed-noise
+weighting. Leave-one-out model selection compares linear versus bounded-quadratic world terms and
+whether canonical-class count earns an independent coefficient. The simplest model within 5% of
+the best cross-validated error wins.
 
-The calibration also derives a decision guard from leave-one-out prediction error plus observed
-timing noise. Projection is selected only when its predicted advantage clears that guard.
-Near the crossover the deterministic fallback is direct execution, rather than flipping paths
-because of a few hundredths of a millisecond of runner noise.
+Calibration also produces a workload-dependent uncertainty envelope from leave-one-out error and
+timing noise. The envelope is diagnostic: both execution paths are semantically exact, so
+uncertainty about performance does not override the path predicted to be faster. Calls outside
+the calibrated workload domain fail closed instead of extrapolating a local hardware curve.
 
-The hosted experiment compares this model against the previous absolute-curve model on a denser,
-disjoint held-out grid concentrated around the crossover. Promotion requires at least 5% lower
-held-out relative-cost MAE, no material increase in dispatch regret, both paths to remain useful,
-and exact result agreement throughout.
+The hosted experiment keeps the previous absolute-curve model as a control and evaluates both on
+a denser, disjoint held-out grid concentrated around the crossover. Promotion requires at least
+5% lower held-out relative-cost MAE, no material increase in dispatch regret, both paths to remain
+useful, and exact result agreement throughout.
 
-The fitted CPU coefficients and uncertainty guard are calibration evidence, not portable
-constants. A changed effect signature or another backend, including GPU or native compiled
-execution, requires its own profile.
+CPU calibration remains backend-specific evidence. The owned native kernel and future GPU
+backends receive separate profiles rather than sharing JAX coefficients.
 
 ## Development
 
