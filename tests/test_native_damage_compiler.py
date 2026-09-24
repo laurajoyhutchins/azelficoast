@@ -56,8 +56,10 @@ def test_emitter_is_narrow_and_exports_damage_wrappers() -> None:
 
 def test_emitter_rejects_unknown_calls() -> None:
     hostile = _damage_source().replace(
-        "return (value * modifier + 2047) // 4096",
-        "return abs(value)",
+        "def _kernel_modify(value: int, modifier: int) -> int:\n"
+        "    return (value * modifier + 2047) // 4096",
+        "def _kernel_modify(value: int, modifier: int) -> int:\n"
+        "    return abs(value)",
         1,
     )
 
