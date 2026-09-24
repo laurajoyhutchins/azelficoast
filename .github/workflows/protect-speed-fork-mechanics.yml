@@ -1,0 +1,85 @@
+name: protect-speed-fork-mechanics
+
+on:
+  pull_request:
+    paths:
+      - "experiments/protect-speed-forks.json"
+      - "scripts/probe_protect_speed_forks.cjs"
+      - ".github/workflows/protect-speed-fork-mechanics.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Install Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: npm ci --omit=optional --no-audit --no-fund
+
+      - name: Probe frozen speed forks
+        run: |
+          node scripts/probe_protect_speed_forks.cjs             /tmp/pokemon-showdown             experiments/protect-speed-forks.json             | tee /tmp/protect-speed-fork-mechanics.json
+
+      - name: Check preregistered mechanics
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const result = JSON.parse(
+            fs.readFileSync("/tmp/protect-speed-fork-mechanics.json", "utf8")
+          );
+
+          const byFixture = new Map(
+            result.cases.map(candidate => [candidate.fixture_id, candidate])
+          );
+          const urshifu = byFixture.get(
+            "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a"
+          );
+          const typhlosion = byFixture.get(
+            "90322c79fa3101b1dc66bcd7554888d37b1e1d9da112e09746e2082278525664"
+          );
+
+          if (!urshifu || !typhlosion) throw new Error("missing frozen fixture");
+
+          if (urshifu.worlds.some(world => world.protect.blocked_without_damage)) {
+            throw new Error("Unseen Fist contact move unexpectedly blocked by Protect");
+          }
+          if (typhlosion.worlds.some(world => !world.protect.blocked_without_damage)) {
+            throw new Error("Focus Blast unexpectedly bypassed Protect");
+          }
+
+          const urshifuOrders = urshifu.worlds.map(
+            world => Math.sign(world.own_speed - world.opponent_speed)
+          );
+          const typhlosionOrders = typhlosion.worlds.map(
+            world => Math.sign(world.own_speed - world.opponent_speed)
+          );
+          if (new Set(urshifuOrders).size !== 2) {
+            throw new Error("Urshifu fixture no longer has a speed-order fork");
+          }
+          if (new Set(typhlosionOrders).size !== 2) {
+            throw new Error("Typhlosion fixture no longer has a speed-order fork");
+          }
+
+          console.log(JSON.stringify({
+            urshifu: urshifu.worlds,
+            typhlosion: typhlosion.worlds,
+          }, null, 2));
+          NODE
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protect-speed-fork-mechanics
+          path: /tmp/protect-speed-fork-mechanics.json
+          if-no-files-found: error
