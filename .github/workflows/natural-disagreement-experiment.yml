@@ -83,6 +83,7 @@ jobs:
             /tmp/corpus.jsonl \
             --showdown-root /tmp/pokemon-showdown \
             --rounds 2048 \
+            --persistent-only \
             | tee /tmp/candidates.json
 
           python - <<'PY'
@@ -92,6 +93,8 @@ jobs:
           result = json.loads(Path("/tmp/candidates.json").read_text())
           assert result["fixture_count"] > 0, result
           assert result["schema"] == "azelficoast.natural-fusion-candidates", result
+          assert result["persistent_only"] is True, result
+          assert result["candidate_count"] == result["persistent_candidate_count"], result
           print(
               "candidate_count=",
               result["candidate_count"],
