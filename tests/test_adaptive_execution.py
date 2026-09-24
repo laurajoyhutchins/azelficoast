@@ -56,7 +56,7 @@ def test_relative_model_selects_direct_then_projected_as_multiplicity_grows() ->
 
 def test_uncertainty_is_diagnostic_not_a_path_override() -> None:
     profile = _profile()
-    features = _features(500, canonical=100, projected=10)
+    features = _features(450, canonical=100, projected=10)
 
     decision = choose_execution_path(profile, features)
 
