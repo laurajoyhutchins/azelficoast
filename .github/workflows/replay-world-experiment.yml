@@ -1,0 +1,54 @@
+name: replay-world-experiment
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/replay_worlds.py"
+      - "scripts/sample_showdown_worlds.cjs"
+      - "tests/test_replay_worlds.py"
+      - ".github/workflows/replay-world-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Fetch historical Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin 6397bfddb3db4e916dd792e03c43355f7366e8ab
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build historical Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: npm ci --omit=optional --no-audit --no-fund
+
+      - name: Sample worlds after Close Combat reveal
+        run: |
+          node scripts/sample_showdown_worlds.cjs \
+            /tmp/pokemon-showdown infernape closecombat 65536 \
+            > /tmp/infernape-closecombat.json
+          cat /tmp/infernape-closecombat.json
+
+      - name: Sample worlds after Flare Blitz reveal
+        run: |
+          node scripts/sample_showdown_worlds.cjs \
+            /tmp/pokemon-showdown infernape closecombat,flareblitz 65536 \
+            > /tmp/infernape-closecombat-flareblitz.json
+          cat /tmp/infernape-closecombat-flareblitz.json
