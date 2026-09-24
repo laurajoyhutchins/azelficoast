@@ -84,7 +84,7 @@ def _to_id(value: Any) -> str:
     return "".join(character for character in str(value or "").lower() if character.isalnum())
 
 
-def _opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
+def opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
     """Return the latest publicly observed opponent move for either Showdown side."""
 
     opponent = _to_id(fixture.state.get("opponent"))
@@ -210,7 +210,7 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
     if not fixture.legal_actions:
         return None, "no-legal-actions"
 
-    last_move = _opponent_move_from_protocol(fixture)
+    last_move = opponent_move_from_protocol(fixture)
     if last_move is None:
         return None, "opponent-side-or-last-move-unresolved"
     plausible_items = _choice_items_for_move(last_move)
