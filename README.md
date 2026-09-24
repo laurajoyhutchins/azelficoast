@@ -239,6 +239,29 @@ This is a dependency/collapse proof over a synthetic microkernel, not yet a clai
 Pokémon Showdown mechanics or accelerator performance. The next rung is to bind the same IR to
 real Showdown-derived transition fixtures before introducing JAX/Pallas kernels.
 
+## Showdown-backed simulator dependency experiment
+
+The dependency IR is also checked against transitions produced by a pinned Pokémon Showdown
+engine rather than only against the synthetic reference microkernel. Hosted CI creates fixed-seed
+Gen 9 battles that vary a hidden Choice Scarf versus Choice Specs world and a genuinely different
+benched item.
+
+Two treatments use the same state-dependency declarations:
+
+- a Protect turn must collapse both Choice-item worlds and all bench variants within each fixed
+  RNG seed because neither difference can affect the blocked transition;
+- an unprotected Aura Sphere turn must preserve the Choice-item distinction while collapsing the
+  benched-item dimension.
+
+The fixture matrix is produced directly by Pokémon Showdown at commit
+`a5df8274e85b0889bf2a9b3422a08b39732374fc`. The checker compares the resulting HP and
+transition protocol slice within each dependency class. A negative control removes the opponent
+item from the damage read set and must be rejected.
+
+This validates a narrow state-dependency partition against real Showdown execution. It still does
+not claim complete mechanics coverage or accelerator speed. RNG is held by exact Showdown seed
+here; the synthetic experiment separately checks explicit RNG dependency declarations.
+
 ## Development
 
 ```bash
