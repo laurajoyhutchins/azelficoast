@@ -431,3 +431,28 @@ def test_protect_preserves_worlds_even_without_current_speed_fork(monkeypatch) -
     candidate = result["candidates"][0]
     assert candidate["current_speed_fork"] is False
     assert candidate["persistent_protect_actions"][0]["action"] == "/choose move protect"
+
+
+
+def test_persistent_only_skips_nonpersistent_state_before_sampling(monkeypatch) -> None:
+    fixture = _persistent_fixture(immune=False)
+
+    def should_not_sample(**_kwargs):
+        raise AssertionError("generator sampling should not run")
+
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        should_not_sample,
+    )
+
+    result = mine_candidates(
+        [fixture],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["persistent_only"] is True
+    assert result["candidate_count"] == 0
+    assert result["sampled_world_queries"] == 0
+    assert result["skipped"]["no-persistent-information-branch"] == 1
