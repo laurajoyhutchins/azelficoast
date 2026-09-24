@@ -15,6 +15,7 @@ def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
     return SimpleNamespace(
         species=species,
         level=80,
+        transformed=False,
         active=True,
         fainted=False,
         current_hp=150,
