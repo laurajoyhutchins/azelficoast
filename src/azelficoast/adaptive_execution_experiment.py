@@ -1,4 +1,4 @@
-"""Hosted calibration and held-out validation for adaptive simulator dispatch."""
+"""Select and validate a structural adaptive-execution cost model."""
 
 from __future__ import annotations
 
@@ -6,11 +6,13 @@ import argparse
 import hashlib
 import itertools
 import json
+import os
+import platform
 import statistics
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 import jax
 import numpy as np
@@ -53,26 +55,61 @@ class Treatment:
         )
 
 
+@dataclass(frozen=True)
+class CostModelShape:
+    direct_quadratic_term: bool
+    projected_canonical_term: bool
+
+    @property
+    def name(self) -> str:
+        direct = "direct-linear+quadratic" if self.direct_quadratic_term else "direct-linear"
+        projected = (
+            "projected-canonical+execution"
+            if self.projected_canonical_term
+            else "projected-execution"
+        )
+        return f"{direct}__{projected}"
+
+    @property
+    def complexity(self) -> int:
+        return 4 + int(self.direct_quadratic_term) + int(self.projected_canonical_term)
+
+
 TRAINING_TREATMENTS = (
     Treatment(2048, 2, 1),
     Treatment(4096, 12, 1),
-    Treatment(8192, 4, 4),
-    Treatment(16384, 8, 2),
+    Treatment(6144, 4, 4),
+    Treatment(8192, 8, 1),
+    Treatment(12288, 3, 8),
+    Treatment(16384, 12, 2),
+    Treatment(24576, 6, 4),
     Treatment(32768, 12, 8),
-    Treatment(65536, 3, 16),
+    Treatment(65536, 10, 4),
     Treatment(131072, 6, 8),
     Treatment(262144, 12, 16),
+    Treatment(524288, 12, 8),
 )
 
 HELD_OUT_TREATMENTS = (
     Treatment(3072, 3, 2),
-    Treatment(6144, 12, 2),
-    Treatment(12288, 6, 4),
-    Treatment(24576, 12, 4),
-    Treatment(49152, 4, 8),
+    Treatment(5120, 10, 1),
+    Treatment(7168, 12, 2),
+    Treatment(10240, 5, 4),
+    Treatment(14336, 9, 2),
+    Treatment(20480, 12, 4),
+    Treatment(28672, 4, 8),
+    Treatment(40960, 8, 8),
+    Treatment(57344, 12, 8),
     Treatment(98304, 10, 8),
     Treatment(196608, 6, 16),
-    Treatment(524288, 12, 8),
+    Treatment(393216, 8, 16),
+)
+
+MODEL_SHAPES = (
+    CostModelShape(False, False),
+    CostModelShape(False, True),
+    CostModelShape(True, False),
+    CostModelShape(True, True),
 )
 
 
@@ -93,9 +130,37 @@ def _load_contexts(path: Path) -> tuple[DamageContext, ...]:
         if isinstance(fixture, Mapping)
         and isinstance(fixture.get("context"), Mapping)
     )
-    if len(contexts) < max(t.active_context_count for t in (*TRAINING_TREATMENTS, *HELD_OUT_TREATMENTS)):
+    required = max(
+        treatment.active_context_count
+        for treatment in (*TRAINING_TREATMENTS, *HELD_OUT_TREATMENTS)
+    )
+    if len(contexts) < required:
         raise ShowdownDamageCorpusError("fixture corpus lacks enough distinct damage contexts")
     return contexts
+
+
+def _cpu_model_name() -> str:
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lower().startswith("model name"):
+                return line.partition(":")[2].strip()
+    return platform.processor() or "unknown"
+
+
+def _execution_target_signature() -> str:
+    devices = jax.devices()
+    payload = {
+        "jax_backend": jax.default_backend(),
+        "device_kinds": sorted(str(device.device_kind) for device in devices),
+        "device_count": len(devices),
+        "machine": platform.machine(),
+        "system": platform.system(),
+        "cpu_count": os.cpu_count(),
+        "cpu_model": _cpu_model_name(),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _effect_signature(contexts: Sequence[DamageContext]) -> str:
@@ -135,8 +200,7 @@ def _sparse_uniform_belief(
         weights[active_indices[:remainder]] += 1
 
     belief = ClassNativeBelief(support=support, weights=weights)
-    projection = compile_damage_projection(support, contexts)
-    return belief, projection
+    return belief, compile_damage_projection(support, contexts)
 
 
 def _active_projected_inputs(
@@ -180,41 +244,30 @@ def _materialize_direct_inputs(
     return context_rows[context_index], rolls
 
 
-def _median_ms(call: Callable[[], int], repeats: int = 5) -> tuple[float, int]:
-    samples: list[float] = []
-    result = 0
-    for _ in range(repeats):
-        start = time.perf_counter_ns()
-        result = call()
-        samples.append((time.perf_counter_ns() - start) / 1_000_000)
-    return statistics.median(samples), result
+def _median_and_mad(samples: Sequence[float]) -> tuple[float, float]:
+    median = statistics.median(samples)
+    mad = statistics.median(abs(value - median) for value in samples)
+    return median, mad
 
 
 def _benchmark_treatment(
     contexts: Sequence[DamageContext],
     treatment: Treatment,
     *,
-    backend: str,
-    effect_signature: str,
+    repeats: int = 9,
 ) -> dict[str, object]:
     belief, projection = _sparse_uniform_belief(contexts, treatment)
+    projected = project_belief(belief, projection)
 
     direct_params, direct_rolls = _materialize_direct_inputs(belief, contexts)
     direct_params_device = jax.device_put(direct_params)
     direct_rolls_device = jax.device_put(direct_rolls)
-    direct_warm = damage_score(direct_params_device, direct_rolls_device)
-    direct_warm.block_until_ready()
 
     def direct_call() -> int:
         value = damage_score(direct_params_device, direct_rolls_device)
         value.block_until_ready()
         return int(np.asarray(value))
 
-    direct_ms, direct_score = _median_ms(direct_call)
-
-    # Projection is precompiled from the effect signature and canonical support. The
-    # timed projected call still pays weight projection, active-class compaction,
-    # representative assembly, and transfer to the accelerator.
     def projected_call() -> int:
         params, rolls, weights = _active_projected_inputs(
             belief,
@@ -229,259 +282,637 @@ def _benchmark_treatment(
         value.block_until_ready()
         return int(np.asarray(value))
 
+    direct_warm = direct_call()
     projected_warm = projected_call()
-    projected_ms, projected_score = _median_ms(projected_call)
 
-    projected = project_belief(belief, projection)
-    features = ExecutionFeatures(
-        backend=backend,
-        effect_signature=effect_signature,
-        logical_world_count=belief.logical_world_count,
-        active_canonical_classes=belief.active_canonical_classes,
-        active_projected_classes=projected.active_classes,
-    )
+    direct_samples: list[float] = []
+    projected_samples: list[float] = []
+    direct_score = direct_warm
+    projected_score = projected_warm
+
+    for repeat in range(repeats):
+        calls = (
+            (projected_call, projected_samples, "projected"),
+            (direct_call, direct_samples, "direct"),
+        )
+        if repeat % 2:
+            calls = tuple(reversed(calls))
+        for call, samples, name in calls:
+            start = time.perf_counter_ns()
+            value = call()
+            samples.append((time.perf_counter_ns() - start) / 1_000_000)
+            if name == "direct":
+                direct_score = value
+            else:
+                projected_score = value
+
+    direct_ms, direct_mad = _median_and_mad(direct_samples)
+    projected_ms, projected_mad = _median_and_mad(projected_samples)
+    delta_samples = [
+        projected_value - direct_value
+        for projected_value, direct_value in zip(
+            projected_samples,
+            direct_samples,
+            strict=True,
+        )
+    ]
+    delta_ms, delta_mad = _median_and_mad(delta_samples)
 
     return {
         "treatment": treatment.name,
-        "logical_world_count": features.logical_world_count,
-        "active_canonical_classes": features.active_canonical_classes,
-        "active_projected_classes": features.active_projected_classes,
+        "logical_world_count": belief.logical_world_count,
+        "active_canonical_classes": belief.active_canonical_classes,
+        "active_projected_classes": projected.active_classes,
         "direct_median_ms": direct_ms,
+        "direct_mad_ms": direct_mad,
         "projected_median_ms": projected_ms,
+        "projected_mad_ms": projected_mad,
+        "projected_minus_direct_median_ms": delta_ms,
+        "projected_minus_direct_mad_ms": delta_mad,
         "oracle_path": (
             ExecutionPath.PROJECTED.value
-            if projected_ms < direct_ms
+            if delta_ms < 0
             else ExecutionPath.DIRECT.value
         ),
-        "score_equal": direct_score == projected_score == projected_warm,
+        "score_equal": direct_score == projected_score == direct_warm == projected_warm,
     }
 
 
 def _nonnegative_least_squares(
     x: np.ndarray,
     y: np.ndarray,
+    *,
+    row_weights: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Solve tiny non-negative least squares by enumerating active coefficient faces."""
+    if row_weights is None:
+        row_weights = np.ones(len(y), dtype=np.float64)
+    sqrt_weights = np.sqrt(row_weights)
+
+    scale = np.max(np.abs(x), axis=0)
+    scale = np.where(scale > 0, scale, 1.0)
+    scaled = x / scale
+    weighted_x = scaled * sqrt_weights[:, None]
+    weighted_y = y * sqrt_weights
+
     columns = x.shape[1]
     best: np.ndarray | None = None
     best_error = float("inf")
     for mask in itertools.product((False, True), repeat=columns):
         if not any(mask):
-            candidate = np.zeros(columns, dtype=np.float64)
+            candidate_scaled = np.zeros(columns, dtype=np.float64)
         else:
             indices = np.flatnonzero(mask)
-            partial, *_ = np.linalg.lstsq(x[:, indices], y, rcond=None)
+            partial, *_ = np.linalg.lstsq(
+                weighted_x[:, indices],
+                weighted_y,
+                rcond=None,
+            )
             if np.any(partial < 0):
                 continue
-            candidate = np.zeros(columns, dtype=np.float64)
-            candidate[indices] = partial
-        residual = x @ candidate - y
+            candidate_scaled = np.zeros(columns, dtype=np.float64)
+            candidate_scaled[indices] = partial
+        residual = weighted_x @ candidate_scaled - weighted_y
         error = float(np.dot(residual, residual))
         if error < best_error:
-            best = candidate
+            best = candidate_scaled / scale
             best_error = error
+
     if best is None:
         raise RuntimeError("non-negative cost fit found no feasible profile")
     return best
 
 
-def _fit_profile(
+def _noise_weights(
     rows: Sequence[Mapping[str, object]],
+    field: str,
+) -> np.ndarray:
+    noise = np.asarray(
+        [max(float(row[field]), 1e-6) for row in rows],
+        dtype=np.float64,
+    )
+    floor = max(0.01, float(np.median(noise)) * 0.5)
+    return 1.0 / np.maximum(noise, floor)
+
+
+def _direct_design(
+    rows: Sequence[Mapping[str, object]],
+    shape: CostModelShape,
+) -> np.ndarray:
+    values = []
+    for row in rows:
+        worlds = float(row["logical_world_count"])
+        columns = [1.0, worlds]
+        if shape.direct_quadratic_term:
+            columns.append(worlds * worlds)
+        values.append(columns)
+    return np.asarray(values, dtype=np.float64)
+
+
+def _projected_design(
+    rows: Sequence[Mapping[str, object]],
+    shape: CostModelShape,
+) -> np.ndarray:
+    values = []
+    for row in rows:
+        columns = [1.0]
+        if shape.projected_canonical_term:
+            columns.append(float(row["active_canonical_classes"]))
+        columns.append(float(row["active_projected_classes"]))
+        values.append(columns)
+    return np.asarray(values, dtype=np.float64)
+
+
+def _fit_structural_coefficients(
+    rows: Sequence[Mapping[str, object]],
+    shape: CostModelShape,
     *,
-    backend: str,
-    effect_signature: str,
-) -> ExecutionCostProfile:
-    direct_x = np.asarray(
-        [
-            [1.0, float(row["logical_world_count"])]
-            for row in rows
-        ],
-        dtype=np.float64,
+    noise_weighted: bool,
+) -> tuple[float, float, float, float, float, float]:
+    direct = _nonnegative_least_squares(
+        _direct_design(rows, shape),
+        np.asarray(
+            [float(row["direct_median_ms"]) for row in rows],
+            dtype=np.float64,
+        ),
+        row_weights=(
+            _noise_weights(rows, "direct_mad_ms")
+            if noise_weighted
+            else None
+        ),
     )
-    direct_y = np.asarray(
-        [float(row["direct_median_ms"]) for row in rows],
-        dtype=np.float64,
-    )
-    direct = _nonnegative_least_squares(direct_x, direct_y)
-
-    projected_x = np.asarray(
-        [
-            [
-                1.0,
-                float(row["active_canonical_classes"]),
-                float(row["active_projected_classes"]),
-            ]
-            for row in rows
-        ],
-        dtype=np.float64,
-    )
-    projected_y = np.asarray(
-        [float(row["projected_median_ms"]) for row in rows],
-        dtype=np.float64,
-    )
-    projected = _nonnegative_least_squares(projected_x, projected_y)
-
-    return ExecutionCostProfile(
-        backend=backend,
-        effect_signature=effect_signature,
-        direct_intercept_ms=float(direct[0]),
-        direct_per_world_ms=float(direct[1]),
-        projected_intercept_ms=float(projected[0]),
-        projected_per_canonical_class_ms=float(projected[1]),
-        projected_per_execution_class_ms=float(projected[2]),
+    projected = _nonnegative_least_squares(
+        _projected_design(rows, shape),
+        np.asarray(
+            [float(row["projected_median_ms"]) for row in rows],
+            dtype=np.float64,
+        ),
+        row_weights=(
+            _noise_weights(rows, "projected_mad_ms")
+            if noise_weighted
+            else None
+        ),
     )
 
+    direct_intercept = float(direct[0])
+    direct_per_world = float(direct[1])
+    direct_quadratic = float(direct[2]) if shape.direct_quadratic_term else 0.0
+    projected_intercept = float(projected[0])
+    if shape.projected_canonical_term:
+        projected_canonical = float(projected[1])
+        projected_execution = float(projected[2])
+    else:
+        projected_canonical = 0.0
+        projected_execution = float(projected[1])
+    return (
+        direct_intercept,
+        direct_per_world,
+        direct_quadratic,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
+    )
 
-def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
+
+def _predict_costs(
+    coefficients: tuple[float, float, float, float, float, float],
+    row: Mapping[str, object],
+) -> tuple[float, float]:
+    (
+        direct_intercept,
+        direct_per_world,
+        direct_quadratic,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
+    ) = coefficients
+    worlds = float(row["logical_world_count"])
+    direct = (
+        direct_intercept
+        + direct_per_world * worlds
+        + direct_quadratic * worlds * worlds
+    )
+    projected = (
+        projected_intercept
+        + projected_canonical * float(row["active_canonical_classes"])
+        + projected_execution * float(row["active_projected_classes"])
+    )
+    return direct, projected
+
+
+def _leave_one_out_metrics(
+    rows: Sequence[Mapping[str, object]],
+    shape: CostModelShape,
+) -> dict[str, object]:
+    errors: list[float] = []
+    correct = 0
+    for index, row in enumerate(rows):
+        training = [candidate for j, candidate in enumerate(rows) if j != index]
+        coefficients = _fit_structural_coefficients(
+            training,
+            shape,
+            noise_weighted=True,
+        )
+        direct, projected = _predict_costs(coefficients, row)
+        predicted_delta = projected - direct
+        measured_delta = float(row["projected_minus_direct_median_ms"])
+        errors.append(abs(predicted_delta - measured_delta))
+        correct += int((predicted_delta < 0) == (measured_delta < 0))
     return {
-        "backend": profile.backend,
-        "effect_signature": profile.effect_signature,
-        "direct": {
-            "intercept_ms": profile.direct_intercept_ms,
-            "per_world_ms": profile.direct_per_world_ms,
-        },
-        "projected": {
-            "intercept_ms": profile.projected_intercept_ms,
-            "per_active_canonical_class_ms": profile.projected_per_canonical_class_ms,
-            "per_active_execution_class_ms": profile.projected_per_execution_class_ms,
-        },
+        "errors": errors,
+        "mae": statistics.fmean(errors),
+        "choice_accuracy": correct / len(rows),
     }
 
 
-def _evaluate_held_out(
-    profile: ExecutionCostProfile,
+def _fit_cost_profile(
     rows: Sequence[Mapping[str, object]],
+    *,
+    backend: str,
+    target_signature: str,
+    effect_signature: str,
+) -> tuple[ExecutionCostProfile, dict[str, object]]:
+    candidates = []
+    for shape in MODEL_SHAPES:
+        metrics = _leave_one_out_metrics(rows, shape)
+        candidates.append(
+            {
+                "shape": shape,
+                **metrics,
+            }
+        )
+
+    best_accuracy = max(
+        float(candidate["choice_accuracy"])
+        for candidate in candidates
+    )
+    accuracy_eligible = [
+        candidate
+        for candidate in candidates
+        if float(candidate["choice_accuracy"]) == best_accuracy
+    ]
+    best_candidate = min(
+        accuracy_eligible,
+        key=lambda candidate: float(candidate["mae"]),
+    )
+    best_mae = float(best_candidate["mae"])
+    best_errors = [float(value) for value in best_candidate["errors"]]
+    best_standard_error = (
+        statistics.stdev(best_errors) / (len(best_errors) ** 0.5)
+        if len(best_errors) > 1
+        else 0.0
+    )
+    eligible = [
+        candidate
+        for candidate in accuracy_eligible
+        if float(candidate["mae"]) <= best_mae + best_standard_error
+    ]
+    selected = min(
+        eligible,
+        key=lambda candidate: (
+            candidate["shape"].complexity,
+            candidate["shape"].direct_quadratic_term,
+            candidate["shape"].projected_canonical_term,
+        ),
+    )
+    shape = selected["shape"]
+    coefficients = _fit_structural_coefficients(
+        rows,
+        shape,
+        noise_weighted=True,
+    )
+
+    guarded_errors = [
+        error + float(row["projected_minus_direct_mad_ms"])
+        for error, row in zip(selected["errors"], rows, strict=True)
+    ]
+    uncertainty_guard = float(np.quantile(guarded_errors, 0.90))
+
+    (
+        direct_intercept,
+        direct_per_world,
+        direct_quadratic,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
+    ) = coefficients
+    profile = ExecutionCostProfile(
+        backend=backend,
+        target_signature=target_signature,
+        effect_signature=effect_signature,
+        direct_intercept_ms=direct_intercept,
+        direct_per_world_ms=direct_per_world,
+        direct_per_world_squared_ms=direct_quadratic,
+        projected_intercept_ms=projected_intercept,
+        projected_per_canonical_class_ms=projected_canonical,
+        projected_per_execution_class_ms=projected_execution,
+        uncertainty_guard_ms=uncertainty_guard,
+        calibrated_max_logical_world_count=max(
+            int(row["logical_world_count"]) for row in rows
+        ),
+        calibrated_max_canonical_classes=max(
+            int(row["active_canonical_classes"]) for row in rows
+        ),
+        calibrated_max_projected_classes=max(
+            int(row["active_projected_classes"]) for row in rows
+        ),
+    )
+    return profile, {
+        "selected_shape": shape.name,
+        "selected_complexity": shape.complexity,
+        "leave_one_out": {
+            candidate["shape"].name: {
+                "delta_mae_ms": candidate["mae"],
+                "choice_accuracy": candidate["choice_accuracy"],
+            }
+            for candidate in candidates
+        },
+        "best_choice_accuracy": best_accuracy,
+        "best_delta_mae_among_best_accuracy_ms": best_mae,
+        "one_standard_error_ms": best_standard_error,
+        "selected_delta_mae_ms": selected["mae"],
+        "selected_choice_accuracy": selected["choice_accuracy"],
+        "uncertainty_guard_ms": uncertainty_guard,
+    }
+
+
+def _fit_absolute_baseline(
+    rows: Sequence[Mapping[str, object]],
+) -> dict[str, float]:
+    shape = CostModelShape(
+        direct_quadratic_term=False,
+        projected_canonical_term=True,
+    )
+    coefficients = _fit_structural_coefficients(
+        rows,
+        shape,
+        noise_weighted=False,
+    )
+    return {
+        "direct_intercept_ms": coefficients[0],
+        "direct_per_world_ms": coefficients[1],
+        "projected_intercept_ms": coefficients[3],
+        "projected_per_canonical_class_ms": coefficients[4],
+        "projected_per_execution_class_ms": coefficients[5],
+    }
+
+
+def _baseline_delta(
+    baseline: Mapping[str, float],
+    row: Mapping[str, object],
+) -> float:
+    direct = (
+        baseline["direct_intercept_ms"]
+        + baseline["direct_per_world_ms"] * float(row["logical_world_count"])
+    )
+    projected = (
+        baseline["projected_intercept_ms"]
+        + baseline["projected_per_canonical_class_ms"]
+        * float(row["active_canonical_classes"])
+        + baseline["projected_per_execution_class_ms"]
+        * float(row["active_projected_classes"])
+    )
+    return projected - direct
+
+
+def _evaluate(
+    rows: Sequence[Mapping[str, object]],
+    *,
+    profile: ExecutionCostProfile,
+    baseline: Mapping[str, float],
 ) -> dict[str, object]:
-    records: list[dict[str, object]] = []
+    candidate_records: list[dict[str, object]] = []
+    baseline_records: list[dict[str, object]] = []
+
     oracle_total = 0.0
-    adaptive_total = 0.0
     direct_total = 0.0
     projected_total = 0.0
-    correct = 0
-    chosen_paths: set[str] = set()
+    candidate_total = 0.0
+    baseline_total = 0.0
+    candidate_errors: list[float] = []
+    baseline_errors: list[float] = []
+    candidate_correct = 0
+    baseline_correct = 0
+    candidate_worst = 1.0
+    baseline_worst = 1.0
+    candidate_paths: set[str] = set()
+    guarded_cases = 0
 
     for row in rows:
+        measured_delta = float(row["projected_minus_direct_median_ms"])
+        direct_ms = float(row["direct_median_ms"])
+        projected_ms = float(row["projected_median_ms"])
+        oracle_path = str(row["oracle_path"])
+        oracle_ms = min(direct_ms, projected_ms)
+
         features = ExecutionFeatures(
             backend=profile.backend,
+            target_signature=profile.target_signature,
             effect_signature=profile.effect_signature,
             logical_world_count=int(row["logical_world_count"]),
             active_canonical_classes=int(row["active_canonical_classes"]),
             active_projected_classes=int(row["active_projected_classes"]),
         )
         decision = choose_execution_path(profile, features)
-        direct_ms = float(row["direct_median_ms"])
-        projected_ms = float(row["projected_median_ms"])
-        oracle_path = str(row["oracle_path"])
-        chosen_ms = (
+        candidate_ms = (
             projected_ms
             if decision.path is ExecutionPath.PROJECTED
             else direct_ms
         )
-        oracle_ms = min(direct_ms, projected_ms)
-
-        oracle_total += oracle_ms
-        adaptive_total += chosen_ms
-        direct_total += direct_ms
-        projected_total += projected_ms
-        chosen_paths.add(decision.path.value)
-        correct += int(decision.path.value == oracle_path)
-
-        records.append(
+        candidate_ratio = candidate_ms / oracle_ms
+        candidate_worst = max(candidate_worst, candidate_ratio)
+        candidate_total += candidate_ms
+        candidate_paths.add(decision.path.value)
+        candidate_correct += int(decision.path.value == oracle_path)
+        guarded_cases += int(decision.within_uncertainty_guard)
+        candidate_errors.append(
+            abs(
+                decision.predicted_projected_minus_direct_ms
+                - measured_delta
+            )
+        )
+        candidate_records.append(
             {
                 **dict(row),
                 "chosen_path": decision.path.value,
                 "predicted_direct_ms": decision.predicted_direct_ms,
                 "predicted_projected_ms": decision.predicted_projected_ms,
+                "predicted_delta_ms": decision.predicted_projected_minus_direct_ms,
+                "within_uncertainty_guard": decision.within_uncertainty_guard,
                 "choice_matches_oracle": decision.path.value == oracle_path,
-                "chosen_over_oracle": chosen_ms / oracle_ms,
+                "chosen_over_oracle": candidate_ratio,
             }
         )
 
+        baseline_delta = _baseline_delta(baseline, row)
+        baseline_path = (
+            ExecutionPath.PROJECTED
+            if baseline_delta < 0
+            else ExecutionPath.DIRECT
+        )
+        baseline_ms = (
+            projected_ms
+            if baseline_path is ExecutionPath.PROJECTED
+            else direct_ms
+        )
+        baseline_ratio = baseline_ms / oracle_ms
+        baseline_worst = max(baseline_worst, baseline_ratio)
+        baseline_total += baseline_ms
+        baseline_correct += int(baseline_path.value == oracle_path)
+        baseline_errors.append(abs(baseline_delta - measured_delta))
+        baseline_records.append(
+            {
+                **dict(row),
+                "chosen_path": baseline_path.value,
+                "predicted_delta_ms": baseline_delta,
+                "choice_matches_oracle": baseline_path.value == oracle_path,
+                "chosen_over_oracle": baseline_ratio,
+            }
+        )
+
+        oracle_total += oracle_ms
+        direct_total += direct_ms
+        projected_total += projected_ms
+
+    candidate = {
+        "rows": candidate_records,
+        "choice_accuracy": candidate_correct / len(rows),
+        "delta_mae_ms": statistics.fmean(candidate_errors),
+        "adaptive_total_ms": candidate_total,
+        "adaptive_over_oracle": candidate_total / oracle_total,
+        "worst_case_over_oracle": candidate_worst,
+        "chosen_paths": sorted(candidate_paths),
+        "guarded_case_count": guarded_cases,
+        "speedup_vs_always_direct": direct_total / candidate_total,
+        "speedup_vs_always_projected": projected_total / candidate_total,
+    }
+    old = {
+        "rows": baseline_records,
+        "choice_accuracy": baseline_correct / len(rows),
+        "delta_mae_ms": statistics.fmean(baseline_errors),
+        "adaptive_total_ms": baseline_total,
+        "adaptive_over_oracle": baseline_total / oracle_total,
+        "worst_case_over_oracle": baseline_worst,
+    }
     return {
-        "rows": records,
-        "choice_accuracy": correct / len(rows),
-        "chosen_paths": sorted(chosen_paths),
+        "candidate": candidate,
+        "baseline": old,
         "oracle_total_ms": oracle_total,
-        "adaptive_total_ms": adaptive_total,
         "always_direct_total_ms": direct_total,
         "always_projected_total_ms": projected_total,
-        "adaptive_over_oracle": adaptive_total / oracle_total,
-        "speedup_vs_always_direct": direct_total / adaptive_total,
-        "speedup_vs_always_projected": projected_total / adaptive_total,
+    }
+
+
+def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
+    return {
+        "backend": profile.backend,
+        "target_signature": profile.target_signature,
+        "effect_signature": profile.effect_signature,
+        "direct_intercept_ms": profile.direct_intercept_ms,
+        "direct_per_world_ms": profile.direct_per_world_ms,
+        "direct_per_world_squared_ms": profile.direct_per_world_squared_ms,
+        "projected_intercept_ms": profile.projected_intercept_ms,
+        "projected_per_canonical_class_ms": profile.projected_per_canonical_class_ms,
+        "projected_per_execution_class_ms": profile.projected_per_execution_class_ms,
+        "uncertainty_guard_ms": profile.uncertainty_guard_ms,
+        "calibrated_max_logical_world_count": profile.calibrated_max_logical_world_count,
+        "calibrated_max_canonical_classes": profile.calibrated_max_canonical_classes,
+        "calibrated_max_projected_classes": profile.calibrated_max_projected_classes,
     }
 
 
 def run_experiment(fixtures: Path) -> dict[str, object]:
     contexts = _load_contexts(fixtures)
     backend = jax.default_backend()
+    target_signature = _execution_target_signature()
     effect_signature = _effect_signature(contexts)
 
     training = [
-        _benchmark_treatment(
-            contexts,
-            treatment,
-            backend=backend,
-            effect_signature=effect_signature,
-        )
+        _benchmark_treatment(contexts, treatment)
         for treatment in TRAINING_TREATMENTS
     ]
-    profile = _fit_profile(
+    profile, selection = _fit_cost_profile(
         training,
         backend=backend,
+        target_signature=target_signature,
         effect_signature=effect_signature,
     )
+    baseline = _fit_absolute_baseline(training)
 
     held_out_rows = [
-        _benchmark_treatment(
-            contexts,
-            treatment,
-            backend=backend,
-            effect_signature=effect_signature,
-        )
+        _benchmark_treatment(contexts, treatment)
         for treatment in HELD_OUT_TREATMENTS
     ]
-    held_out = _evaluate_held_out(profile, held_out_rows)
+    evaluation = _evaluate(
+        held_out_rows,
+        profile=profile,
+        baseline=baseline,
+    )
+    candidate = evaluation["candidate"]
+    old = evaluation["baseline"]
 
     training_names = {row["treatment"] for row in training}
     held_out_names = {row["treatment"] for row in held_out_rows}
     disjoint = training_names.isdisjoint(held_out_names)
 
+    prediction_improvement = (
+        candidate["delta_mae_ms"] / old["delta_mae_ms"]
+        if old["delta_mae_ms"] > 0
+        else 1.0
+    )
+    regret_not_worse = (
+        candidate["adaptive_over_oracle"]
+        <= old["adaptive_over_oracle"] + 0.01
+    )
+
     passed = (
         disjoint
         and all(bool(row["score_equal"]) for row in training)
         and all(bool(row["score_equal"]) for row in held_out_rows)
-        and held_out["choice_accuracy"] >= 0.75
-        and held_out["adaptive_over_oracle"] <= 1.15
-        and held_out["chosen_paths"] == ["direct", "projected"]
-        and held_out["speedup_vs_always_direct"] > 1.0
-        and held_out["speedup_vs_always_projected"] > 1.0
+        and candidate["choice_accuracy"] >= 0.75
+        and candidate["adaptive_over_oracle"] <= 1.10
+        and candidate["worst_case_over_oracle"] <= 1.20
+        and candidate["chosen_paths"] == ["direct", "projected"]
+        and candidate["speedup_vs_always_direct"] > 1.0
+        and candidate["speedup_vs_always_projected"] > 1.0
+        and prediction_improvement <= 0.95
+        and regret_not_worse
     )
 
     return {
         "schema": "azelficoast.adaptive-execution-experiment",
-        "schema_version": 1,
+        "schema_version": 2,
         "showdown_commit": PINNED_SHOWDOWN_COMMIT,
         "jax_version": jax.__version__,
         "backend": backend,
+        "target_signature": target_signature,
         "effect_signature": effect_signature,
         "training_and_held_out_disjoint": disjoint,
         "training": training,
         "profile": _profile_record(profile),
-        "held_out": held_out,
+        "model_selection": selection,
+        "absolute_baseline_profile": baseline,
+        "held_out": evaluation,
+        "candidate_delta_mae_relative_to_baseline": prediction_improvement,
+        "candidate_regret_not_worse_than_baseline": regret_not_worse,
         "passed": passed,
         "acceptance": {
-            "minimum_held_out_choice_accuracy": 0.75,
-            "maximum_held_out_latency_vs_oracle": 1.15,
+            "minimum_choice_accuracy": 0.75,
+            "maximum_aggregate_latency_vs_oracle": 1.10,
+            "maximum_worst_case_latency_vs_oracle": 1.20,
+            "maximum_delta_mae_relative_to_old_model": 0.95,
+            "maximum_regret_increase_vs_old_model": 0.01,
             "must_choose_both_paths": True,
             "must_beat_always_direct": True,
             "must_beat_always_projected": True,
         },
         "non_claims": [
-            "the fitted coefficients are specific to this backend and effect signature",
-            "the hosted profile is experimental evidence, not a portable production constant",
+            "the profile is specific to this backend and effect signature",
+            "the hosted coefficients are calibration evidence, not portable constants",
             "the direct timed path receives pre-materialized device-resident worlds",
             "the projected path pays projection, compaction, representative assembly, and transfer",
-            "GPU crossover behavior is not established by this CPU experiment",
+            "the uncertainty guard is diagnostic, not a probabilistic confidence interval",
+            "the quadratic direct term is a bounded empirical saturation approximation",
+            "native and GPU backends remain separately calibratable",
         ],
     }
 

@@ -47,10 +47,10 @@ jobs:
         run: |
           node scripts/generate_showdown_damage_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/showdown-gen9-damage-fixtures.json
 
-      - name: Test deterministic dispatcher
+      - name: Test deterministic structural-cost dispatcher
         run: uv run pytest tests/test_adaptive_execution.py
 
-      - name: Run calibration and held-out experiment
+      - name: Compare selected structural model with old absolute model
         run: |
           uv run python -m azelficoast.adaptive_execution_experiment             /tmp/showdown-gen9-damage-fixtures.json             | tee /tmp/adaptive-execution-experiment.json
 
@@ -59,20 +59,28 @@ jobs:
           from pathlib import Path
 
           result = json.loads(Path("/tmp/adaptive-execution-experiment.json").read_text())
-          held = result["held_out"]
+          candidate = result["held_out"]["candidate"]
+          baseline = result["held_out"]["baseline"]
+
           assert result["passed"] is True, result
           assert result["training_and_held_out_disjoint"] is True, result
-          assert held["choice_accuracy"] >= 0.75, result
-          assert held["adaptive_over_oracle"] <= 1.15, result
-          assert held["chosen_paths"] == ["direct", "projected"], result
-          assert held["speedup_vs_always_direct"] > 1.0, result
-          assert held["speedup_vs_always_projected"] > 1.0, result
+          assert result["profile"]["calibrated_max_logical_world_count"] >= 524288, result
+          assert result["model_selection"]["selected_shape"], result
+          assert result["target_signature"].startswith("sha256:"), result
+          assert candidate["choice_accuracy"] >= 0.75, result
+          assert candidate["adaptive_over_oracle"] <= 1.10, result
+          assert candidate["worst_case_over_oracle"] <= 1.20, result
+          assert candidate["chosen_paths"] == ["direct", "projected"], result
+          assert candidate["speedup_vs_always_direct"] > 1.0, result
+          assert candidate["speedup_vs_always_projected"] > 1.0, result
+          assert candidate["delta_mae_ms"] <= baseline["delta_mae_ms"] * 0.95, result
+          assert result["candidate_regret_not_worse_than_baseline"] is True, result
           assert all(row["score_equal"] for row in result["training"]), result
-          assert all(row["score_equal"] for row in held["rows"]), result
+          assert all(row["score_equal"] for row in candidate["rows"]), result
           PY
 
       - uses: actions/upload-artifact@v4
         with:
-          name: adaptive-execution-evidence
+          name: adaptive-cost-model-evidence
           path: /tmp/adaptive-execution-experiment.json
           if-no-files-found: error

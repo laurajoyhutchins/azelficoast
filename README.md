@@ -346,41 +346,46 @@ mechanic admits a cheap projection. Those remain empirical questions as mechanic
 
 ## Adaptive simulator dispatch
 
-Direct batched execution and class-native execution have different cost curves, so the simulator
-does not encode one global population-size cutoff. The adaptive-dispatch experiment separates
-measurement from execution:
+The dispatcher models the two execution paths according to the work they actually perform rather
+than using one population-size threshold:
 
 ```text
-backend + effect signature
-          |
-   calibration profile
-          |
-logical multiplicity
-active canonical classes
-active execution classes
-          |
-          v
- deterministic cost estimate
-      /             \
-  direct          projected
+direct =
+    fixed launch cost
+  + logical worlds × per-world work
+  + optional logical worlds² × bounded saturation term
+
+projected =
+    fixed projection/transfer cost
+  + optional active canonical classes × projection work
+  + active execution classes × compact execution work
 ```
 
-A calibration profile contains non-negative linear cost terms for direct logical-world work and
-projected class work. The runtime selector is deterministic and fails closed if the profile's
-backend or effect signature does not match the requested execution. Exact predicted ties choose
-the simpler direct path.
+All coefficients are non-negative, so the model is monotone in every work dimension. The
+quadratic direct term is not an algorithmic-complexity claim; it is an optional local
+approximation for backend saturation/cache behavior. Profiles refuse to extrapolate beyond the
+largest logical population or class counts used during calibration.
 
-Hosted calibration uses only a preregistered training grid. A disjoint held-out grid then measures
-both real paths and checks the selector against the empirical faster path. Acceptance requires at
-least 75% held-out choice accuracy, no more than 15% aggregate latency regret versus a per-case
-oracle, selection of both execution paths, and lower aggregate latency than both trivial policies
-(always direct and always projected). Direct JAX is intentionally given the favorable benchmark:
-its logical worlds are already materialized and device-resident, while the projected timed path
-still pays weight projection, active-class compaction, representative assembly, and transfer.
+Calibration alternates direct and projected measurements to reduce runner drift and weights fits
+by observed timing noise. Leave-one-out model selection compares four structural shapes: linear
+versus bounded-quadratic direct work, each with or without an independent canonical-class term.
+Selection first maximizes crossover-choice accuracy, then minimizes prediction error. Among models
+with the best crossover accuracy, it applies the one-standard-error rule and chooses the simplest
+model whose error is statistically indistinguishable from the best observed fit.
 
-The fitted hosted-CPU coefficients are evidence, not portable constants. A different accelerator
-or changed effect signature requires its own calibration profile; GPU crossover behavior remains
-unclaimed.
+An uncertainty guard derived from leave-one-out error is reported with each decision, but it is
+diagnostic only. Both execution paths are semantically exact, so uncertainty about performance
+does not override the path predicted to be faster.
+
+The hosted experiment retains the original linear absolute-curve model as a control and evaluates
+both on a denser, disjoint crossover-heavy grid. Promotion requires at least 5% lower held-out
+projected-minus-direct prediction error, no material increase in dispatch regret, both paths to
+remain useful, and exact result agreement throughout.
+
+Calibration is execution-target-specific, not merely backend-specific. Profiles are fenced to a
+fingerprint covering the JAX backend, device kind/count, machine architecture, CPU count, and CPU
+model where available. JAX CPU, the owned native kernel, different CPU hosts, and future GPU
+kernels therefore receive separate profiles rather than sharing coefficients.
 
 ## Native damage compiler
 
