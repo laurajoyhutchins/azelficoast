@@ -133,3 +133,65 @@ def test_incomplete_transition_matrix_fails_closed() -> None:
 
     with pytest.raises(BeliefTraceError, match="omitted root transitions"):
         analyze_oracle(document)
+
+def test_determinization_cannot_condition_on_unobserved_chance() -> None:
+    document = {
+        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema_version": 1,
+        "source_fixture_id": "chance-alias",
+        "showdown_commit": "pinned",
+        "worlds": [
+            {
+                "world_id": "only-world",
+                "weight": 1.0,
+                "hidden": {},
+            }
+        ],
+        "legal_actions": ["hold"],
+        "dependency_candidates": [],
+        "declared_reads": {"hold": []},
+        "transitions": [
+            {
+                "world_id": "only-world",
+                "action": "hold",
+                "outcomes": [
+                    {
+                        "probability": 0.5,
+                        "observation": {"same": True},
+                        "successor": {"public": "same"},
+                        "continuations": {"a": 4, "b": 0},
+                    },
+                    {
+                        "probability": 0.5,
+                        "observation": {"same": True},
+                        "successor": {"public": "same"},
+                        "continuations": {"a": 0, "b": 4},
+                    },
+                ],
+            }
+        ],
+    }
+
+    result = analyze_oracle(document)
+
+    assert result["determinization"]["value"] == 2
+    assert result["public_belief"]["value"] == 2
+    assert result["policy_disagreement"] is False
+    assert result["strategy_fusion_observation_count"] == 0
+
+    [action] = result["actions"]
+    assert action["determinization_continuations"] == [
+        {
+            "world_id": "only-world",
+            "outcome_indices": [0, 1],
+            "observation_hash": action["determinization_continuations"][0][
+                "observation_hash"
+            ],
+            "choice": "a",
+            "value": 2.0,
+        }
+    ]
+    [public] = action["public_belief_continuations"]
+    assert public["world_aware_choices"] == ["a"]
+    assert public["strategy_fusion_possible"] is False
+
