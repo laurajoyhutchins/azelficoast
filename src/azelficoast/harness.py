@@ -161,7 +161,7 @@ def _live_player(
         account_configuration=AccountConfiguration(username, password),
         server_configuration=ShowdownServerConfiguration,
         battle_format=BATTLE_FORMAT,
-        max_concurrent_battles=concurrency,
+        max_concurrent_battles=1,
         save_replays=str(replays),
         decision_log=decisions,
     )
@@ -209,7 +209,7 @@ async def _run_local(
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
-        max_concurrent_battles=1,
+        max_concurrent_battles=concurrency,
         save_replays=str(replays),
         decision_log=decisions,
     )
