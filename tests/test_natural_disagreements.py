@@ -111,6 +111,32 @@ def _sample(*, extra_item: bool = False) -> dict[str, object]:
     }
 
 
+def test_legacy_unknown_item_sentinel_is_treated_as_hidden(monkeypatch) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    opponent = dict(state["opponent_active"])
+    opponent["item"] = "unknown_item"
+    state["opponent_active"] = opponent
+    legacy = DecisionFixture(
+        fixture_id="legacy-sentinel",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [legacy],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 1
+
+
 def test_mines_real_shape_choice_item_speed_fork(monkeypatch) -> None:
     monkeypatch.setattr(
         "azelficoast.natural_disagreements._sample_worlds",
