@@ -161,6 +161,61 @@ The treatment passes only if determinization chooses `Protect`, public-belief se
 
 This remains a bounded tactical model, not a claim that the current search machinery is a competitive Pokémon engine. The next rung is to construct these hidden worlds automatically from a real decision trace and the Showdown random-set generator rather than embedding one curated position.
 
+
+## Replay-derived hidden-world reconstruction
+
+Azelficoast can now reconstruct a hidden-item belief from a real public Gen 9 Random Battle replay without hard-coding the revealed answer.
+
+The hosted experiment uses public replay `gen9randombattle-2405042449` and binds its generator model to Pokémon Showdown commit `6397bfddb3db4e916dd792e03c43355f7366e8ab`, the latest relevant randbats repository revision from July 1, 2025 before that battle.
+
+The pipeline is:
+
+```text
+public replay history
+        |
+        +--> observed Infernape: Close Combat
+        |
+        v
+historical Showdown generator
+65,536 deterministic seed samples
+        |
+        v
+empirical generator prior
+  Life Orb     63.33%
+  Choice Band  24.55%
+  Choice Scarf 12.12%
+        |
+        +--> turn 18:
+             damaging Close Combat
+             complete public turn
+             no Life Orb recoil
+        |
+        v
+public-history prior
+  Choice Band  66.94%
+  Choice Scarf 33.06%
+        |
+        +--> turn 19:
+             Close Combat
+             into Tera-Flying Kingambit
+             239/270 -> 185/270
+             observed damage = 54
+        |
+        v
+exact damage likelihood
+        |
+        v
+posterior: Choice Scarf = 1.0
+```
+
+The seed sweep is a reproducible empirical prior over the chosen deterministic seed family and empty generator-team context, not an exact analytic distribution over every possible Showdown PRNG or team-generation history. Public evidence is applied separately. The absence of mandatory Life Orb recoil after turn 18 removes Life Orb from the sampled support. The observed 54 damage on turn 19 is then compatible with the Choice Scarf damage range (51–61) and incompatible with Choice Band (77–91); the raw Life Orb range is 66–79. The damage calculation mirrors the historical Showdown ordering and fixed-point modifier rounding.
+
+The resulting `azelficoast.replay-belief` record includes the replay ID, historical Showdown revision, revision-bound generator sample and context, raw generator prior, authoritative public-history updates, pre-damage prior, public damage observation, compatible worlds, posterior, and a deterministic SHA-256 belief identity. Unknown sampled item semantics fail closed instead of being treated as neutral damage.
+
+The networked/historical experiment lives in `replay-world-experiment.yml`; ordinary unit CI remains independent of external replay and npm availability.
+
+This validates replay-to-hidden-world reconstruction. It does not yet demonstrate a determinization/public-belief action disagreement from a naturally occurring full Azelficoast decision state, because a public opponent replay does not expose our own hidden bench and complete legal-action state. Azelficoast's instrumented live/local traces do, which is the next search surface.
+
 ## Development
 
 ```bash
