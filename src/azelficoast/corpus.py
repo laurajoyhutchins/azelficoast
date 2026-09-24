@@ -9,7 +9,7 @@ import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
 
 from poke_env.player import Player
 
@@ -198,8 +198,17 @@ def _fixture_id(
     return _sha256_text(_canonical_json(_fixture_material(state, protocol_prefix)))
 
 
-def build_fixtures(trace_paths: Sequence[str | Path]) -> list[DecisionFixture]:
-    """Extract deterministic decision fixtures from one or more trace JSONL files."""
+def build_fixtures(
+    trace_paths: Sequence[str | Path],
+    *,
+    decision_predicate: Callable[[Mapping[str, Any]], bool] | None = None,
+) -> list[DecisionFixture]:
+    """Extract deterministic decision fixtures from one or more trace JSONL files.
+
+    When a decision predicate is provided, evaluate it against the raw public state
+    before copying cumulative protocol history. Selected fixtures retain identical
+    semantics while rejected states avoid unnecessary evidence amplification.
+    """
     paths = [Path(path) for path in trace_paths]
     if not paths:
         raise CorpusError("at least one trace path is required")
@@ -273,6 +282,8 @@ def build_fixtures(trace_paths: Sequence[str | Path]) -> list[DecisionFixture]:
                 raise CorpusError(
                     f"run {run_id!r} event {event_index}: chosen action is not legal"
                 )
+            if decision_predicate is not None and not decision_predicate(raw_state):
+                continue
 
             protocol_prefix = copy.deepcopy(history.get(battle_tag, []))
             fixture_id = _fixture_id(state, protocol_prefix)
