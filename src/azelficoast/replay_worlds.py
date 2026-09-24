@@ -384,6 +384,12 @@ def _neutral_stat(base: int, level: int) -> int:
     return math.floor((2 * base + RANDBATS_IV + RANDBATS_EV // 4) * level / 100) + 5
 
 
+def _showdown_modify(value: int, modifier: Fraction) -> int:
+    """Mirror Pokémon Showdown's 12-bit fixed-point Battle.modify for positive values."""
+    fixed = math.floor(modifier.numerator * 4096 / modifier.denominator)
+    return math.floor((math.floor(value * fixed) + 2048 - 1) / 4096)
+
+
 def _effectiveness(data: GenData, attacking_type: str, defending_types: Sequence[str]) -> Fraction:
     result = Fraction(1, 1)
     for defending_type in defending_types:
@@ -431,7 +437,7 @@ def damage_rolls_for_item(
     base_damage = (
         math.floor(
             math.floor(
-                (math.floor(2 * observation.attacker_level / 5) + 2)
+                math.floor(2 * observation.attacker_level / 5 + 2)
                 * base_power
                 * attack
                 / defense
@@ -454,11 +460,12 @@ def damage_rolls_for_item(
     effectiveness = _effectiveness(data, move_type, defending_types)
 
     rolls: list[int] = []
+    # Showdown applies its 85..100 randomizer before STAB/type/final damage modifiers.
     for random_percent in range(85, 101):
-        damage = base_damage
-        for modifier in (stab, effectiveness, final_multiplier):
-            damage = math.floor(damage * modifier)
-        damage = math.floor(damage * random_percent / 100)
+        damage = math.floor(base_damage * random_percent / 100)
+        damage = _showdown_modify(damage, stab)
+        damage = math.floor(damage * effectiveness)
+        damage = _showdown_modify(damage, final_multiplier)
         rolls.append(damage)
     return tuple(rolls)
 
