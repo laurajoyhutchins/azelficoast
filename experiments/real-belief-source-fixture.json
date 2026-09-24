@@ -669,5 +669,6 @@
   "plausible_items": [
     "Choice Scarf",
     "Choice Specs"
-  ]
+  ],
+  "own_active_tera_type": "Steel"
 }
