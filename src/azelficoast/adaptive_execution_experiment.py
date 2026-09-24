@@ -10,7 +10,7 @@ import statistics
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Mapping, Sequence
 
 import jax
 import numpy as np
