@@ -341,9 +341,6 @@ def mine_candidates(
     for fixture in fixtures:
         fixture_count += 1
         legal_actions = fixture.legal_actions
-        if "/choose move protect" not in legal_actions:
-            skip("protect-not-legal")
-            continue
         if not _plain_speed_context(fixture):
             skip("non-plain-speed-context")
             continue
@@ -393,6 +390,14 @@ def mine_candidates(
             skip("last-move-not-fixed-damage-category")
             continue
 
+        own_speed = _effective_own_speed(active)
+        base_speed = _neutral_speed(opponent_species, opponent_level)
+        scarf_speed = base_speed * 3 // 2
+        low, high = sorted((base_speed, scarf_speed))
+        if not (low < own_speed < high):
+            skip("no-speed-order-fork")
+            continue
+
         is_lead = history["lead_species"] == opponent_species
         key = (opponent_species, tuple(revealed), is_lead)
         if key not in cache:
@@ -428,14 +433,6 @@ def mine_candidates(
             skip("not-choice-pair-after-public-evidence")
             continue
 
-        own_speed = _effective_own_speed(active)
-        base_speed = _neutral_speed(opponent_species, opponent_level)
-        scarf_speed = base_speed * 3 // 2
-        low, high = sorted((base_speed, scarf_speed))
-        if not (low < own_speed < high):
-            skip("no-speed-order-fork")
-            continue
-
         total = sum(counts.values())
         candidate = {
             "fixture_id": fixture.fixture_id,
@@ -456,6 +453,7 @@ def mine_candidates(
                 item: count / total for item, count in sorted(counts.items())
             },
             "legal_actions": list(legal_actions),
+            "protect_legal": "/choose move protect" in legal_actions,
             "control_actions": [
                 control.get("chosen_action") for control in fixture.control_decisions
             ],
