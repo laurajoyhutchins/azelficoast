@@ -6,11 +6,17 @@ from azelficoast.belief_coverage import summarize_traces
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 
 
-def _record(*, event: int, kind: str, **extra: object) -> dict[str, object]:
+def _record(
+    *,
+    event: int,
+    kind: str,
+    run: str = "coverage-run",
+    **extra: object,
+) -> dict[str, object]:
     return {
         "schema": TRACE_SCHEMA,
         "schema_version": TRACE_SCHEMA_VERSION,
-        "run_id": "coverage-run",
+        "run_id": run,
         "event_index": event,
         "observed_at": "2026-09-24T00:00:00+00:00",
         "kind": kind,
@@ -49,7 +55,13 @@ def _state(*, item=None, last_move="U-turn") -> dict[str, object]:
     }
 
 
-def _write_trace(path, *, item=None, selected_policy="public-belief") -> None:
+def _write_trace(
+    path,
+    *,
+    item=None,
+    selected_policy="public-belief",
+    run="coverage-run",
+) -> None:
     state = _state(item=item)
     records = [
         _record(
@@ -98,8 +110,13 @@ def _write_trace(path, *, item=None, selected_policy="public-belief") -> None:
 def test_coverage_reports_static_admission_and_observed_routing(tmp_path) -> None:
     admitted = tmp_path / "admitted.jsonl"
     rejected = tmp_path / "rejected.jsonl"
-    _write_trace(admitted)
-    _write_trace(rejected, item="leftovers", selected_policy="simple-heuristics")
+    _write_trace(admitted, run="admitted-run")
+    _write_trace(
+        rejected,
+        item="leftovers",
+        selected_policy="simple-heuristics",
+        run="rejected-run",
+    )
 
     report = summarize_traces([admitted, rejected])
 
@@ -126,6 +143,7 @@ def test_coverage_handles_legacy_trace_without_decision_metadata(tmp_path) -> No
     state = _state()
     records = [
         _record(
+            run=run,
             event=0,
             kind="protocol",
             room="battle-coverage",
@@ -137,6 +155,7 @@ def test_coverage_handles_legacy_trace_without_decision_metadata(tmp_path) -> No
             ],
         ),
         _record(
+            run=run,
             event=1,
             kind="decision",
             battle_tag="battle-coverage",
