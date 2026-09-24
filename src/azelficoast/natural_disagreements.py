@@ -29,6 +29,30 @@ SPEED_ABILITIES = {
     "unburden",
 }
 
+PROTECT_MOVES = frozenset(
+    {
+        "banefulbunker",
+        "burningbulwark",
+        "detect",
+        "kingsshield",
+        "obstruct",
+        "protect",
+        "silktrap",
+        "spikyshield",
+    }
+)
+
+TYPE_IMMUNITIES: dict[str, frozenset[str]] = {
+    "normal": frozenset({"ghost"}),
+    "fighting": frozenset({"ghost"}),
+    "poison": frozenset({"steel"}),
+    "ground": frozenset({"flying"}),
+    "ghost": frozenset({"normal"}),
+    "electric": frozenset({"ground"}),
+    "psychic": frozenset({"dark"}),
+    "dragon": frozenset({"fairy"}),
+}
+
 
 class NaturalDisagreementError(ValueError):
     """Raised when frozen evidence cannot be interpreted safely."""
@@ -222,15 +246,11 @@ def _has_condition(
 
 
 def _plain_speed_context(fixture: DecisionFixture) -> bool:
-    state = fixture.state
-    fields = state.get("fields")
-    if _has_condition(fields if isinstance(fields, Mapping) else None, "TRICK_ROOM"):
-        return False
-
-    active = state.get("active")
-    if not isinstance(active, Mapping):
-        return False
-    return _to_id(str(active.get("ability") or "")) not in SPEED_ABILITIES
+    fields = fixture.state.get("fields")
+    return not _has_condition(
+        fields if isinstance(fields, Mapping) else None,
+        "TRICK_ROOM",
+    )
 
 
 def _apply_speed_stage(speed: int, view: Mapping[str, Any]) -> int:
@@ -282,6 +302,114 @@ def _effective_own_speed(
     if _to_id(str(active.get("item") or "")) == "choicescarf":
         speed = speed * 3 // 2
     return _apply_public_speed_modifiers(speed, active, side_conditions)
+
+
+def _move_type(move_id: str) -> str | None:
+    move = GenData.from_gen(9).moves.get(_to_id(move_id))
+    if not isinstance(move, Mapping):
+        return None
+    move_type = move.get("type")
+    return move_type.lower() if isinstance(move_type, str) else None
+
+
+def _type_immune(view: Mapping[str, Any], move_type: str) -> bool:
+    immune_types = TYPE_IMMUNITIES.get(move_type)
+    if not immune_types:
+        return False
+    raw_types = view.get("types")
+    if not isinstance(raw_types, Sequence) or isinstance(raw_types, (str, bytes)):
+        return False
+    return bool({_to_id(str(type_)) for type_ in raw_types} & immune_types)
+
+
+def _switch_view(
+    fixture: DecisionFixture,
+    species: str,
+) -> Mapping[str, Any] | None:
+    team = fixture.state.get("team")
+    if not isinstance(team, Mapping):
+        return None
+    matches = [
+        view
+        for view in team.values()
+        if isinstance(view, Mapping)
+        and _to_id(str(view.get("species") or "")) == _to_id(species)
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _persistent_protect_actions(
+    fixture: DecisionFixture,
+) -> list[dict[str, Any]]:
+    persistent: list[dict[str, Any]] = []
+    for action in fixture.legal_actions:
+        if not action.startswith("/choose move "):
+            continue
+        move = action.removeprefix("/choose move ").split(" ", 1)[0]
+        if _to_id(move) not in PROTECT_MOVES:
+            continue
+        persistent.append(
+            {
+                "action": action,
+                "kind": "protect",
+                "observation": "blocked-no-item-reveal",
+            }
+        )
+    return persistent
+
+
+def _persistent_immunity_switches(
+    fixture: DecisionFixture,
+    *,
+    move_type: str,
+) -> list[dict[str, Any]]:
+    raw_switches = fixture.state.get("available_switches")
+    if not isinstance(raw_switches, Sequence) or isinstance(raw_switches, (str, bytes)):
+        return []
+
+    own_conditions = fixture.state.get("side_conditions")
+    conditions = own_conditions if isinstance(own_conditions, Mapping) else None
+    persistent: list[dict[str, Any]] = []
+
+    for species in raw_switches:
+        if not isinstance(species, str):
+            continue
+        view = _switch_view(fixture, species)
+        if view is None or view.get("fainted") is True:
+            continue
+        if view.get("transformed") is True:
+            continue
+        if _to_id(str(view.get("ability") or "")) in SPEED_ABILITIES:
+            continue
+        if not _type_immune(view, move_type):
+            continue
+
+        speed = _effective_own_speed(view, conditions)
+
+        action = next(
+            (
+                legal
+                for legal in fixture.legal_actions
+                if legal.startswith("/choose switch ")
+                and _to_id(legal.removeprefix("/choose switch ")) == _to_id(species)
+            ),
+            None,
+        )
+        if action is None:
+            continue
+        persistent.append(
+            {
+                "action": action,
+                "species": view.get("species"),
+                "speed": speed,
+                "observation": f"immune:{move_type}",
+            }
+        )
+
+    return sorted(
+        persistent,
+        key=lambda item: (str(item["species"]), str(item["action"])),
+    )
 
 
 def _sample_worlds(
@@ -362,6 +490,7 @@ def mine_candidates(
     *,
     showdown_root: Path,
     rounds: int = 2048,
+    persistent_only: bool = False,
 ) -> dict[str, Any]:
     cache: dict[tuple[str, tuple[str, ...], bool], dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
@@ -430,10 +559,6 @@ def mine_candidates(
 
         own_conditions = fixture.state.get("side_conditions")
         opponent_conditions = fixture.state.get("opponent_side_conditions")
-        own_speed = _effective_own_speed(
-            active,
-            own_conditions if isinstance(own_conditions, Mapping) else None,
-        )
         base_speed = _apply_public_speed_modifiers(
             _neutral_speed(opponent_species, opponent_level),
             opponent_active,
@@ -445,8 +570,37 @@ def mine_candidates(
             opponent_conditions if isinstance(opponent_conditions, Mapping) else None,
         )
         low, high = sorted((base_speed, scarf_speed))
-        if not (low < own_speed < high):
-            skip("no-speed-order-fork")
+
+        own_speed = None
+        current_speed_fork = False
+        if _to_id(str(active.get("ability") or "")) not in SPEED_ABILITIES:
+            own_speed = _effective_own_speed(
+                active,
+                own_conditions if isinstance(own_conditions, Mapping) else None,
+            )
+            current_speed_fork = low < own_speed < high
+
+        move_type = _move_type(str(last_move["move"]))
+        persistent_switches = (
+            _persistent_immunity_switches(
+                fixture,
+                move_type=move_type,
+            )
+            if move_type is not None
+            else []
+        )
+        persistent_protect_actions = _persistent_protect_actions(fixture)
+        has_persistent_branch = bool(
+            persistent_switches or persistent_protect_actions
+        )
+        if persistent_only and not has_persistent_branch:
+            skip("no-persistent-information-branch")
+            continue
+        if (
+            not current_speed_fork
+            and not has_persistent_branch
+        ):
+            skip("no-speed-or-persistent-information-fork")
             continue
 
         is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
@@ -496,6 +650,9 @@ def mine_candidates(
             "opponent": fixture.state.get("opponent"),
             "active_species": active.get("species"),
             "active_speed": own_speed,
+            "current_speed_fork": current_speed_fork,
+            "persistent_switches": persistent_switches,
+            "persistent_protect_actions": persistent_protect_actions,
             "opponent_species": opponent_species,
             "generator_species": sample["species"],
             "opponent_level": opponent_level,
@@ -523,8 +680,14 @@ def mine_candidates(
         "schema": "azelficoast.natural-fusion-candidates",
         "schema_version": 1,
         "fixture_count": fixture_count,
+        "persistent_only": persistent_only,
         "sampled_world_queries": len(cache),
         "candidate_count": len(candidates),
+        "persistent_candidate_count": sum(
+            bool(candidate["persistent_switches"])
+            or bool(candidate["persistent_protect_actions"])
+            for candidate in candidates
+        ),
         "candidates": candidates,
         "skipped": dict(sorted(skipped.items())),
     }
@@ -535,11 +698,13 @@ def mine_corpus(
     *,
     showdown_root: str | Path,
     rounds: int = 2048,
+    persistent_only: bool = False,
 ) -> dict[str, Any]:
     return mine_candidates(
         load_corpus(corpus_path),
         showdown_root=Path(showdown_root),
         rounds=rounds,
+        persistent_only=persistent_only,
     )
 
 
@@ -548,6 +713,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("corpus", type=Path)
     parser.add_argument("--showdown-root", type=Path, required=True)
     parser.add_argument("--rounds", type=int, default=2048)
+    parser.add_argument(
+        "--persistent-only",
+        action="store_true",
+        help="mine only branches that preserve hidden worlds into the next decision",
+    )
     return parser
 
 
@@ -559,6 +729,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         args.corpus,
         showdown_root=args.showdown_root,
         rounds=args.rounds,
+        persistent_only=args.persistent_only,
     )
     print(json.dumps(result, sort_keys=True))
     return 0

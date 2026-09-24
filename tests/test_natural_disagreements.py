@@ -160,6 +160,14 @@ def test_mines_real_shape_choice_item_speed_fork(monkeypatch) -> None:
         "Choice Scarf": 0.4,
         "Choice Specs": 0.6,
     }
+    assert result["persistent_candidate_count"] == 1
+    assert candidate["persistent_protect_actions"] == [
+        {
+            "action": "/choose move protect",
+            "kind": "protect",
+            "observation": "blocked-no-item-reveal",
+        }
+    ]
 
 
 def test_rejects_support_with_unresolved_non_choice_item(monkeypatch) -> None:
@@ -241,9 +249,13 @@ def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> Non
         rounds=100,
     )
 
-    # 206 * 1.5 is faster than both Gardevoir worlds, so the fork disappears.
-    assert result["candidate_count"] == 0
-    assert result["skipped"]["no-speed-order-fork"] == 1
+    # 206 * 1.5 is faster than both Gardevoir worlds, so the speed fork disappears.
+    # Protect still preserves the hidden item information set.
+    assert result["candidate_count"] == 1
+    assert result["persistent_candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["current_speed_fork"] is False
+    assert candidate["persistent_protect_actions"][0]["action"] == "/choose move protect"
 
 
 
@@ -294,3 +306,153 @@ def test_transformed_active_state_is_excluded_until_copied_stats_are_modeled(
 
     assert result["candidate_count"] == 0
     assert result["skipped"]["active-transformed"] == 1
+
+
+
+def _persistent_fixture(*, immune: bool = True) -> DecisionFixture:
+    fixture = _fixture()
+    state = dict(fixture.state)
+
+    active = dict(state["active"])
+    active["stats"] = {"spe": 300}
+    state["active"] = active
+
+    switch_species = "Umbreon" if immune else "Vaporeon"
+    switch_types = ["DARK"] if immune else ["WATER"]
+    state["available_switches"] = [switch_species.lower()]
+    state["legal_actions"] = [
+        "/choose move ironhead",
+        f"/choose switch {switch_species}",
+    ]
+    state["team"] = {
+        f"p1: {switch_species}": {
+            "species": switch_species.lower(),
+            "level": 80,
+            "transformed": False,
+            "fainted": False,
+            "status": None,
+            "item": "leftovers",
+            "ability": "synchronize" if immune else "waterabsorb",
+            "stats": {"spe": 206},
+            "boosts": {
+                "atk": 0,
+                "def": 0,
+                "spa": 0,
+                "spd": 0,
+                "spe": 0,
+                "accuracy": 0,
+                "evasion": 0,
+            },
+            "types": switch_types,
+        }
+    }
+
+    prefix = list(list(message) for message in fixture.protocol_prefix[0])
+    for message in prefix:
+        if len(message) >= 4 and message[1] == "move":
+            message[3] = "Psychic"
+    return DecisionFixture(
+        fixture_id="persistent" if immune else "nonimmune",
+        state=state,
+        protocol_prefix=(tuple(tuple(field for field in message) for message in prefix),),
+        control_decisions=fixture.control_decisions,
+    )
+
+
+def test_mines_immunity_switch_that_preserves_hidden_item_worlds(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [_persistent_fixture()],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["persistent_candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["current_speed_fork"] is False
+    assert candidate["persistent_switches"] == [
+        {
+            "action": "/choose switch Umbreon",
+            "species": "umbreon",
+            "speed": 206,
+            "observation": "immune:psychic",
+        }
+    ]
+
+
+def test_nonimmune_switch_does_not_create_persistent_information_set(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [_persistent_fixture(immune=False)],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["persistent_candidate_count"] == 0
+    assert result["skipped"]["no-speed-or-persistent-information-fork"] == 1
+
+
+
+def test_protect_preserves_worlds_even_without_current_speed_fork(monkeypatch) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    active = dict(state["active"])
+    active["stats"] = {"spe": 300}
+    state["active"] = active
+    no_speed_fork = DecisionFixture(
+        fixture_id="protect-persistent",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [no_speed_fork],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["persistent_candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["current_speed_fork"] is False
+    assert candidate["persistent_protect_actions"][0]["action"] == "/choose move protect"
+
+
+
+def test_persistent_only_skips_nonpersistent_state_before_sampling(monkeypatch) -> None:
+    fixture = _persistent_fixture(immune=False)
+
+    def should_not_sample(**_kwargs):
+        raise AssertionError("generator sampling should not run")
+
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        should_not_sample,
+    )
+
+    result = mine_candidates(
+        [fixture],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["persistent_only"] is True
+    assert result["candidate_count"] == 0
+    assert result["sampled_world_queries"] == 0
+    assert result["skipped"]["no-persistent-information-branch"] == 1

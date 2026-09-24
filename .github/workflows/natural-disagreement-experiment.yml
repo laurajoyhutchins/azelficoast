@@ -69,7 +69,7 @@ jobs:
             --results /tmp/results.jsonl \
             --decisions /tmp/decisions.jsonl \
             --replays /tmp/replays \
-            local --battles 64
+            local --battles 128
 
       - name: Freeze decision corpus
         run: |
@@ -77,12 +77,13 @@ jobs:
             --output /tmp/corpus.jsonl \
             | tee /tmp/corpus-summary.json
 
-      - name: Mine natural strategy-fusion candidates
+      - name: Mine persistent information-set candidates
         run: |
           uv run python -m azelficoast.natural_disagreements \
             /tmp/corpus.jsonl \
             --showdown-root /tmp/pokemon-showdown \
             --rounds 2048 \
+            --persistent-only \
             | tee /tmp/candidates.json
 
           python - <<'PY'
@@ -92,9 +93,13 @@ jobs:
           result = json.loads(Path("/tmp/candidates.json").read_text())
           assert result["fixture_count"] > 0, result
           assert result["schema"] == "azelficoast.natural-fusion-candidates", result
+          assert result["persistent_only"] is True, result
+          assert result["candidate_count"] == result["persistent_candidate_count"], result
           print(
               "candidate_count=",
               result["candidate_count"],
+              "persistent_candidate_count=",
+              result["persistent_candidate_count"],
               "sampled_world_queries=",
               result["sampled_world_queries"],
           )
