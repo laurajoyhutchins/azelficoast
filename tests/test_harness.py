@@ -65,3 +65,17 @@ def test_local_concurrency_parsing() -> None:
     assert args.command == "local"
     assert args.battles == 32
     assert args.concurrency == 8
+
+def test_live_belief_configuration_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "--showdown-root",
+            "/tmp/pokemon-showdown",
+            "--belief-timeout",
+            "3.5",
+            "local",
+        ]
+    )
+    assert str(args.showdown_root) == "/tmp/pokemon-showdown"
+    assert args.belief_timeout == 3.5
+\n
