@@ -1,9 +1,9 @@
-"""Tiny clean-room compiler for Azelficoast's numeric damage kernel.
+"""Tiny clean-room compiler for Azelficoast's numeric mechanics kernels.
 
 This is deliberately not a general Python compiler. It accepts only the AST forms
-used by the named numeric damage functions in gen9_damage.py and emits C99 with
-64-bit intermediates plus Python-compatible floor division. Unsupported syntax is
-rejected rather than guessed.
+used by explicitly selected mechanics functions and emits C99 with 64-bit
+intermediates plus Python-compatible floor division. Unsupported syntax is rejected
+rather than guessed.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ KERNEL_FUNCTIONS = (
     "_kernel_type_effectiveness",
     "damage_numeric",
 )
+ATTACK_KERNEL_FUNCTIONS = ("attack_transition_numeric",)
 
 
 class NativeKernelCompileError(ValueError):
@@ -197,19 +198,22 @@ class _Emitter:
         return result
 
 
-def _selected_functions(source: str) -> tuple[ast.FunctionDef, ...]:
+def _selected_functions(
+    source: str,
+    names: tuple[str, ...] = KERNEL_FUNCTIONS,
+) -> tuple[ast.FunctionDef, ...]:
     module = ast.parse(source)
     by_name = {
         node.name: node
         for node in module.body
         if isinstance(node, ast.FunctionDef)
     }
-    missing = [name for name in KERNEL_FUNCTIONS if name not in by_name]
+    missing = [name for name in names if name not in by_name]
     if missing:
         raise NativeKernelCompileError(
             "numeric damage source is missing required functions: " + ", ".join(missing)
         )
-    return tuple(by_name[name] for name in KERNEL_FUNCTIONS)
+    return tuple(by_name[name] for name in names)
 
 
 def emit_damage_c(source: str, *, context_width: int = 18) -> str:
@@ -307,6 +311,105 @@ def build_damage_library(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="azelficoast-native-") as temp_dir:
         c_path = Path(temp_dir) / "damage_kernel.c"
+        c_path.write_text(c_source, encoding="utf-8")
+        command = [
+            cc,
+            "-std=c99",
+            "-O3",
+            *extra_cflags,
+            *_link_flags(),
+            str(c_path),
+            "-o",
+            str(output_path),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            raise NativeKernelCompileError(
+                "C compiler failed:\n"
+                + completed.stderr
+                + ("\n" + completed.stdout if completed.stdout else "")
+            )
+
+    return NativeBuild(library=output_path, c_source=c_source)
+
+
+def emit_attack_c(
+    damage_source: str,
+    attack_source: str,
+    *,
+    context_width: int = 23,
+) -> str:
+    """Emit standalone C99 for damage plus one whole-attack transition."""
+    if context_width <= 0:
+        raise NativeKernelCompileError("context width must be positive")
+
+    names = set(KERNEL_FUNCTIONS + ATTACK_KERNEL_FUNCTIONS)
+    emitter = _Emitter(names)
+    damage_functions = _selected_functions(damage_source, KERNEL_FUNCTIONS)
+    attack_functions = _selected_functions(attack_source, ATTACK_KERNEL_FUNCTIONS)
+    body = "".join(emitter.function(function) for function in (*damage_functions, *attack_functions))
+
+    return f"""#include <stdint.h>
+#include <stddef.h>
+
+static int64_t az_floor_div(int64_t a, int64_t b) {{
+    int64_t q = a / b;
+    int64_t r = a % b;
+    if (r != 0 && ((r > 0) != (b > 0))) {{
+        q -= 1;
+    }}
+    return q;
+}}
+
+{body}
+int32_t az_attack_one(
+    const int32_t *params,
+    int32_t accuracy_roll,
+    int32_t damage_roll
+) {{
+    return (int32_t)attack_transition_numeric(params, accuracy_roll, damage_roll);
+}}
+
+void az_attack_batch(
+    const int32_t *params,
+    const int32_t *accuracy_rolls,
+    const int32_t *damage_rolls,
+    int32_t *out,
+    int64_t count
+) {{
+    for (int64_t index = 0; index < count; ++index) {{
+        out[index] = (int32_t)attack_transition_numeric(
+            params + index * {context_width},
+            accuracy_rolls[index],
+            damage_rolls[index]
+        );
+    }}
+}}
+"""
+
+
+def build_attack_library(
+    damage_source_path: str | Path,
+    attack_source_path: str | Path,
+    output_path: str | Path,
+    *,
+    context_width: int = 23,
+    cc: str = "cc",
+    extra_cflags: Iterable[str] = (),
+) -> NativeBuild:
+    """Compile damage plus the whole-attack transition into one shared library."""
+    damage_source_path = Path(damage_source_path)
+    attack_source_path = Path(attack_source_path)
+    output_path = Path(output_path)
+    c_source = emit_attack_c(
+        damage_source_path.read_text(encoding="utf-8"),
+        attack_source_path.read_text(encoding="utf-8"),
+        context_width=context_width,
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="azelficoast-native-") as temp_dir:
+        c_path = Path(temp_dir) / "attack_kernel.c"
         c_path.write_text(c_source, encoding="utf-8")
         command = [
             cc,

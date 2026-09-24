@@ -6,11 +6,19 @@ from pathlib import Path
 
 import pytest
 
+import azelficoast.gen9_attack as gen9_attack
 import azelficoast.gen9_damage as gen9_damage
+from azelficoast.gen9_attack import (
+    AttackTransitionContext,
+    attack_transition,
+    compile_attack_context,
+)
 from azelficoast.gen9_damage import DamageContext, compile_numeric_context, damage
 from azelficoast.native_damage_compiler import (
     NativeKernelCompileError,
+    build_attack_library,
     build_damage_library,
+    emit_attack_c,
     emit_damage_c,
 )
 
@@ -96,3 +104,47 @@ def test_compiled_damage_matches_python_numeric_kernel(tmp_path: Path) -> None:
     params = (ctypes.c_int32 * len(numeric))(*numeric)
 
     assert library.az_damage_one(params, 7) == damage(context, 7)
+
+
+
+def test_attack_emitter_contains_whole_transition_wrapper() -> None:
+    emitted = emit_attack_c(
+        _damage_source(),
+        Path(gen9_attack.__file__).read_text(encoding="utf-8"),
+    )
+
+    assert "static int64_t attack_transition_numeric(" in emitted
+    assert "int32_t az_attack_one(" in emitted
+    assert "void az_attack_batch(" in emitted
+
+
+@pytest.mark.skipif(shutil.which("cc") is None, reason="system C compiler unavailable")
+def test_compiled_attack_matches_python_whole_transition(tmp_path: Path) -> None:
+    library_path = tmp_path / "attack.so"
+    build_attack_library(
+        Path(gen9_damage.__file__),
+        Path(gen9_attack.__file__),
+        library_path,
+    )
+
+    library = ctypes.CDLL(str(library_path))
+    library.az_attack_one.argtypes = [
+        ctypes.POINTER(ctypes.c_int32),
+        ctypes.c_int32,
+        ctypes.c_int32,
+    ]
+    library.az_attack_one.restype = ctypes.c_int32
+
+    attack_context = AttackTransitionContext(
+        damage=_context(),
+        accuracy=80,
+        attacker_hp=341,
+        attacker_max_hp=341,
+        defender_hp=400,
+        move_pp=8,
+    )
+    numeric = compile_attack_context(attack_context)
+    params = (ctypes.c_int32 * len(numeric))(*numeric)
+
+    expected = attack_transition(attack_context, 79, 7).packed
+    assert library.az_attack_one(params, 79, 7) == expected

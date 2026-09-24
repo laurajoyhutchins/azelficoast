@@ -165,3 +165,5 @@ def test_cost_profiles_reject_negative_coefficients() -> None:
             calibrated_max_canonical_classes=10,
             calibrated_max_projected_classes=5,
         )
+
+

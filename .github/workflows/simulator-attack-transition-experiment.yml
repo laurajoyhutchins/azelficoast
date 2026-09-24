@@ -1,0 +1,92 @@
+name: simulator-attack-transition-experiment
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/gen9_attack.py"
+      - "src/azelficoast/gen9_damage.py"
+      - "src/azelficoast/jax_gen9_attack.py"
+      - "src/azelficoast/class_native_belief.py"
+      - "src/azelficoast/native_damage_compiler.py"
+      - "src/azelficoast/attack_transition_experiment.py"
+      - "scripts/generate_showdown_attack_fixtures.cjs"
+      - "tests/test_gen9_attack.py"
+      - "tests/test_class_native_belief.py"
+      - "tests/test_native_damage_compiler.py"
+      - ".github/workflows/simulator-attack-transition-experiment.yml"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  attack-transition:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install simulator dependencies
+        run: uv sync --extra simulator
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate whole-attack oracle fixtures
+        run: |
+          node scripts/generate_showdown_attack_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/showdown-attack-fixtures.json
+
+      - name: Test whole-attack machinery
+        run: |
+          uv run pytest             tests/test_gen9_attack.py             tests/test_class_native_belief.py             tests/test_native_damage_compiler.py
+
+      - name: Run whole-attack adaptive-dispatch experiment
+        run: |
+          uv run python -m azelficoast.attack_transition_experiment             /tmp/showdown-attack-fixtures.json             | tee /tmp/attack-transition-experiment.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/attack-transition-experiment.json").read_text())
+          candidate = result["held_out"]["candidate"]
+
+          assert result["passed"] is True, result
+          assert result["effect_signature"].startswith("sha256:"), result
+          assert result["profile"]["effect_signature"] == result["effect_signature"], result
+          assert result["profile"]["target_signature"] == result["target_signature"], result
+          assert result["correctness"]["python_exact"] is True, result
+          assert result["correctness"]["native_exact"] is True, result
+          assert result["correctness"]["jax_exact"] is True, result
+          assert result["projection"]["execution_classes"] == 49, result
+          assert result["projection"]["direct_equals_projected"] is True, result
+          assert result["projection"]["missing_attack_modifier_changes_result"] is True, result
+          assert result["model_selection"]["selection_policy"] == "choice-accuracy_then_complexity_then-delta-mae", result
+          assert result["model_selection"]["selected_shape"] == "direct-linear__projected-execution", result
+          assert candidate["chosen_paths"] == ["direct", "projected"], result
+          assert candidate["choice_accuracy"] >= 0.75, result
+          assert candidate["adaptive_over_oracle"] <= 1.10, result
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: attack-transition-evidence
+          path: /tmp/attack-transition-experiment.json
+          if-no-files-found: error

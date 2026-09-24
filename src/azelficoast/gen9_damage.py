@@ -33,6 +33,11 @@ MOD_LIFE_ORB = 5324
 COMPILED_ATTACK_MOD_COLUMN = 12
 COMPILED_CATEGORY_COLUMN = 17
 COMPILED_CONTEXT_WIDTH = 18
+DAMAGE_DEPENDENCY_COLUMNS = tuple(
+    column
+    for column in range(COMPILED_CONTEXT_WIDTH)
+    if column != COMPILED_CATEGORY_COLUMN
+)
 
 
 @dataclass(frozen=True)
@@ -255,4 +260,18 @@ def compile_numeric_context(context: DamageContext) -> tuple[int, ...]:
         burn_modifier(context),
         final_damage_modifier(context),
         category_code,
+    )
+
+
+def damage_dependency_tuple(
+    context: DamageContext,
+    *,
+    include_attack_modifier: bool = True,
+) -> tuple[int, ...]:
+    """Return the exact numeric damage inputs read by damage_numeric()."""
+    compiled = compile_numeric_context(context)
+    return tuple(
+        compiled[column]
+        for column in DAMAGE_DEPENDENCY_COLUMNS
+        if include_attack_modifier or column != COMPILED_ATTACK_MOD_COLUMN
     )
