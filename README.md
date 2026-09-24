@@ -433,9 +433,12 @@ structural information available before inspecting the policy result:
 - world and legal-action counts.
 
 The rank does not use either policy's value or whether the policies disagree. After structural
-ordering, the miner separately reports the first naturally occurring determinization/public-belief
-disagreement, if one exists. This makes additional instrumented battle traces a corpus search
-problem rather than a sequence of hand-curated tactical examples.
+ordering, the miner first reports whether any public observation class contains multiple
+world-aware best continuations, the direct necessary signal for strategy fusion in the reference
+experiment. It then separately reports the first root-level determinization/public-belief
+disagreement, if one exists. Neither post-ranking signal can change candidate order. This makes
+additional instrumented battle traces a corpus search problem rather than a sequence of
+hand-curated tactical examples.
 
 ## Development
 
