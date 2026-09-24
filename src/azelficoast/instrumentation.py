@@ -43,6 +43,7 @@ def pokemon_view(pokemon: Pokemon | None) -> dict[str, Any] | None:
     return {
         "species": pokemon.species,
         "level": pokemon.level,
+        "transformed": pokemon.transformed,
         "active": pokemon.active,
         "fainted": pokemon.fainted,
         "current_hp": pokemon.current_hp,
