@@ -9,7 +9,7 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, species, observedMovesCsv, roundsText] = process.argv.slice(2);
+const [showdownRoot, species, observedMovesCsv, roundsText, isLeadText] = process.argv.slice(2);
 if (!showdownRoot || !species || !observedMovesCsv) {
   fail(
     "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS]"
@@ -19,6 +19,11 @@ if (!showdownRoot || !species || !observedMovesCsv) {
 const rounds = roundsText ? Number(roundsText) : 65536;
 if (!Number.isInteger(rounds) || rounds < 1 || rounds > 65536) {
   fail("ROUNDS must be an integer from 1 through 65536");
+}
+
+const isLead = isLeadText === "true";
+if (isLeadText !== undefined && !["true", "false"].includes(isLeadText)) {
+  fail("IS_LEAD must be true or false");
 }
 
 const observedMoves = new Set(
@@ -36,6 +41,32 @@ const showdownCommit = execFileSync(
 
 const {Teams} = require(path.join(showdownRoot, "dist", "sim", "teams"));
 const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
+const randomSets = require(
+  path.join(showdownRoot, "data", "random-battles", "gen9", "sets.json")
+);
+
+function toID(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function resolveGeneratorSpecies(requested) {
+  const dexSpecies = generator.dex.species.get(requested);
+  const candidates = [
+    dexSpecies.id,
+    typeof dexSpecies.battleOnly === "string" ? toID(dexSpecies.battleOnly) : "",
+    typeof dexSpecies.baseSpecies === "string" ? toID(dexSpecies.baseSpecies) : "",
+  ].filter(Boolean);
+
+  for (const candidate of [...new Set(candidates)]) {
+    if (randomSets[candidate]) return candidate;
+  }
+
+  fail(
+    `no Gen 9 randbats generator set for ${requested} (tried ${candidates.join(", ")})`
+  );
+}
+
+const generatorSpecies = resolveGeneratorSpecies(species);
 
 const itemCounts = new Map();
 const variants = new Map();
@@ -43,7 +74,7 @@ let matched = 0;
 
 for (let seed = 0; seed < rounds; seed++) {
   generator.setSeed([seed, seed, seed, seed]);
-  const set = generator.randomSet(species, {}, false, false);
+  const set = generator.randomSet(generatorSpecies, {}, isLead, false);
   const moves = [...set.moves].sort();
 
   if (![...observedMoves].every(move => moves.includes(move))) {
@@ -92,14 +123,15 @@ process.stdout.write(
     {
       schema: "azelficoast.showdown-world-sample",
       schema_version: 1,
-      species,
+      species: generatorSpecies,
+      requested_species: species,
       observed_moves: [...observedMoves].sort(),
       showdown_commit: showdownCommit,
       seed_family: "[i,i,i,i]",
       generator_context: {
         format: "gen9randombattle",
         teamDetails: {},
-        isLead: false,
+        isLead,
         isDoubles: false,
       },
       rounds,
