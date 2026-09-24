@@ -42,6 +42,7 @@ ITEM_CHOICE_SCARF = 1
 ITEM_CHOICE_SPECS = 2
 
 MOVE_MOONBLAST = 1
+MOVE_AURA_SPHERE = 2
 
 
 class DependencyViolation(ValueError):

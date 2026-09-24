@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 from azelficoast.simulator_ir import (
     ITEM_CHOICE_SCARF,
     ITEM_CHOICE_SPECS,
-    MOVE_MOONBLAST,
+    MOVE_AURA_SPHERE,
     PROTECT_BLOCK,
     SPECIAL_DAMAGE,
     DependencyViolation,
@@ -28,7 +28,7 @@ ITEM_CODES = {
     "Choice Specs": ITEM_CHOICE_SPECS,
 }
 MOVE_CODES = {
-    "Aura Sphere": MOVE_MOONBLAST,
+    "Aura Sphere": MOVE_AURA_SPHERE,
 }
 
 
@@ -131,6 +131,49 @@ def _fixtures_for(
     return fixtures
 
 
+def _validate_matrix(
+    fixtures: Sequence[Mapping[str, Any]],
+    *,
+    seed_count: int,
+    item_count: int,
+    bench_count: int,
+) -> None:
+    if item_count != len(ITEM_CODES):
+        raise ShowdownTransitionCorpusError("fixture item dimension does not match supported worlds")
+
+    seen: set[tuple[int, tuple[int, ...], str, int]] = set()
+    seed_by_index: dict[int, tuple[int, ...]] = {}
+    for fixture in fixtures:
+        seed_index = int(fixture.get("seed_index", -1))
+        if not 0 <= seed_index < seed_count:
+            raise ShowdownTransitionCorpusError("fixture seed_index is outside the declared matrix")
+        seed = _seed_key(fixture)
+        prior_seed = seed_by_index.setdefault(seed_index, seed)
+        if prior_seed != seed:
+            raise ShowdownTransitionCorpusError("one seed_index maps to multiple RNG seeds")
+
+        item = str(fixture.get("opponent_item") or "")
+        if item not in ITEM_CODES:
+            raise ShowdownTransitionCorpusError(f"unsupported fixture item {item!r}")
+
+        bench_signature = int(fixture.get("bench_signature", -1))
+        if not 0 <= bench_signature < bench_count:
+            raise ShowdownTransitionCorpusError(
+                "fixture bench_signature is outside the declared matrix"
+            )
+
+        key = (seed_index, seed, item, bench_signature)
+        if key in seen:
+            raise ShowdownTransitionCorpusError("duplicate fixture matrix cell")
+        seen.add(key)
+
+    expected = seed_count * item_count * bench_count
+    if len(seen) != expected:
+        raise ShowdownTransitionCorpusError("fixture matrix is incomplete")
+    if set(seed_by_index) != set(range(seed_count)):
+        raise ShowdownTransitionCorpusError("fixture matrix is missing an RNG seed")
+
+
 def analyze_document(
     document: Mapping[str, Any],
     *,
@@ -155,6 +198,18 @@ def analyze_document(
         raise ShowdownTransitionCorpusError("invalid fixture dimensions")
     if len(protect) != expected_per_scenario or len(damage) != expected_per_scenario:
         raise ShowdownTransitionCorpusError("fixture matrix is incomplete")
+    _validate_matrix(
+        protect,
+        seed_count=seed_count,
+        item_count=item_count,
+        bench_count=bench_count,
+    )
+    _validate_matrix(
+        damage,
+        seed_count=seed_count,
+        item_count=item_count,
+        bench_count=bench_count,
+    )
 
     protect_partition = _partition(PROTECT_BLOCK, protect)
     damage_partition = _partition(SPECIAL_DAMAGE, damage)

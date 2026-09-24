@@ -105,3 +105,26 @@ def test_real_fixture_analyzer_rejects_wrong_showdown_revision() -> None:
         match="does not match the pinned oracle",
     ):
         analyze_document(document)
+
+
+def test_real_fixture_analyzer_rejects_duplicate_matrix_cell() -> None:
+    document = _document()
+    fixtures = document["fixtures"]
+    assert isinstance(fixtures, list)
+    damage = [
+        fixture
+        for fixture in fixtures
+        if fixture["scenario"] == "damage"
+    ]
+    damage[-1] = copy.deepcopy(damage[0])
+    document["fixtures"] = [
+        fixture
+        for fixture in fixtures
+        if fixture["scenario"] == "protect"
+    ] + damage
+
+    with pytest.raises(
+        ShowdownTransitionCorpusError,
+        match="duplicate fixture matrix cell",
+    ):
+        analyze_document(document)
