@@ -1,0 +1,93 @@
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+
+from azelficoast.instrumentation import DecisionTraceWriter, battle_view
+
+
+def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
+    return SimpleNamespace(
+        species=species,
+        active=True,
+        fainted=False,
+        current_hp_fraction=0.75,
+        status=None,
+        item=None if opponent else "leftovers",
+        ability=None if opponent else "pressure",
+        moves={"protect": object()} if opponent else {"recover": object()},
+        boosts={"atk": 0, "def": 1},
+        types=[SimpleNamespace(name="NORMAL")],
+        tera_type=None,
+    )
+
+
+def _battle() -> SimpleNamespace:
+    active = _pokemon("Snorlax")
+    opponent = _pokemon("Ditto", opponent=True)
+    return SimpleNamespace(
+        battle_tag="battle-gen9randombattle-test",
+        turn=7,
+        player_username="azelficoast",
+        opponent_username="opponent",
+        active_pokemon=active,
+        opponent_active_pokemon=opponent,
+        team={"p1a: Snorlax": active},
+        opponent_team={"p2a: Ditto": opponent},
+        weather={},
+        fields={},
+        side_conditions={},
+        opponent_side_conditions={},
+        available_moves=[SimpleNamespace(id="recover")],
+        available_switches=[],
+        valid_orders=[SimpleNamespace(message="/choose move recover")],
+        force_switch=False,
+        trapped=False,
+        can_tera=True,
+        won=True,
+        lost=False,
+        finished=True,
+    )
+
+
+def test_battle_view_contains_decision_information_without_inventing_hidden_state() -> None:
+    view = battle_view(_battle())
+
+    assert view["turn"] == 7
+    assert view["legal_actions"] == ["/choose move recover"]
+    assert view["active"]["item"] == "leftovers"
+    assert view["opponent_active"]["item"] is None
+    assert view["opponent_active"]["ability"] is None
+    assert view["opponent_active"]["moves"] == ["protect"]
+
+
+def test_trace_writer_records_protocol_decision_and_terminal_events(tmp_path) -> None:
+    trace = tmp_path / "decisions.jsonl"
+    writer = DecisionTraceWriter(trace)
+    battle = _battle()
+
+    writer.record_protocol_batch(
+        [[">battle-gen9randombattle-test"], ["", "move", "p2a: Ditto", "Protect"]]
+    )
+    writer.record_decision(battle, SimpleNamespace(message="/choose move recover"))
+    writer.record_terminal(battle)
+
+    records = [json.loads(line) for line in trace.read_text().splitlines()]
+    assert [record["kind"] for record in records] == ["protocol", "decision", "terminal"]
+    assert records[0]["protocol_index"] == 0
+    assert records[1]["decision_index"] == 0
+    assert records[1]["chosen_action"] == "/choose move recover"
+    assert records[2]["tied"] is False
+    assert all("observed_at" in record for record in records)
+
+
+def test_terminal_tie_is_derived_from_finished_without_calling_tied_method(tmp_path) -> None:
+    battle = _battle()
+    battle.won = None
+    battle.lost = None
+    trace = tmp_path / "decisions.jsonl"
+
+    DecisionTraceWriter(trace).record_terminal(battle)
+
+    record = json.loads(trace.read_text())
+    assert record["tied"] is True
