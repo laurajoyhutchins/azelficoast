@@ -258,22 +258,6 @@ def _apply_public_speed_modifiers(
     return speed
 
 
-def _generator_species(species: str) -> str:
-    """Map an observed battle forme to the species key used by randbats generation."""
-    data = GenData.from_gen(9)
-    entry = data.pokedex.get(_to_id(species))
-    if not isinstance(entry, Mapping):
-        raise NaturalDisagreementError(f"unknown species {species!r}")
-    battle_only = entry.get("battleOnly")
-    if isinstance(battle_only, str):
-        return battle_only
-    base_species = entry.get("baseSpecies")
-    if isinstance(base_species, str):
-        return base_species
-    name = entry.get("name")
-    return str(name) if isinstance(name, str) else species
-
-
 def _neutral_speed(species: str, level: int) -> int:
     data = GenData.from_gen(9)
     entry = data.pokedex.get(_to_id(species))
@@ -453,12 +437,11 @@ def mine_candidates(
             continue
 
         is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
-        generator_species = _generator_species(opponent_species)
-        key = (generator_species, tuple(revealed), is_lead)
+        key = (opponent_species, tuple(revealed), is_lead)
         if key not in cache:
             cache[key] = _sample_worlds(
                 showdown_root=showdown_root,
-                species=generator_species,
+                species=opponent_species,
                 observed_moves=revealed,
                 rounds=rounds,
                 is_lead=is_lead,
@@ -497,7 +480,7 @@ def mine_candidates(
             "active_species": active.get("species"),
             "active_speed": own_speed,
             "opponent_species": opponent_species,
-            "generator_species": generator_species,
+            "generator_species": sample["species"],
             "opponent_level": opponent_level,
             "opponent_base_speed": base_speed,
             "opponent_scarf_speed": scarf_speed,
