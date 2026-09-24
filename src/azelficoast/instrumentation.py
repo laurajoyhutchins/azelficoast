@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
+from uuid import uuid4
 
 from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.battle.pokemon import Pokemon
@@ -86,9 +87,10 @@ def battle_view(battle: AbstractBattle) -> dict[str, Any]:
 class DecisionTraceWriter:
     """Append-only JSONL evidence for one player's observable battle history."""
 
-    def __init__(self, path: str | Path):
+    def __init__(self, path: str | Path, *, run_id: str | None = None):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.run_id = run_id or uuid4().hex
         self._event_index = 0
         self._decision_index: dict[str, int] = {}
         self._protocol_index: dict[str, int] = {}
@@ -97,6 +99,7 @@ class DecisionTraceWriter:
         record = {
             "schema": TRACE_SCHEMA,
             "schema_version": TRACE_SCHEMA_VERSION,
+            "run_id": self.run_id,
             "event_index": self._event_index,
             "observed_at": datetime.now(UTC).isoformat(),
             **record,
