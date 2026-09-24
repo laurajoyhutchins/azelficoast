@@ -108,8 +108,11 @@ def _build_parser() -> argparse.ArgumentParser:
     corpus_evaluate.add_argument("corpus_path", type=Path)
     corpus_evaluate.add_argument(
         "--policy",
-        choices=sorted(BUILTIN_POLICIES),
         required=True,
+        help=(
+            "built-in policy "
+            f"({', '.join(sorted(BUILTIN_POLICIES))}) or local module:object"
+        ),
     )
     corpus_evaluate.add_argument(
         "--output",
