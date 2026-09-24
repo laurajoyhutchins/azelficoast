@@ -24,9 +24,11 @@ jobs:
           git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
           git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
 
-      - name: Install Pokémon Showdown
+      - name: Build Pokémon Showdown
         working-directory: /tmp/pokemon-showdown
-        run: npm ci --omit=optional --no-audit --no-fund
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
 
       - name: Probe frozen speed forks
         run: |
