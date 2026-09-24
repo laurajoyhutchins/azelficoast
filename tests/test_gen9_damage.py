@@ -7,7 +7,6 @@ import pytest
 from azelficoast.gen9_damage import (
     DamageContext,
     DamageKernelError,
-    MOD_LIFE_ORB,
     MOD_ONE_POINT_FIVE,
     MOD_TWO,
     apply_type_effectiveness,
