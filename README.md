@@ -283,6 +283,32 @@ therefore means logical worlds represented per second by the class computation, 
 transition evaluations per second. Hosted GitHub evidence is CPU evidence only. The JAX kernels
 still implement the small reference microkernel, not complete Showdown damage or battle mechanics.
 
+## Exact Gen 9 damage kernel
+
+The simulator now has a first real Pokémon mechanic rather than only a synthetic damage
+microkernel. A narrow Gen 9 damage implementation reproduces Pokémon Showdown's integer operation
+order for ordinary single-target attacks: stat construction, Choice Band/Specs attack
+modification, base-damage truncation, the 16 random damage rolls, ordinary/Tera STAB, type
+effectiveness, burn, and Life Orb's final modifier.
+
+Hosted evidence generates eleven controlled scenarios directly through
+`BattleActions.getDamage` at pinned Showdown commit
+`a5df8274e85b0889bf2a9b3422a08b39732374fc`, covering all 16 damage rolls per scenario.
+The corpus includes non-STAB, ordinary STAB, new-type Tera STAB, same-base-type Tera STAB,
+Choice Specs, Choice Band, Life Orb, super-effective, neutral, heavily resisted, physical, and
+burned physical damage. Deliberately removing type, item, Tera, or burn semantics must create a
+mismatch.
+
+The same numeric context lowers to JAX and is checked against the scalar implementation. Its
+benchmark reports both an already-partitioned reduced path and an end-to-end baseline that
+rebuilds dependency classes with `numpy.unique` on every call. The latter intentionally includes
+partition construction so an impressive kernel-only speedup cannot hide an expensive grouping
+step.
+
+This remains a bounded mechanics slice. Critical hits, weather, spread damage, exceptional
+abilities, variable base power, Stellar Tera, multihit sequencing, and other effects remain
+outside the claim until separate Showdown-backed evidence covers them.
+
 ## Development
 
 ```bash

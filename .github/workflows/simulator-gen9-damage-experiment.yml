@@ -1,0 +1,94 @@
+name: simulator-gen9-damage-experiment
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/gen9_damage.py"
+      - "src/azelficoast/showdown_damage_corpus.py"
+      - "src/azelficoast/jax_gen9_damage.py"
+      - "src/azelficoast/jax_gen9_damage_experiment.py"
+      - "scripts/generate_showdown_damage_fixtures.cjs"
+      - "tests/test_gen9_damage.py"
+      - "tests/test_showdown_damage_corpus.py"
+      - "tests/test_jax_gen9_damage.py"
+      - ".github/workflows/simulator-gen9-damage-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  damage-oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install simulator dependencies
+        run: uv sync --extra simulator
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate exact Showdown damage fixtures
+        run: |
+          node scripts/generate_showdown_damage_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/showdown-gen9-damage-fixtures.json
+
+      - name: Differentially verify scalar damage kernel
+        run: |
+          uv run python -m azelficoast.showdown_damage_corpus             /tmp/showdown-gen9-damage-fixtures.json             | tee /tmp/showdown-gen9-damage-analysis.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/showdown-gen9-damage-analysis.json").read_text())
+          assert result["passed"] is True, result
+          assert result["scenario_count"] == 11, result
+          assert result["roll_case_count"] == 176, result
+          assert result["exact_case_count"] == 176, result
+          PY
+
+      - name: Test damage machinery
+        run: |
+          uv run pytest             tests/test_gen9_damage.py             tests/test_showdown_damage_corpus.py             tests/test_jax_gen9_damage.py
+
+      - name: Benchmark JAX kernel with partition cost
+        run: |
+          uv run python -m azelficoast.jax_gen9_damage_experiment             /tmp/showdown-gen9-damage-fixtures.json             | tee /tmp/gen9-damage-jax-experiment.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/gen9-damage-jax-experiment.json").read_text())
+          assert result["passed"] is True, result
+          assert result["correctness"]["exact"] is True, result
+          assert result["correctness"]["roll_case_count"] == 176, result
+          assert all(row["score_equal"] for row in result["benchmarks"]), result
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gen9-damage-kernel-evidence
+          path: |
+            /tmp/showdown-gen9-damage-fixtures.json
+            /tmp/showdown-gen9-damage-analysis.json
+            /tmp/gen9-damage-jax-experiment.json
+          if-no-files-found: error
