@@ -310,3 +310,73 @@ def test_builtin_policies_share_one_frozen_fixture_interface(tmp_path) -> None:
     assert control_summary["control_action_agreement"] == 1
     assert first_summary["illegal_action_count"] == 0
     assert control_summary["illegal_action_count"] == 0
+
+
+def test_filtered_fixture_build_matches_full_fixture_semantics(tmp_path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    protect_state = _state()
+    protect_state["legal_actions"] = [
+        "/choose move protect",
+        "/choose move psychic",
+    ]
+    reject_state = _state()
+    reject_state["turn"] = 5
+
+    _write_trace(
+        trace,
+        [
+            _record(
+                run="r",
+                event=0,
+                kind="protocol",
+                room="battle-gen9randombattle-test",
+                protocol_index=0,
+                messages=[["", "move", "p2a: Corviknight", "Roost"]],
+            ),
+            _record(
+                run="r",
+                event=1,
+                kind="decision",
+                battle_tag="battle-gen9randombattle-test",
+                decision_index=0,
+                state=protect_state,
+                chosen_action="/choose move protect",
+            ),
+            _record(
+                run="r",
+                event=2,
+                kind="protocol",
+                room="battle-gen9randombattle-test",
+                protocol_index=1,
+                messages=[["", "turn", "5"]],
+            ),
+            _record(
+                run="r",
+                event=3,
+                kind="decision",
+                battle_tag="battle-gen9randombattle-test",
+                decision_index=1,
+                state=reject_state,
+                chosen_action="/choose move thunderbolt",
+            ),
+        ],
+    )
+
+    full = build_fixtures([trace])
+    filtered = build_fixtures(
+        [trace],
+        decision_predicate=lambda state: any(
+            str(action).startswith("/choose move protect")
+            for action in state.get("legal_actions", ())
+        ),
+    )
+
+    expected = [
+        fixture
+        for fixture in full
+        if any(
+            action.startswith("/choose move protect")
+            for action in fixture.legal_actions
+        )
+    ]
+    assert filtered == expected

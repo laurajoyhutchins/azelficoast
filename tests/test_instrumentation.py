@@ -55,6 +55,7 @@ def _battle() -> SimpleNamespace:
         force_switch=False,
         trapped=False,
         can_tera=True,
+        _last_request={"active": [{"canTerastallize": "Normal"}]},
         won=True,
         lost=False,
         finished=True,
@@ -69,6 +70,8 @@ def test_battle_view_contains_decision_information_without_inventing_hidden_stat
     assert view["active"]["item"] == "leftovers"
     assert view["active"]["level"] == 80
     assert view["active"]["transformed"] is False
+    assert view["active"]["tera_type"] == "Normal"
+    assert view["team"]["p1a: Snorlax"]["tera_type"] == "Normal"
     assert view["active"]["current_hp"] == 150
     assert view["active"]["max_hp"] == 200
     assert view["active"]["stats"]["spe"] == 90

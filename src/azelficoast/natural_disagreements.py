@@ -29,6 +29,21 @@ SPEED_ABILITIES = {
     "unburden",
 }
 
+ORDER_ABILITIES = SPEED_ABILITIES | {
+    "galewings",
+    "myceliummight",
+    "prankster",
+    "quickdraw",
+    "stall",
+    "triage",
+}
+
+ORDER_ITEMS = {
+    "fullincense",
+    "laggingtail",
+    "quickclaw",
+}
+
 PROTECT_MOVES = frozenset(
     {
         "banefulbunker",
@@ -310,6 +325,162 @@ def _move_type(move_id: str) -> str | None:
         return None
     move_type = move.get("type")
     return move_type.lower() if isinstance(move_type, str) else None
+
+
+def _move_order_metadata(move_id: str) -> tuple[int, str] | None:
+    move = GenData.from_gen(9).moves.get(_to_id(move_id))
+    if not isinstance(move, Mapping):
+        return None
+    priority = move.get("priority", 0)
+    category = move.get("category")
+    if not isinstance(priority, int) or category not in {"Physical", "Special"}:
+        return None
+    return priority, str(category)
+
+
+def _speed_context_mutated_after(
+    events: Sequence[PublicEvent],
+    *,
+    start_index: int,
+    sides: frozenset[str],
+) -> bool:
+    for event in events:
+        if event.index <= start_index:
+            continue
+
+        event_side = _slot_side(event.fields[0]) if event.fields else None
+        if event.kind in {"switch", "drag"} and event_side in sides:
+            return True
+
+        if event.kind in {"-boost", "-unboost", "-setboost"}:
+            if (
+                event_side in sides
+                and len(event.fields) >= 2
+                and _to_id(event.fields[1]) == "spe"
+            ):
+                return True
+        if event.kind in {
+            "-clearboost",
+            "-clearallboost",
+            "-copyboost",
+            "-swapboost",
+            "-invertboost",
+        } and (event_side in sides or event.kind == "-clearallboost"):
+            return True
+
+        if event.kind in {"-status", "-curestatus"}:
+            if (
+                event_side in sides
+                and len(event.fields) >= 2
+                and _to_id(event.fields[1]) in {"par", "paralysis"}
+            ):
+                return True
+
+        if event.kind in {"-item", "-enditem"} and event_side in sides:
+            return True
+
+        lowered = " ".join(str(field).lower() for field in event.fields)
+        if event.kind in {"-sidestart", "-sideend"} and "tailwind" in lowered:
+            return True
+        if event.kind in {"-fieldstart", "-fieldend"} and "trick room" in lowered:
+            return True
+    return False
+
+
+def _prior_choice_item_order_evidence(
+    fixture: DecisionFixture,
+    events: Sequence[PublicEvent],
+    *,
+    opponent_side: str,
+    opponent_history: Mapping[str, Any],
+    last_move: Mapping[str, Any],
+    pair: frozenset[str],
+    own_speed: int | None,
+    base_speed: int,
+    scarf_speed: int,
+    variants: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    if own_speed is None:
+        return None
+
+    active = fixture.state.get("active")
+    if not isinstance(active, Mapping):
+        return None
+    if _to_id(str(active.get("ability") or "")) in ORDER_ABILITIES:
+        return None
+    if _to_id(str(active.get("item") or "")) in ORDER_ITEMS:
+        return None
+    if any(
+        _to_id(str(variant.get("ability") or "")) in ORDER_ABILITIES
+        for variant in variants
+    ):
+        return None
+
+    own_side = "p1" if opponent_side == "p2" else "p2"
+    own_history = _active_history(events, own_side)
+    if _to_id(str(own_history["active_species"])) != _to_id(
+        str(active.get("species") or "")
+    ):
+        return None
+
+    turn = int(last_move["turn"])
+    opponent_species = _to_id(str(opponent_history["active_species"]))
+    own_species = _to_id(str(own_history["active_species"]))
+    opponent_moves = [
+        event
+        for event in opponent_history["move_events"]
+        if int(event["turn"]) == turn
+        and _to_id(str(event["species"])) == opponent_species
+    ]
+    own_moves = [
+        event
+        for event in own_history["move_events"]
+        if int(event["turn"]) == turn
+        and _to_id(str(event["species"])) == own_species
+    ]
+    if len(opponent_moves) != 1 or len(own_moves) != 1:
+        return None
+
+    opponent_move = opponent_moves[0]
+    own_move = own_moves[0]
+    opponent_meta = _move_order_metadata(str(opponent_move["move"]))
+    own_meta = _move_order_metadata(str(own_move["move"]))
+    if opponent_meta is None or own_meta is None:
+        return None
+    if opponent_meta[0] != own_meta[0]:
+        return None
+
+    first_index = min(
+        int(opponent_move["event_index"]),
+        int(own_move["event_index"]),
+    )
+    if _speed_context_mutated_after(
+        events,
+        start_index=first_index,
+        sides=frozenset({own_side, opponent_side}),
+    ):
+        return None
+
+    own_before = int(own_move["event_index"]) < int(opponent_move["event_index"])
+    allowed: list[str] = []
+    for item in sorted(pair):
+        opponent_speed = scarf_speed if item == "Choice Scarf" else base_speed
+        if opponent_speed == own_speed:
+            allowed.append(item)
+            continue
+        if own_before == (own_speed > opponent_speed):
+            allowed.append(item)
+
+    return {
+        "turn": turn,
+        "own_move": own_move["move"],
+        "opponent_move": opponent_move["move"],
+        "own_before_opponent": own_before,
+        "own_speed": own_speed,
+        "opponent_base_speed": base_speed,
+        "opponent_scarf_speed": scarf_speed,
+        "allowed_items": allowed,
+    }
 
 
 def _protect_blocks_locked_move(
@@ -672,8 +843,36 @@ def mine_candidates(
             opponent_side=side,
             last_move=last_move,
         )
+
+        order_evidence = _prior_choice_item_order_evidence(
+            fixture,
+            events,
+            opponent_side=side,
+            opponent_history=history,
+            last_move=last_move,
+            pair=pair,
+            own_speed=own_speed,
+            base_speed=base_speed,
+            scarf_speed=scarf_speed,
+            variants=[
+                variant
+                for variant in variants
+                if isinstance(variant, Mapping)
+            ],
+        )
+        if order_evidence is not None:
+            allowed_items = set(order_evidence["allowed_items"])
+            counts = {
+                item: count
+                for item, count in counts.items()
+                if item in allowed_items
+            }
+
         if frozenset(counts) != pair:
-            skip("not-choice-pair-after-public-evidence")
+            if order_evidence is not None:
+                skip("choice-world-eliminated-by-prior-speed-order")
+            else:
+                skip("not-choice-pair-after-public-evidence")
             continue
 
         total = sum(counts.values())
@@ -699,6 +898,7 @@ def mine_candidates(
             "item_weights": {
                 item: count / total for item, count in sorted(counts.items())
             },
+            "prior_speed_order_evidence": order_evidence,
             "legal_actions": list(legal_actions),
             "protect_legal": "/choose move protect" in legal_actions,
             "control_actions": [
