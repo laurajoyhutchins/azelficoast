@@ -441,6 +441,25 @@ disagreement, if one exists. Neither post-ranking signal can change candidate or
 additional instrumented battle traces a corpus search problem rather than a sequence of
 hand-curated tactical examples.
 
+A preregistered three-case natural exact treatment has now found that failure mode in pinned
+Showdown mechanics. All three structurally selected hidden-Choice speed-fork cases contained
+public successor information sets with competing world-aware continuations. In the third case,
+Tinkaton versus Choice Band/Choice Scarf Galarian Zapdos, the conflict was large enough to change
+the bounded root decision: world-aware determinization chose Protect while public-belief search
+chose Gigaton Hammer.
+
+The causal trace is unusually clean. After Protect, all 18 reconstructed worlds produce one
+identical public observation and the immediate transition has no empirically required hidden
+read. Every Choice Band world prefers Gigaton Hammer at the next decision; every Choice Scarf
+world prefers Protect. Determinization can splice those incompatible continuations together.
+Public-belief search must choose one action for the shared information set and chooses Play Rough,
+lowering Protect enough for immediate Gigaton Hammer to become the root action.
+
+This positive result remains bounded evidence rather than a competitive-play claim. The opponent
+response is fixed to the observed locked move, the continuation horizon is one further decision,
+and utility is material-only. The final public root margin is also narrow, so higher-sample,
+multi-seed replication is required before treating the root flip as robust.
+
 ## Development
 
 ```bash
