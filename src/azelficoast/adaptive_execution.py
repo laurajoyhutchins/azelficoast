@@ -21,6 +21,7 @@ class ExecutionPath(str, Enum):
 @dataclass(frozen=True)
 class ExecutionFeatures:
     backend: str
+    target_signature: str
     effect_signature: str
     logical_world_count: int
     active_canonical_classes: int
@@ -29,6 +30,8 @@ class ExecutionFeatures:
     def __post_init__(self) -> None:
         if not self.backend:
             raise ValueError("backend must be non-empty")
+        if not self.target_signature:
+            raise ValueError("target_signature must be non-empty")
         if not self.effect_signature:
             raise ValueError("effect_signature must be non-empty")
         if self.logical_world_count <= 0:
@@ -46,6 +49,7 @@ class ExecutionFeatures:
 @dataclass(frozen=True)
 class ExecutionCostProfile:
     backend: str
+    target_signature: str
     effect_signature: str
     direct_intercept_ms: float
     direct_per_world_ms: float
@@ -61,6 +65,8 @@ class ExecutionCostProfile:
     def __post_init__(self) -> None:
         if not self.backend:
             raise ValueError("backend must be non-empty")
+        if not self.target_signature:
+            raise ValueError("target_signature must be non-empty")
         if not self.effect_signature:
             raise ValueError("effect_signature must be non-empty")
         coefficients = (
@@ -88,6 +94,8 @@ class ExecutionCostProfile:
                 f"cost profile backend {self.backend!r} does not match "
                 f"{features.backend!r}"
             )
+        if features.target_signature != self.target_signature:
+            raise ValueError("cost profile target signature does not match execution features")
         if features.effect_signature != self.effect_signature:
             raise ValueError("cost profile effect signature does not match execution features")
         if features.logical_world_count > self.calibrated_max_logical_world_count:

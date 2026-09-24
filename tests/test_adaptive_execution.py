@@ -13,6 +13,7 @@ from azelficoast.adaptive_execution import (
 def _profile(*, guard: float = 0.2) -> ExecutionCostProfile:
     return ExecutionCostProfile(
         backend="cpu",
+        target_signature="sha256:target",
         effect_signature="sha256:test",
         direct_intercept_ms=0.1,
         direct_per_world_ms=0.001,
@@ -35,6 +36,7 @@ def _features(
 ) -> ExecutionFeatures:
     return ExecutionFeatures(
         backend="cpu",
+        target_signature="sha256:target",
         effect_signature="sha256:test",
         logical_world_count=worlds,
         active_canonical_classes=canonical,
@@ -84,6 +86,7 @@ def test_costs_are_monotone_in_their_work_dimensions() -> None:
 def test_exact_prediction_tie_prefers_direct() -> None:
     profile = ExecutionCostProfile(
         backend="cpu",
+        target_signature="sha256:target",
         effect_signature="sha256:test",
         direct_intercept_ms=1.0,
         direct_per_world_ms=0.0,
@@ -107,6 +110,7 @@ def test_profile_fails_closed_on_identity_or_calibration_domain_mismatch() -> No
             profile,
             ExecutionFeatures(
                 backend="gpu",
+                target_signature="sha256:target",
                 effect_signature="sha256:test",
                 logical_world_count=100,
                 active_canonical_classes=10,
@@ -119,7 +123,21 @@ def test_profile_fails_closed_on_identity_or_calibration_domain_mismatch() -> No
             profile,
             ExecutionFeatures(
                 backend="cpu",
+                target_signature="sha256:target",
                 effect_signature="sha256:other",
+                logical_world_count=100,
+                active_canonical_classes=10,
+                active_projected_classes=5,
+            ),
+        )
+
+    with pytest.raises(ValueError, match="target signature"):
+        choose_execution_path(
+            profile,
+            ExecutionFeatures(
+                backend="cpu",
+                target_signature="sha256:other-target",
+                effect_signature="sha256:test",
                 logical_world_count=100,
                 active_canonical_classes=10,
                 active_projected_classes=5,

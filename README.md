@@ -369,8 +369,9 @@ largest logical population or class counts used during calibration.
 Calibration alternates direct and projected measurements to reduce runner drift and weights fits
 by observed timing noise. Leave-one-out model selection compares four structural shapes: linear
 versus bounded-quadratic direct work, each with or without an independent canonical-class term.
-Selection first maximizes crossover-choice accuracy, then minimizes prediction error, and chooses
-the simplest model within 5% of the best error at that accuracy.
+Selection first maximizes crossover-choice accuracy, then minimizes prediction error. Among models
+with the best crossover accuracy, it applies the one-standard-error rule and chooses the simplest
+model whose error is statistically indistinguishable from the best observed fit.
 
 An uncertainty guard derived from leave-one-out error is reported with each decision, but it is
 diagnostic only. Both execution paths are semantically exact, so uncertainty about performance
@@ -381,8 +382,10 @@ both on a denser, disjoint crossover-heavy grid. Promotion requires at least 5% 
 projected-minus-direct prediction error, no material increase in dispatch regret, both paths to
 remain useful, and exact result agreement throughout.
 
-Calibration is backend-specific. JAX CPU, the owned native kernel, and future GPU kernels receive
-separate profiles rather than sharing coefficients.
+Calibration is execution-target-specific, not merely backend-specific. Profiles are fenced to a
+fingerprint covering the JAX backend, device kind/count, machine architecture, CPU count, and CPU
+model where available. JAX CPU, the owned native kernel, different CPU hosts, and future GPU
+kernels therefore receive separate profiles rather than sharing coefficients.
 
 ## Native damage compiler
 

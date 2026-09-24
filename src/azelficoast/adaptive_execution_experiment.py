@@ -6,6 +6,8 @@ import argparse
 import hashlib
 import itertools
 import json
+import os
+import platform
 import statistics
 import time
 from dataclasses import dataclass
@@ -135,6 +137,30 @@ def _load_contexts(path: Path) -> tuple[DamageContext, ...]:
     if len(contexts) < required:
         raise ShowdownDamageCorpusError("fixture corpus lacks enough distinct damage contexts")
     return contexts
+
+
+def _cpu_model_name() -> str:
+    cpuinfo = Path("/proc/cpuinfo")
+    if cpuinfo.exists():
+        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.lower().startswith("model name"):
+                return line.partition(":")[2].strip()
+    return platform.processor() or "unknown"
+
+
+def _execution_target_signature() -> str:
+    devices = jax.devices()
+    payload = {
+        "jax_backend": jax.default_backend(),
+        "device_kinds": sorted(str(device.device_kind) for device in devices),
+        "device_count": len(devices),
+        "machine": platform.machine(),
+        "system": platform.system(),
+        "cpu_count": os.cpu_count(),
+        "cpu_model": _cpu_model_name(),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def _effect_signature(contexts: Sequence[DamageContext]) -> str:
@@ -502,6 +528,7 @@ def _fit_cost_profile(
     rows: Sequence[Mapping[str, object]],
     *,
     backend: str,
+    target_signature: str,
     effect_signature: str,
 ) -> tuple[ExecutionCostProfile, dict[str, object]]:
     candidates = []
@@ -523,11 +550,21 @@ def _fit_cost_profile(
         for candidate in candidates
         if float(candidate["choice_accuracy"]) == best_accuracy
     ]
-    best_mae = min(float(candidate["mae"]) for candidate in accuracy_eligible)
+    best_candidate = min(
+        accuracy_eligible,
+        key=lambda candidate: float(candidate["mae"]),
+    )
+    best_mae = float(best_candidate["mae"])
+    best_errors = [float(value) for value in best_candidate["errors"]]
+    best_standard_error = (
+        statistics.stdev(best_errors) / (len(best_errors) ** 0.5)
+        if len(best_errors) > 1
+        else 0.0
+    )
     eligible = [
         candidate
         for candidate in accuracy_eligible
-        if float(candidate["mae"]) <= best_mae * 1.05
+        if float(candidate["mae"]) <= best_mae + best_standard_error
     ]
     selected = min(
         eligible,
@@ -560,6 +597,7 @@ def _fit_cost_profile(
     ) = coefficients
     profile = ExecutionCostProfile(
         backend=backend,
+        target_signature=target_signature,
         effect_signature=effect_signature,
         direct_intercept_ms=direct_intercept,
         direct_per_world_ms=direct_per_world,
@@ -590,6 +628,7 @@ def _fit_cost_profile(
         },
         "best_choice_accuracy": best_accuracy,
         "best_delta_mae_among_best_accuracy_ms": best_mae,
+        "one_standard_error_ms": best_standard_error,
         "selected_delta_mae_ms": selected["mae"],
         "selected_choice_accuracy": selected["choice_accuracy"],
         "uncertainty_guard_ms": uncertainty_guard,
@@ -667,6 +706,7 @@ def _evaluate(
 
         features = ExecutionFeatures(
             backend=profile.backend,
+            target_signature=profile.target_signature,
             effect_signature=profile.effect_signature,
             logical_world_count=int(row["logical_world_count"]),
             active_canonical_classes=int(row["active_canonical_classes"]),
@@ -765,6 +805,7 @@ def _evaluate(
 def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
     return {
         "backend": profile.backend,
+        "target_signature": profile.target_signature,
         "effect_signature": profile.effect_signature,
         "direct_intercept_ms": profile.direct_intercept_ms,
         "direct_per_world_ms": profile.direct_per_world_ms,
@@ -782,6 +823,7 @@ def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
 def run_experiment(fixtures: Path) -> dict[str, object]:
     contexts = _load_contexts(fixtures)
     backend = jax.default_backend()
+    target_signature = _execution_target_signature()
     effect_signature = _effect_signature(contexts)
 
     training = [
@@ -791,6 +833,7 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
     profile, selection = _fit_cost_profile(
         training,
         backend=backend,
+        target_signature=target_signature,
         effect_signature=effect_signature,
     )
     baseline = _fit_absolute_baseline(training)
@@ -841,6 +884,7 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
         "showdown_commit": PINNED_SHOWDOWN_COMMIT,
         "jax_version": jax.__version__,
         "backend": backend,
+        "target_signature": target_signature,
         "effect_signature": effect_signature,
         "training_and_held_out_disjoint": disjoint,
         "training": training,

@@ -66,6 +66,7 @@ jobs:
           assert result["training_and_held_out_disjoint"] is True, result
           assert result["profile"]["calibrated_max_logical_world_count"] >= 524288, result
           assert result["model_selection"]["selected_shape"], result
+          assert result["target_signature"].startswith("sha256:"), result
           assert candidate["choice_accuracy"] >= 0.75, result
           assert candidate["adaptive_over_oracle"] <= 1.10, result
           assert candidate["worst_case_over_oracle"] <= 1.20, result
