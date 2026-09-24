@@ -382,6 +382,30 @@ The fitted hosted-CPU coefficients are evidence, not portable constants. A diffe
 or changed effect signature requires its own calibration profile; GPU crossover behavior remains
 unclaimed.
 
+## POST Python native CPU experiment
+
+A separate experiment asks whether the exact Gen 9 damage semantics can remain readable Python
+while also compiling ahead of time to a small native CPU kernel. It uses POST Python 0.3.0 only
+as research machinery; the ordinary battle harness and simulator do not depend on it.
+
+```bash
+uv sync --extra simulator --extra post
+uv run python -m azelficoast.post_gen9_damage_experiment \
+  /tmp/showdown-gen9-damage-fixtures.json
+```
+
+The POST source consumes the same 18-column integer context as the JAX lowering and compiles into
+a CPython extension backed by C99. The hosted treatment requires exact agreement with the scalar
+Showdown-compatible kernel and JAX over every scenario and all 16 damage rolls. It then measures
+batch sizes from one transition through 524,288 transitions, including first-call versus steady
+JAX timing, and separately measures the class-native case where 524,288 logical worlds collapse
+to the 192 Showdown damage classes.
+
+Performance is observational rather than an acceptance threshold. A fast result does not promote
+POST Python into the simulator by itself. The experiment is intended to discover whether a native
+CPU path is useful for the small dependency classes that remain after belief projection while
+JAX remains the accelerator-oriented backend.
+
 ## Development
 
 ```bash
