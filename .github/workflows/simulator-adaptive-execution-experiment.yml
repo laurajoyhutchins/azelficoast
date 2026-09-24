@@ -1,0 +1,78 @@
+name: simulator-adaptive-execution-experiment
+
+on:
+  pull_request:
+    paths:
+      - "src/azelficoast/adaptive_execution.py"
+      - "src/azelficoast/adaptive_execution_experiment.py"
+      - "src/azelficoast/class_native_belief.py"
+      - "tests/test_adaptive_execution.py"
+      - ".github/workflows/simulator-adaptive-execution-experiment.yml"
+      - "README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  adaptive-execution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install simulator dependencies
+        run: uv sync --extra simulator
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate pinned damage contexts
+        run: |
+          node scripts/generate_showdown_damage_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/showdown-gen9-damage-fixtures.json
+
+      - name: Test deterministic dispatcher
+        run: uv run pytest tests/test_adaptive_execution.py
+
+      - name: Run calibration and held-out experiment
+        run: |
+          uv run python -m azelficoast.adaptive_execution_experiment             /tmp/showdown-gen9-damage-fixtures.json             | tee /tmp/adaptive-execution-experiment.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/adaptive-execution-experiment.json").read_text())
+          held = result["held_out"]
+          assert result["passed"] is True, result
+          assert result["training_and_held_out_disjoint"] is True, result
+          assert held["choice_accuracy"] >= 0.75, result
+          assert held["adaptive_over_oracle"] <= 1.15, result
+          assert held["chosen_paths"] == ["direct", "projected"], result
+          assert held["speedup_vs_always_direct"] > 1.0, result
+          assert held["speedup_vs_always_projected"] > 1.0, result
+          assert all(row["score_equal"] for row in result["training"]), result
+          assert all(row["score_equal"] for row in held["rows"]), result
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: adaptive-execution-evidence
+          path: /tmp/adaptive-execution-experiment.json
+          if-no-files-found: error

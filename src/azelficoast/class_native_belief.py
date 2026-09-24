@@ -234,7 +234,12 @@ def project_belief(
     if len(projection.class_ids) != belief.support.class_count:
         raise ValueError("projection does not match belief support")
     weights = np.zeros(projection.class_count, dtype=np.int64)
-    np.add.at(weights, projection.class_ids, belief.weights)
+    active = belief.weights > 0
+    np.add.at(
+        weights,
+        projection.class_ids[active],
+        belief.weights[active],
+    )
     return ProjectedBelief(projection=projection, weights=weights)
 
 
