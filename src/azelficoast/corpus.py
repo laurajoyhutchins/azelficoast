@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -103,6 +104,30 @@ class RecordedModePolicy:
 BUILTIN_POLICIES: dict[str, FixturePolicy] = {
     policy.name: policy for policy in (FirstLegalPolicy(), RecordedModePolicy())
 }
+
+
+def load_policy(spec: str) -> FixturePolicy:
+    """Resolve a built-in policy or a local module:object policy plugin."""
+    if spec in BUILTIN_POLICIES:
+        return BUILTIN_POLICIES[spec]
+    if ":" not in spec:
+        raise CorpusError(
+            f"unknown policy {spec!r}; use a built-in name or module:object"
+        )
+
+    module_name, object_name = spec.split(":", 1)
+    try:
+        candidate = getattr(importlib.import_module(module_name), object_name)
+        if isinstance(candidate, type):
+            candidate = candidate()
+    except (ImportError, AttributeError, TypeError) as error:
+        raise CorpusError(f"cannot load policy {spec!r}: {error}") from error
+
+    if not isinstance(getattr(candidate, "name", None), str):
+        raise CorpusError(f"policy {spec!r} must expose a string name")
+    if not callable(getattr(candidate, "choose", None)):
+        raise CorpusError(f"policy {spec!r} must expose choose(fixture)")
+    return candidate
 
 
 def _load_trace_records(paths: Sequence[Path]) -> list[dict[str, Any]]:
@@ -438,12 +463,9 @@ def evaluate_corpus(
     policy_name: str,
     output: str | Path | None = None,
 ) -> dict[str, Any]:
-    if policy_name not in BUILTIN_POLICIES:
-        raise CorpusError(
-            f"unknown policy {policy_name!r}; choose from {', '.join(sorted(BUILTIN_POLICIES))}"
-        )
+    policy = load_policy(policy_name)
     fixtures = load_corpus(corpus_path)
-    summary, rows = evaluate_fixtures(fixtures, BUILTIN_POLICIES[policy_name])
+    summary, rows = evaluate_fixtures(fixtures, policy)
 
     if output is not None:
         output_path = Path(output)
