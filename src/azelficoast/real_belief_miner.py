@@ -110,7 +110,14 @@ def _candidate(trace: Mapping[str, Any], source: str) -> dict[str, Any]:
             "legal_action_count": signals.legal_action_count,
         },
         "structural_rank_key": list(signals.rank_key),
+        "strategy_fusion_observation_count": int(
+            trace.get("strategy_fusion_observation_count", 0)
+        ),
+        "max_world_aware_choices_per_observation": int(
+            trace.get("max_world_aware_choices_per_observation", 0)
+        ),
         "policy_disagreement": bool(trace.get("policy_disagreement")),
+        "hypothesis_supported": bool(trace.get("hypothesis_supported")),
         "determinization_action": trace.get("determinization", {}).get("chosen_action"),
         "public_belief_action": trace.get("public_belief", {}).get("chosen_action"),
     }
@@ -132,6 +139,14 @@ def mine_oracles(documents: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[str
         )
     )
 
+    first_strategy_fusion_candidate = next(
+        (
+            candidate
+            for candidate in candidates
+            if int(candidate["strategy_fusion_observation_count"]) > 0
+        ),
+        None,
+    )
     first_disagreement = next(
         (candidate for candidate in candidates if candidate["policy_disagreement"]),
         None,
@@ -141,10 +156,15 @@ def mine_oracles(documents: Sequence[tuple[str, Mapping[str, Any]]]) -> dict[str
         "schema_version": 1,
         "ranking_uses_policy_result": False,
         "evaluated_count": len(candidates),
+        "strategy_fusion_candidate_count": sum(
+            int(candidate["strategy_fusion_observation_count"]) > 0
+            for candidate in candidates
+        ),
         "disagreement_count": sum(
             bool(candidate["policy_disagreement"]) for candidate in candidates
         ),
         "ranked_candidates": candidates,
+        "first_strategy_fusion_candidate": first_strategy_fusion_candidate,
         "first_disagreement": first_disagreement,
     }
 
