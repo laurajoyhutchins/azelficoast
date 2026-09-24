@@ -15,6 +15,10 @@ dependencies = [
 simulator = [
   "jax==0.11.2; python_version >= '3.12'",
 ]
+post = [
+  "numpy>=2,<3",
+  "postpyc==0.3.0",
+]
 
 [project.scripts]
 azelficoast = "azelficoast.harness:main"
