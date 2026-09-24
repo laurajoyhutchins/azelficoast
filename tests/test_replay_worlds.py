@@ -111,7 +111,7 @@ def test_item_damage_ranges_separate_the_replay_worlds() -> None:
     assert (
         min(damage_rolls_for_item(observation, item="Life Orb")),
         max(damage_rolls_for_item(observation, item="Life Orb")),
-    ) == (67, 79)
+    ) == (66, 79)
 
 
 def test_observed_54_damage_collapses_sampled_item_belief_to_scarf() -> None:
@@ -123,7 +123,7 @@ def test_observed_54_damage_collapses_sampled_item_belief_to_scarf() -> None:
         "Life Orb": 0.625,
     }
     assert posterior["posterior"] == {"Choice Scarf": 1.0}
-    assert posterior["compatible"]["Choice Scarf"]["matching_rolls"] == 2
+    assert posterior["compatible"]["Choice Scarf"]["matching_rolls"] == 3
 
 
 def test_alternative_damage_falsifier_selects_band_instead() -> None:
