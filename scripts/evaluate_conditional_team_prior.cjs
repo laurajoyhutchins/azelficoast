@@ -256,23 +256,38 @@ function scoreCandidate(candidate, known, lambda) {
   return score;
 }
 
-function probabilities(known, support, lambda) {
-  const rows = support.map(id => ({
+function scoringRows(known, support) {
+  return support.map(id => ({
     id,
-    score: scoreCandidate(id, known, lambda),
+    prior: logPrior(id),
+    association: known.reduce(
+      (sum, observed) => sum + logLift(id, observed),
+      0
+    ),
   }));
-  const maxScore = Math.max(...rows.map(row => row.score));
+}
+
+function probabilitiesFromRows(rows, lambda) {
+  const scored = rows.map(row => ({
+    id: row.id,
+    score: row.prior + lambda * row.association,
+  }));
+  const maxScore = Math.max(...scored.map(row => row.score));
   let total = 0;
-  for (const row of rows) {
+  for (const row of scored) {
     row.weight = Math.exp(row.score - maxScore);
     total += row.weight;
   }
-  return rows
+  return scored
     .map(row => ({id: row.id, probability: row.weight / total}))
     .sort(
       (left, right) =>
         right.probability - left.probability || left.id.localeCompare(right.id)
     );
+}
+
+function probabilities(known, support, lambda) {
+  return probabilitiesFromRows(scoringRows(known, support), lambda);
 }
 
 function blankMetrics() {
@@ -353,11 +368,12 @@ function evaluateRange(start, count, lambdas) {
     }
 
     observePrediction(uniform, target, uniformDistribution(support));
+    const rows = scoringRows(known, support);
     for (const lambda of lambdas) {
       observePrediction(
         byLambda.get(lambda),
         target,
-        probabilities(known, support, lambda)
+        probabilitiesFromRows(rows, lambda)
       );
     }
   }
