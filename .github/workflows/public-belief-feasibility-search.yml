@@ -11,10 +11,15 @@ on:
       - "src/azelficoast/protect_continuations.py"
       - "tests/test_corpus.py"
       - "src/azelficoast/natural_disagreements.py"
+      - "scripts/screen_public_belief_speed_forks.cjs"
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: public-belief-feasibility-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   search:
@@ -159,6 +164,42 @@ jobs:
               result["sampled_world_queries"],
           )
           PY
+
+      - name: Screen speed-fork mechanics
+        run: |
+          node scripts/screen_public_belief_speed_forks.cjs \
+            /tmp/pokemon-showdown \
+            /tmp/speed-fork-candidates.json \
+            /tmp/speed-fork-fixtures.jsonl
+            /tmp/public-belief-speed-fork-mechanics.json \
+            | tee /tmp/public-belief-speed-fork-mechanics.json
+
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const discovery = JSON.parse(
+            fs.readFileSync("/tmp/speed-fork-candidates.json", "utf8")
+          );
+          const mechanics = JSON.parse(
+            fs.readFileSync(
+              "/tmp/public-belief-speed-fork-mechanics.json",
+              "utf8"
+            )
+          );
+          if (mechanics.case_count !== discovery.speed_fork_candidate_count) {
+            throw new Error(
+              `mechanics screened ${mechanics.case_count} cases for ` +
+              `${discovery.speed_fork_candidate_count} speed forks`
+            );
+          }
+          console.log(JSON.stringify({
+            case_count: mechanics.case_count,
+            strict_execution_fork_count:
+              mechanics.strict_execution_fork_count,
+            strict_execution_forks: mechanics.cases
+              .filter(candidate => candidate.strict_execution_fork)
+              .map(candidate => candidate.fixture_id),
+          }, null, 2));
+          NODE
 
       - name: Show local server log on failure
         if: failure()
