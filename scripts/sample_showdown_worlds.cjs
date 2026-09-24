@@ -9,7 +9,7 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, species, observedMovesCsv, roundsText] = process.argv.slice(2);
+const [showdownRoot, species, observedMovesCsv, roundsText, isLeadText] = process.argv.slice(2);
 if (!showdownRoot || !species || !observedMovesCsv) {
   fail(
     "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS]"
@@ -19,6 +19,11 @@ if (!showdownRoot || !species || !observedMovesCsv) {
 const rounds = roundsText ? Number(roundsText) : 65536;
 if (!Number.isInteger(rounds) || rounds < 1 || rounds > 65536) {
   fail("ROUNDS must be an integer from 1 through 65536");
+}
+
+const isLead = isLeadText === "true";
+if (isLeadText !== undefined && !["true", "false"].includes(isLeadText)) {
+  fail("IS_LEAD must be true or false");
 }
 
 const observedMoves = new Set(
@@ -43,7 +48,7 @@ let matched = 0;
 
 for (let seed = 0; seed < rounds; seed++) {
   generator.setSeed([seed, seed, seed, seed]);
-  const set = generator.randomSet(species, {}, false, false);
+  const set = generator.randomSet(species, {}, isLead, false);
   const moves = [...set.moves].sort();
 
   if (![...observedMoves].every(move => moves.includes(move))) {
@@ -99,7 +104,7 @@ process.stdout.write(
       generator_context: {
         format: "gen9randombattle",
         teamDetails: {},
-        isLead: false,
+        isLead,
         isDoubles: false,
       },
       rounds,
