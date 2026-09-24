@@ -61,7 +61,7 @@ Every run produces three complementary evidence surfaces under ignored `artifact
 - `decisions.jsonl` stores the exact inbound Showdown protocol batches, each decision-time information state, legal actions, the chosen action, and the terminal observable state.
 - `replays/` stores `poke-env` replay HTML.
 
-Decision traces use schema `azelficoast.decision-trace` with an integer `schema_version` and a monotonic `event_index`. Unknown opponent information remains unknown in the snapshots; the recorder does not fill hidden fields from later knowledge.
+Decision traces use schema `azelficoast.decision-trace` with an integer `schema_version`. Each process invocation receives a unique `run_id`, and `event_index` is monotonic within that run. Unknown opponent information remains unknown in the snapshots; the recorder does not fill hidden fields from later knowledge.
 
 To place traces elsewhere, pass the global option before the command:
 
