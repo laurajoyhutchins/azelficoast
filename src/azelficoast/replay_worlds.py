@@ -367,6 +367,12 @@ def load_world_sample(path: str | Path) -> dict[str, Any]:
         raise ReplayError(f"{sample_path}: unexpected world-sample schema")
     if payload.get("schema_version") != 1:
         raise ReplayError(f"{sample_path}: unsupported world-sample schema version")
+    if payload.get("showdown_commit") != SHOWDOWN_COMMIT:
+        raise ReplayError(
+            f"{sample_path}: sample is not bound to Showdown {SHOWDOWN_COMMIT}"
+        )
+    if not isinstance(payload.get("generator_context"), dict):
+        raise ReplayError(f"{sample_path}: missing generator context")
     if not isinstance(payload.get("rounds"), int) or payload["rounds"] <= 0:
         raise ReplayError(f"{sample_path}: invalid rounds")
     if not isinstance(payload.get("matched"), int) or payload["matched"] <= 0:
@@ -428,9 +434,9 @@ def damage_rolls_for_item(
         raise ReplayError("move lacks ordinary base power/type")
 
     attack_multiplier, final_multiplier = ITEM_DAMAGE_MODELS[item]
-    attack = math.floor(
-        _neutral_stat(attacker["baseStats"]["atk"], observation.attacker_level)
-        * attack_multiplier
+    attack = _showdown_modify(
+        _neutral_stat(attacker["baseStats"]["atk"], observation.attacker_level),
+        attack_multiplier,
     )
     defense = _neutral_stat(target["baseStats"]["def"], observation.target_level)
 
@@ -470,18 +476,113 @@ def damage_rolls_for_item(
     return tuple(rolls)
 
 
+def _turn_is_complete(events: Sequence[ProtocolEvent], turn: int) -> bool:
+    return any(
+        event.kind == "turn"
+        and event.fields
+        and event.fields[0].isdigit()
+        and int(event.fields[0]) > turn
+        for event in events
+    )
+
+
+def _life_orb_recoil_observed(
+    events: Sequence[ProtocolEvent],
+    *,
+    species: str,
+    turn: int,
+) -> bool:
+    active: dict[str, str] = {}
+    for event in events:
+        if event.turn > turn:
+            break
+        fields = event.fields
+        if event.kind in {"switch", "drag"} and len(fields) >= 2:
+            active[_slot_from_actor(fields[0])] = _species_from_details(fields[1])[0]
+            continue
+        if event.turn != turn or event.kind != "-damage" or len(fields) < 3:
+            continue
+        slot = _slot_from_actor(fields[0])
+        if active.get(slot) != species:
+            continue
+        if any("item: Life Orb" in field for field in fields[2:]):
+            return True
+    return False
+
+
+def condition_generator_prior_on_public_history(
+    sample: Mapping[str, Any],
+    events: Sequence[ProtocolEvent],
+) -> dict[str, Any]:
+    """Apply authoritative public observations that precede the target damage event."""
+    raw_counts = sample.get("item_counts")
+    if not isinstance(raw_counts, dict):
+        raise ReplayError("world sample has no item counts")
+    counts = dict(raw_counts)
+    updates: list[dict[str, Any]] = []
+
+    # In this replay Infernape dealt Close Combat damage on turn 18. Historical
+    # Showdown's Life Orb callback necessarily emits recoil after such a move for
+    # Infernape. The completed public turn contains no such recoil message.
+    damaging_turn_18 = [
+        observation
+        for observation in extract_damage_observations(events)
+        if observation.turn == 18
+        and observation.attacker_species == "Infernape"
+        and observation.move == "Close Combat"
+    ]
+    if len(damaging_turn_18) != 1:
+        raise ReplayError(
+            "expected exactly one turn-18 Infernape Close Combat damage observation"
+        )
+    if not _turn_is_complete(events, 18):
+        raise ReplayError("turn 18 is incomplete; cannot certify Life Orb recoil absence")
+
+    recoil_observed = _life_orb_recoil_observed(
+        events,
+        species="Infernape",
+        turn=18,
+    )
+    if "Life Orb" in counts:
+        if recoil_observed:
+            counts = {"Life Orb": counts["Life Orb"]}
+        else:
+            del counts["Life Orb"]
+        updates.append(
+            {
+                "turn": 18,
+                "kind": "life-orb-recoil",
+                "observed": recoil_observed,
+                "authority": "complete-public-turn",
+                "remaining_items": sorted(counts),
+            }
+        )
+
+    if not counts:
+        raise ReplayError("public history eliminated every sampled item world")
+
+    return {
+        "item_counts": counts,
+        "updates": updates,
+    }
+
+
 def infer_item_posterior(
     sample: Mapping[str, Any],
     observation: DamageObservation,
+    *,
+    item_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """Condition empirical generator item mass on one exact public damage observation."""
     species = sample.get("species")
     if not isinstance(species, str) or _to_id(species) != _to_id(observation.attacker_species):
         raise ReplayError("world sample species does not match damage attacker")
 
-    item_counts = sample.get("item_counts")
-    if not isinstance(item_counts, dict):
-        raise ReplayError("world sample has no item counts")
+    if item_counts is None:
+        raw_item_counts = sample.get("item_counts")
+        if not isinstance(raw_item_counts, dict):
+            raise ReplayError("world sample has no item counts")
+        item_counts = raw_item_counts
 
     prior_total = sum(item_counts.values())
     prior = {
@@ -550,7 +651,19 @@ def build_replay_belief(
 ) -> dict[str, Any]:
     """Build a deterministic belief certificate from already-acquired public evidence."""
     observation = _target_replay_observation(events)
-    inference = infer_item_posterior(sample, observation)
+    history_condition = condition_generator_prior_on_public_history(sample, events)
+    inference = infer_item_posterior(
+        sample,
+        observation,
+        item_counts=history_condition["item_counts"],
+    )
+
+    raw_item_counts = sample["item_counts"]
+    raw_total = sum(raw_item_counts.values())
+    generator_prior = {
+        item: count / raw_total
+        for item, count in sorted(raw_item_counts.items())
+    }
 
     evidence = {
         "replay_id": replay.replay_id,
@@ -559,11 +672,15 @@ def build_replay_belief(
         "sample": {
             "species": sample["species"],
             "observed_moves": sample.get("observed_moves"),
+            "showdown_commit": sample.get("showdown_commit"),
             "seed_family": sample.get("seed_family"),
+            "generator_context": sample.get("generator_context"),
             "rounds": sample["rounds"],
             "matched": sample["matched"],
             "item_counts": sample["item_counts"],
+            "sample_sha256": _sha256(sample),
         },
+        "public_history_updates": history_condition["updates"],
         "damage_observation": {
             "turn": observation.turn,
             "attacker": observation.attacker_species,
@@ -584,6 +701,7 @@ def build_replay_belief(
         "schema": "azelficoast.replay-belief",
         "schema_version": 1,
         **evidence,
+        "generator_prior": generator_prior,
         "prior": inference["prior"],
         "compatible_worlds": inference["compatible"],
         "belief_sha256": _sha256(evidence),
