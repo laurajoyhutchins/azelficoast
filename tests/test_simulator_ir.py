@@ -16,6 +16,7 @@ from azelficoast.simulator_ir import (
     World,
     collapse_worlds,
     field_mask,
+    verify_dependency_corpus,
 )
 
 
@@ -46,6 +47,8 @@ def test_dependency_experiment_collapses_irrelevant_hidden_worlds_exactly() -> N
         "exact": True,
     }
     assert result["negative_control_detected"] is True
+    assert result["random_dependency_verified"] is True
+    assert result["random_negative_control_detected"] is True
 
 
 def test_choice_item_is_a_required_damage_dependency() -> None:
@@ -79,3 +82,20 @@ def test_ir_rejects_effect_that_writes_outside_declared_mask() -> None:
 
     with pytest.raises(DependencyViolation, match="undeclared fields"):
         collapse_worlds(misdeclared, worlds, random)
+
+
+def test_damage_roll_is_a_required_random_dependency() -> None:
+    worlds = (_world(ITEM_CHOICE_SCARF),)
+    random_inputs = tuple(
+        RandomInput.from_values({RandomField.DAMAGE_ROLL: roll}) for roll in range(16)
+    )
+    misdeclared = EffectSpec(
+        name="missing-random-dependency",
+        op=SPECIAL_DAMAGE.op,
+        reads=SPECIAL_DAMAGE.reads,
+        writes=SPECIAL_DAMAGE.writes,
+        random=0,
+    )
+
+    with pytest.raises(DependencyViolation, match="dependency is missing"):
+        verify_dependency_corpus(misdeclared, worlds, random_inputs)

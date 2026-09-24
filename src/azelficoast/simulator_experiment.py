@@ -20,6 +20,7 @@ from azelficoast.simulator_ir import (
     execute_direct,
     expand_collapsed,
     field_mask,
+    verify_dependency_corpus,
 )
 
 
@@ -49,6 +50,10 @@ def run_experiment(bench_variants: int = 2048) -> dict[str, object]:
 
     protect = collapse_worlds(PROTECT_BLOCK, worlds, random)
     damage = collapse_worlds(SPECIAL_DAMAGE, worlds, random)
+    random_inputs = tuple(
+        RandomInput.from_values({RandomField.DAMAGE_ROLL: roll}) for roll in range(16)
+    )
+    verify_dependency_corpus(SPECIAL_DAMAGE, worlds, random_inputs)
 
     protect_exact = expand_collapsed(worlds, protect) == execute_direct(
         PROTECT_BLOCK, worlds, random
@@ -70,12 +75,26 @@ def run_experiment(bench_variants: int = 2048) -> dict[str, object]:
     except DependencyViolation:
         negative_control_detected = True
 
+    missing_random_dependency = EffectSpec(
+        name="misdeclared-random-choice-special-damage",
+        op=SPECIAL_DAMAGE.op,
+        reads=SPECIAL_DAMAGE.reads,
+        writes=SPECIAL_DAMAGE.writes,
+        random=0,
+    )
+    random_negative_control_detected = False
+    try:
+        verify_dependency_corpus(missing_random_dependency, worlds, random_inputs)
+    except DependencyViolation:
+        random_negative_control_detected = True
+
     passed = (
         protect_exact
         and damage_exact
         and protect.transition_count == 1
         and damage.transition_count == 2
         and negative_control_detected
+        and random_negative_control_detected
     )
     return {
         "schema": "azelficoast.simulator-dependency-experiment",
@@ -92,6 +111,8 @@ def run_experiment(bench_variants: int = 2048) -> dict[str, object]:
             "exact": damage_exact,
         },
         "negative_control_detected": negative_control_detected,
+        "random_dependency_verified": True,
+        "random_negative_control_detected": random_negative_control_detected,
         "passed": passed,
     }
 

@@ -114,6 +114,9 @@ class RandomInput:
     def get(self, field: RandomField) -> int:
         return self.values[int(field)]
 
+    def project(self, mask: int) -> tuple[int, ...]:
+        return tuple(self.get(field) for field in _members(mask, RandomField))
+
 
 @dataclass(frozen=True)
 class EffectSpec:
@@ -209,18 +212,35 @@ def _group_indices(
     return groups
 
 
+def verify_dependency_corpus(
+    spec: EffectSpec,
+    worlds: Sequence[World],
+    random_inputs: Sequence[RandomInput],
+) -> None:
+    if not random_inputs:
+        raise ValueError("dependency verification requires at least one random input")
+
+    groups: dict[tuple[tuple[int, ...], tuple[int, ...]], list[TransitionDelta]] = {}
+    for world in worlds:
+        for random in random_inputs:
+            key = (world.project(spec.reads), random.project(spec.random))
+            groups.setdefault(key, []).append(transition(spec, world, random))
+
+    for key, deltas in groups.items():
+        unique = set(deltas)
+        if len(unique) != 1:
+            raise DependencyViolation(
+                f"{spec.name} produced {len(unique)} deltas for one declared dependency class "
+                f"{key!r}; a dependency is missing"
+            )
+
+
 def verify_declared_dependencies(
     spec: EffectSpec,
     worlds: Sequence[World],
     random: RandomInput,
 ) -> None:
-    for key, indices in _group_indices(worlds, spec.reads).items():
-        deltas = {transition(spec, worlds[index], random) for index in indices}
-        if len(deltas) != 1:
-            raise DependencyViolation(
-                f"{spec.name} produced {len(deltas)} deltas for one declared-read class "
-                f"{key!r}; a dependency is missing"
-            )
+    verify_dependency_corpus(spec, worlds, (random,))
 
 
 def collapse_worlds(
