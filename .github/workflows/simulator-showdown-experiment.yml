@@ -38,7 +38,9 @@ jobs:
 
       - name: Build Pokémon Showdown
         working-directory: /tmp/pokemon-showdown
-        run: npm ci --omit=optional --no-audit --no-fund
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
 
       - name: Generate Showdown transition fixtures
         run: |
