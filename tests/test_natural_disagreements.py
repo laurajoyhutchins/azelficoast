@@ -160,6 +160,14 @@ def test_mines_real_shape_choice_item_speed_fork(monkeypatch) -> None:
         "Choice Scarf": 0.4,
         "Choice Specs": 0.6,
     }
+    assert result["persistent_candidate_count"] == 1
+    assert candidate["persistent_protect_actions"] == [
+        {
+            "action": "/choose move protect",
+            "kind": "protect",
+            "observation": "blocked-no-item-reveal",
+        }
+    ]
 
 
 def test_rejects_support_with_unresolved_non_choice_item(monkeypatch) -> None:
