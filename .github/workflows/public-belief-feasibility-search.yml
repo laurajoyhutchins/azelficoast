@@ -170,8 +170,7 @@ jobs:
           node scripts/screen_public_belief_speed_forks.cjs \
             /tmp/pokemon-showdown \
             /tmp/speed-fork-candidates.json \
-            /tmp/speed-fork-fixtures.jsonl
-            /tmp/public-belief-speed-fork-mechanics.json \
+            /tmp/speed-fork-fixtures.jsonl \
             | tee /tmp/public-belief-speed-fork-mechanics.json
 
           node - <<'NODE'
@@ -213,4 +212,5 @@ jobs:
             /tmp/protect-candidates.json
             /tmp/speed-fork-candidates.json
             /tmp/speed-fork-fixtures.jsonl
+            /tmp/public-belief-speed-fork-mechanics.json
           if-no-files-found: error
