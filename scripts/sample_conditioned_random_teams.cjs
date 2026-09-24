@@ -236,10 +236,11 @@ generator.sampleNoReplace = function (list) {
   }
 
   const slotsLeft = generator.maxTeamSize - state.acceptedCount;
-  const dynamicAlpha =
-    state.remainingBaseSpecies.size >= slotsLeft
-      ? Math.max(state.alpha, 0.995)
-      : state.alpha;
+  let dynamicAlpha =
+    1 - Math.pow(1 - state.alpha, state.remainingBaseSpecies.size);
+  if (state.remainingBaseSpecies.size >= slotsLeft) {
+    dynamicAlpha = Math.max(dynamicAlpha, 0.8);
+  }
 
   const chooseRequired = state.proposalRandom() < dynamicAlpha;
   const index = chooseRequired
@@ -372,6 +373,12 @@ for (let i = 0; i < particles; i++) {
     logWeight: state.logWeight,
     unknown: unknown.map(semanticSet),
     team: team.map(semanticSet),
+    requiredPositions: Object.fromEntries(
+      [...conditioning.required.keys()].map(speciesId => [
+        speciesId,
+        team.findIndex(set => toID(set.species) === speciesId),
+      ])
+    ),
     biasedDrawCount: state.biasedDrawCount,
   });
 }
@@ -388,7 +395,16 @@ const estimatedEventProbability =
 
 const speciesLogMass = new Map();
 const setLogMass = new Map();
+const positionLogMass = new Map();
 for (const particle of eventParticles) {
+  for (const [speciesId, position] of Object.entries(particle.requiredPositions)) {
+    const key = `${speciesId}:${position}`;
+    positionLogMass.set(
+      key,
+      logAdd(positionLogMass.get(key) ?? -Infinity, particle.logWeight)
+    );
+  }
+
   for (const set of particle.unknown) {
     const speciesKey = set.species;
     speciesLogMass.set(
@@ -427,6 +443,16 @@ if (eventParticles.length) {
   effectiveSampleSize = (sum * sum) / sumSquares;
 }
 
+const positionPosterior = normalizedRows(
+  positionLogMass,
+  key => {
+    const split = key.lastIndexOf(":");
+    return {
+      species_id: key.slice(0, split),
+      position: Number(key.slice(split + 1)),
+    };
+  }
+);
 const speciesPosterior = normalizedRows(
   speciesLogMass,
   key => ({species_id: key})
@@ -452,6 +478,7 @@ const evidence = {
   mean_importance_weight: meanImportanceWeight,
   estimated_event_probability: estimatedEventProbability,
   effective_sample_size: effectiveSampleSize,
+  required_position_posterior: positionPosterior,
   species_posterior: speciesPosterior,
   set_posterior_top_50: setPosterior.slice(0, 50),
   caveats: [
