@@ -10,29 +10,34 @@ from azelficoast.adaptive_execution import (
 )
 
 
-def _profile() -> ExecutionCostProfile:
+def _profile(*, guard: float = 0.05) -> ExecutionCostProfile:
     return ExecutionCostProfile(
         backend="cpu",
         effect_signature="sha256:test",
-        direct_intercept_ms=0.1,
+        projected_fixed_overhead_ms=0.4,
         direct_per_world_ms=0.001,
-        projected_intercept_ms=0.4,
         projected_per_canonical_class_ms=0.0001,
         projected_per_execution_class_ms=0.001,
+        decision_guard_ms=guard,
     )
 
 
-def _features(worlds: int) -> ExecutionFeatures:
+def _features(
+    worlds: int,
+    *,
+    canonical: int = 128,
+    projected: int = 16,
+) -> ExecutionFeatures:
     return ExecutionFeatures(
         backend="cpu",
         effect_signature="sha256:test",
         logical_world_count=worlds,
-        active_canonical_classes=128,
-        active_projected_classes=16,
+        active_canonical_classes=canonical,
+        active_projected_classes=projected,
     )
 
 
-def test_dispatcher_selects_from_predicted_cost_not_fixed_population_threshold() -> None:
+def test_relative_model_selects_direct_then_projected_as_multiplicity_grows() -> None:
     profile = _profile()
 
     small = choose_execution_path(profile, _features(100))
@@ -40,21 +45,36 @@ def test_dispatcher_selects_from_predicted_cost_not_fixed_population_threshold()
 
     assert small.path is ExecutionPath.DIRECT
     assert large.path is ExecutionPath.PROJECTED
-    assert small.predicted_direct_ms < small.predicted_projected_ms
-    assert large.predicted_projected_ms < large.predicted_direct_ms
+    assert small.predicted_projected_minus_direct_ms > 0
+    assert large.predicted_projected_minus_direct_ms < -profile.decision_guard_ms
 
 
-def test_exact_prediction_tie_prefers_direct() -> None:
-    profile = ExecutionCostProfile(
-        backend="cpu",
-        effect_signature="sha256:test",
-        direct_intercept_ms=1.0,
-        direct_per_world_ms=0.0,
-        projected_intercept_ms=1.0,
-        projected_per_canonical_class_ms=0.0,
-        projected_per_execution_class_ms=0.0,
+def test_uncertainty_guard_prefers_direct_near_crossover() -> None:
+    profile = _profile(guard=0.2)
+    features = _features(500, canonical=100, projected=10)
+
+    decision = choose_execution_path(profile, features)
+
+    assert decision.predicted_projected_minus_direct_ms < 0
+    assert decision.predicted_projected_minus_direct_ms > -profile.decision_guard_ms
+    assert decision.within_uncertainty_guard is True
+    assert decision.path is ExecutionPath.DIRECT
+
+
+def test_relative_cost_is_monotone_in_work_dimensions() -> None:
+    profile = _profile(guard=0.0)
+    base = profile.estimate_projected_minus_direct_ms(_features(1000))
+    more_worlds = profile.estimate_projected_minus_direct_ms(_features(2000))
+    more_canonical = profile.estimate_projected_minus_direct_ms(
+        _features(1000, canonical=256, projected=16)
     )
-    assert choose_execution_path(profile, _features(100)).path is ExecutionPath.DIRECT
+    more_projected = profile.estimate_projected_minus_direct_ms(
+        _features(1000, canonical=128, projected=32)
+    )
+
+    assert more_worlds < base
+    assert more_canonical > base
+    assert more_projected > base
 
 
 def test_profile_fails_closed_on_backend_or_effect_mismatch() -> None:
@@ -90,9 +110,9 @@ def test_cost_profiles_reject_negative_coefficients() -> None:
         ExecutionCostProfile(
             backend="cpu",
             effect_signature="sha256:test",
-            direct_intercept_ms=0.0,
+            projected_fixed_overhead_ms=0.0,
             direct_per_world_ms=-1.0,
-            projected_intercept_ms=0.0,
             projected_per_canonical_class_ms=0.0,
             projected_per_execution_class_ms=0.0,
+            decision_guard_ms=0.0,
         )

@@ -1,9 +1,8 @@
-"""Deterministic execution-path selection from a calibrated cost profile.
+"""Deterministic execution-path selection from a calibrated relative cost profile.
 
-The dispatcher contains no population-size threshold. A backend/effect-specific calibration
-profile predicts direct and projected execution cost from the current belief geometry, and the
-lower predicted cost wins. Calibration is separate from selection so production execution stays
-deterministic and benchmark machinery stays outside the hot path.
+Dispatch needs the sign of projected_cost - direct_cost, not two independently fitted absolute
+latency curves. The profile therefore models that paired difference directly with monotone,
+non-negative work coefficients and a calibration-derived uncertainty guard.
 """
 
 from __future__ import annotations
@@ -47,11 +46,11 @@ class ExecutionFeatures:
 class ExecutionCostProfile:
     backend: str
     effect_signature: str
-    direct_intercept_ms: float
+    projected_fixed_overhead_ms: float
     direct_per_world_ms: float
-    projected_intercept_ms: float
     projected_per_canonical_class_ms: float
     projected_per_execution_class_ms: float
+    decision_guard_ms: float
 
     def __post_init__(self) -> None:
         if not self.backend:
@@ -59,11 +58,11 @@ class ExecutionCostProfile:
         if not self.effect_signature:
             raise ValueError("effect_signature must be non-empty")
         coefficients = (
-            self.direct_intercept_ms,
+            self.projected_fixed_overhead_ms,
             self.direct_per_world_ms,
-            self.projected_intercept_ms,
             self.projected_per_canonical_class_ms,
             self.projected_per_execution_class_ms,
+            self.decision_guard_ms,
         )
         if any(not isfinite(value) or value < 0 for value in coefficients):
             raise ValueError("cost-profile coefficients must be finite and non-negative")
@@ -77,17 +76,19 @@ class ExecutionCostProfile:
         if features.effect_signature != self.effect_signature:
             raise ValueError("cost profile effect signature does not match execution features")
 
-    def estimate_direct_ms(self, features: ExecutionFeatures) -> float:
-        self.validate_features(features)
-        return (
-            self.direct_intercept_ms
-            + self.direct_per_world_ms * features.logical_world_count
-        )
+    def estimate_projected_minus_direct_ms(
+        self,
+        features: ExecutionFeatures,
+    ) -> float:
+        """Predict projected latency minus direct latency.
 
-    def estimate_projected_ms(self, features: ExecutionFeatures) -> float:
+        Increasing logical multiplicity can only make direct execution less attractive.
+        Increasing canonical or execution classes can only make projection less attractive.
+        """
         self.validate_features(features)
         return (
-            self.projected_intercept_ms
+            self.projected_fixed_overhead_ms
+            - self.direct_per_world_ms * features.logical_world_count
             + self.projected_per_canonical_class_ms
             * features.active_canonical_classes
             + self.projected_per_execution_class_ms
@@ -98,20 +99,26 @@ class ExecutionCostProfile:
 @dataclass(frozen=True)
 class ExecutionDecision:
     path: ExecutionPath
-    predicted_direct_ms: float
-    predicted_projected_ms: float
+    predicted_projected_minus_direct_ms: float
+    decision_guard_ms: float
+    within_uncertainty_guard: bool
 
 
 def choose_execution_path(
     profile: ExecutionCostProfile,
     features: ExecutionFeatures,
 ) -> ExecutionDecision:
-    direct = profile.estimate_direct_ms(features)
-    projected = profile.estimate_projected_ms(features)
-    # Exact ties intentionally choose the simpler direct path.
-    path = ExecutionPath.PROJECTED if projected < direct else ExecutionPath.DIRECT
+    delta = profile.estimate_projected_minus_direct_ms(features)
+    # Projection must clear the calibration uncertainty guard. Near the crossover,
+    # prefer the simpler direct path rather than chase benchmark noise.
+    path = (
+        ExecutionPath.PROJECTED
+        if delta < -profile.decision_guard_ms
+        else ExecutionPath.DIRECT
+    )
     return ExecutionDecision(
         path=path,
-        predicted_direct_ms=direct,
-        predicted_projected_ms=projected,
+        predicted_projected_minus_direct_ms=delta,
+        decision_guard_ms=profile.decision_guard_ms,
+        within_uncertainty_guard=abs(delta) <= profile.decision_guard_ms,
     )

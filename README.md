@@ -346,65 +346,41 @@ mechanic admits a cheap projection. Those remain empirical questions as mechanic
 
 ## Adaptive simulator dispatch
 
-Direct batched execution and class-native execution have different cost curves, so the simulator
-does not encode one global population-size cutoff. The adaptive-dispatch experiment separates
-measurement from execution:
+The dispatcher models the quantity it actually needs: **projected latency minus direct latency**.
+It does not fit two independent absolute curves and subtract them later. The relative model is
+monotone by construction:
 
 ```text
-backend + effect signature
-          |
-   calibration profile
-          |
-logical multiplicity
-active canonical classes
-active execution classes
-          |
-          v
- deterministic cost estimate
-      /             \
-  direct          projected
+projected - direct =
+    fixed projection overhead
+  - logical worlds × direct per-world work
+  + active canonical classes × projection work
+  + active execution classes × compact execution work
 ```
 
-A calibration profile contains non-negative linear cost terms for direct logical-world work and
-projected class work. The runtime selector is deterministic and fails closed if the profile's
-backend or effect signature does not match the requested execution. Exact predicted ties choose
-the simpler direct path.
+All work coefficients are non-negative. More logical worlds can only favor projection; more
+canonical or execution classes can only make projection more expensive. Profiles remain bound to
+an exact backend and effect signature and fail closed on mismatch.
 
-Hosted calibration uses only a preregistered training grid. A disjoint held-out grid then measures
-both real paths and checks the selector against the empirical faster path. Acceptance requires at
-least 75% held-out choice accuracy, no more than 15% aggregate latency regret versus a per-case
-oracle, selection of both execution paths, and lower aggregate latency than both trivial policies
-(always direct and always projected). Direct JAX is intentionally given the favorable benchmark:
-its logical worlds are already materialized and device-resident, while the projected timed path
-still pays weight projection, active-class compaction, representative assembly, and transfer.
+Calibration alternates direct and projected measurements so slow runner drift does not
+systematically favor one path. It fits the paired latency difference with noise weighting rather
+than independently fitting two noisy curves. A leave-one-out comparison decides whether the
+canonical-class term earns its complexity; if the simpler model is within 5% cross-validated
+error, the simpler model wins.
 
-The fitted hosted-CPU coefficients are evidence, not portable constants. A different accelerator
-or changed effect signature requires its own calibration profile; GPU crossover behavior remains
-unclaimed.
+The calibration also derives a decision guard from leave-one-out prediction error plus observed
+timing noise. Projection is selected only when its predicted advantage clears that guard.
+Near the crossover the deterministic fallback is direct execution, rather than flipping paths
+because of a few hundredths of a millisecond of runner noise.
 
-## Native damage compiler
+The hosted experiment compares this model against the previous absolute-curve model on a denser,
+disjoint held-out grid concentrated around the crossover. Promotion requires at least 5% lower
+held-out relative-cost MAE, no material increase in dispatch regret, both paths to remain useful,
+and exact result agreement throughout.
 
-The exact numeric damage formula now has one executable definition in `gen9_damage.py`. Ordinary
-CPython executes that function directly. Azelficoast's deliberately tiny native compiler extracts
-the same function and its three helpers from the Python AST, rejects syntax outside its supported
-subset, and emits standalone C99 with 64-bit intermediates and Python-compatible floor division.
-
-```bash
-uv sync --extra simulator
-uv run python -m azelficoast.native_damage_experiment \
-  /tmp/showdown-gen9-damage-fixtures.json
-```
-
-Hosted correctness requires the interpreted numeric function, generated native code, JAX lowering,
-and pinned Pokémon Showdown corpus to agree exactly. A transitional comparison against POST Python
-0.3.0 established that the external compiler was not necessary for this workload: with 524,288
-logical worlds represented by 192 execution classes, the owned weighted kernel measured 0.0168 ms
-versus 0.0157 ms for POST and 0.136 ms for JAX on the comparison runner. At 524,288 direct
-transitions the owned batch path was faster than the POST control in that same treatment.
-
-POST is therefore no longer a project dependency. The compiler remains intentionally narrow rather
-than evolving into a general Python implementation. A mechanic that needs new syntax must extend
-the supported language explicitly, with rejection tests and Showdown-backed semantic evidence.
+The fitted CPU coefficients and uncertainty guard are calibration evidence, not portable
+constants. A changed effect signature or another backend, including GPU or native compiled
+execution, requires its own profile.
 
 ## Development
 
