@@ -249,9 +249,13 @@ def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> Non
         rounds=100,
     )
 
-    # 206 * 1.5 is faster than both Gardevoir worlds, so the fork disappears.
-    assert result["candidate_count"] == 0
-    assert result["skipped"]["no-speed-or-persistent-information-fork"] == 1
+    # 206 * 1.5 is faster than both Gardevoir worlds, so the speed fork disappears.
+    # Protect still preserves the hidden item information set.
+    assert result["candidate_count"] == 1
+    assert result["persistent_candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["current_speed_fork"] is False
+    assert candidate["persistent_protect_actions"][0]["action"] == "/choose move protect"
 
 
 
@@ -395,7 +399,7 @@ def test_nonimmune_switch_does_not_create_persistent_information_set(monkeypatch
 
     assert result["candidate_count"] == 0
     assert result["persistent_candidate_count"] == 0
-    assert result["skipped"]["no-speed-order-fork"] == 1
+    assert result["skipped"]["no-speed-or-persistent-information-fork"] == 1
 
 
 
