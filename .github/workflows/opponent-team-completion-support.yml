@@ -103,9 +103,9 @@ jobs:
                   "support-is-not-a-probability-distribution" in result["caveats"]
               ), result
 
-          assert first["support_sha256"] == second["support_sha256"], (
-              first["support_sha256"],
-              second["support_sha256"],
+          assert first["support_set_sha256"] == second["support_set_sha256"], (
+              first["support_set_sha256"],
+              second["support_set_sha256"],
           )
           assert [row["species_id"] for row in first["support"]] == [
               row["species_id"] for row in second["support"]
@@ -113,7 +113,7 @@ jobs:
           print(json.dumps({
               "support_count": first["support_count"],
               "random_set_species_count": first["random_set_species_count"],
-              "support_sha256": first["support_sha256"],
+              "support_set_sha256": first["support_set_sha256"],
               "rejection_counts": first["rejection_counts"],
           }, sort_keys=True))
           PY
