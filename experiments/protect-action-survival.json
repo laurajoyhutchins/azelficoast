@@ -1,0 +1,59 @@
+{
+  "schema": "azelficoast.protect-action-survival",
+  "schema_version": 1,
+  "source": {
+    "fixture_id": "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2",
+    "battle_tag": "battle-gen9randombattle-423",
+    "turn": 42,
+    "artifact_id": 10816374615,
+    "artifact_digest": "sha256:4f043f14ea90362f7c60af6fbe957c85d63118f44aa639b9f733e791af9067e3",
+    "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc"
+  },
+  "information_set": {
+    "preserving_action": "/choose move protect",
+    "conditioned_observation": "Focus: successful Protect blocks Flamethrower without revealing Choice Scarf vs Choice Specs",
+    "opponent_locked_move": "Flamethrower",
+    "hidden_item_counts": {
+      "Choice Scarf": 509,
+      "Choice Specs": 518
+    }
+  },
+  "continuation": {
+    "action": "/choose switch Sableye",
+    "defender": {
+      "species": "Sableye",
+      "level": 87,
+      "max_hp": 229,
+      "hp_after_known_spikes": 201,
+      "base_spd": 65,
+      "iv": 31,
+      "ev": 85,
+      "nature_percent": 100,
+      "types": [
+        "Dark",
+        "Ghost"
+      ]
+    },
+    "attacker": {
+      "species": "Chi-Yu",
+      "level": 77,
+      "ability": "Beads of Ruin",
+      "base_spa": 135,
+      "iv": 31,
+      "ev": 85,
+      "nature_percent": 100,
+      "types": [
+        "Dark",
+        "Fire"
+      ]
+    },
+    "move": {
+      "id": "flamethrower",
+      "type": "Fire",
+      "category": "Special",
+      "base_power": 90,
+      "type_mod": 0
+    },
+    "defender_stat_modifier": 3072
+  }
+}
