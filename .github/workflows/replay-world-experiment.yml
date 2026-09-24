@@ -60,8 +60,26 @@ jobs:
           result = json.loads(Path("/tmp/infernape-belief.json").read_text())
           assert result["damage_observation"]["damage"] == 54, result
           assert result["damage_observation"]["target_tera_type"] == "Flying", result
+          assert result["generator_prior"] == {
+              "Choice Band": 16086 / 65536,
+              "Choice Scarf": 7944 / 65536,
+              "Life Orb": 41506 / 65536,
+          }, result
+          assert result["public_history_updates"] == [{
+              "turn": 18,
+              "kind": "life-orb-recoil",
+              "observed": False,
+              "authority": "complete-public-turn",
+              "remaining_items": ["Choice Band", "Choice Scarf"],
+          }], result
+          assert result["prior"] == {
+              "Choice Band": 16086 / (16086 + 7944),
+              "Choice Scarf": 7944 / (16086 + 7944),
+          }, result
+          assert result["compatible_worlds"]["Choice Scarf"]["matching_rolls"] == 3, result
           assert result["posterior"] == {"Choice Scarf": 1.0}, result
           assert result["showdown_commit"] == "6397bfddb3db4e916dd792e03c43355f7366e8ab", result
+          assert result["sample"]["showdown_commit"] == result["showdown_commit"], result
           assert len(result["belief_sha256"]) == 64, result
           PY
 
