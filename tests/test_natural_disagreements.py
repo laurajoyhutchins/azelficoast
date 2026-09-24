@@ -12,6 +12,7 @@ def _fixture() -> DecisionFixture:
         "active": {
             "species": "Jirachi",
             "level": 80,
+            "transformed": False,
             "status": None,
             "item": "Leftovers",
             "ability": "Serene Grace",
@@ -264,3 +265,32 @@ def test_unsupported_generator_world_is_counted_not_fatal(monkeypatch) -> None:
 
     assert result["candidate_count"] == 0
     assert result["skipped"]["world-sample-unsupported"] == 1
+
+
+def test_transformed_active_state_is_excluded_until_copied_stats_are_modeled(
+    monkeypatch,
+) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    active = dict(state["active"])
+    active["transformed"] = True
+    state["active"] = active
+    transformed = DecisionFixture(
+        fixture_id="transformed",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [transformed],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["active-transformed"] == 1
