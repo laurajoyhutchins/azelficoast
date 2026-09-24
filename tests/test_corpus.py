@@ -103,7 +103,14 @@ def test_fixture_freezes_only_protocol_observed_before_decision(tmp_path) -> Non
     [fixture] = build_fixtures([trace])
 
     assert fixture.protocol_prefix == ((("", "turn", "4"),),)
-    assert all("Roost" not in field for batch in fixture.protocol_prefix for msg in batch for field in msg)
+    fields = [
+        field
+        for batch in fixture.protocol_prefix
+        for message in batch
+        for field in message
+    ]
+    assert "Roost" not in fields
+    assert "battle_tag" not in fixture.state
 
 
 def test_control_action_is_evidence_not_fixture_identity(tmp_path) -> None:
