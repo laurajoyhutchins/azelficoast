@@ -1,0 +1,81 @@
+{
+  "schema": "azelficoast.status-move-prior-results",
+  "schema_version": 1,
+  "source": {
+    "selection": "experiments/status-move-prior-selection.json",
+    "workflow_run_id": 36069490554,
+    "artifact_id": 10836754799,
+    "artifact_digest": "sha256:79ab1b1c6d4326765bdbf09a3951763b05f2edf7fa370972dbaee34a05995992",
+    "head_sha": "534a3fe3e13c83a2294f47d11a1d8367ef1121ba",
+    "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc"
+  },
+  "confirmation": {
+    "rounds_per_family": 8192,
+    "seed_offsets": [0, 32768],
+    "minimum_matches_per_family": 32,
+    "maximum_total_variation": 0.1
+  },
+  "passed": true,
+  "passed_case_count": 6,
+  "case_count": 6,
+  "cases": [
+    {
+      "move": "Rest",
+      "species": "bastiodon",
+      "matched": [8192, 8192],
+      "item_support": ["Chesto Berry"],
+      "total_variation": 0.0,
+      "passed": true
+    },
+    {
+      "move": "Roost",
+      "species": "articuno",
+      "matched": [8192, 8192],
+      "item_support": ["Heavy-Duty Boots"],
+      "total_variation": 0.0,
+      "passed": true
+    },
+    {
+      "move": "Protect",
+      "species": "arboliva",
+      "matched": [4098, 4096],
+      "item_support": ["Sitrus Berry"],
+      "total_variation": 0.0,
+      "passed": true
+    },
+    {
+      "move": "Swords Dance",
+      "species": "rhydon",
+      "matched": [4097, 4099],
+      "item_support": ["Eviolite"],
+      "total_variation": 0.0,
+      "passed": true
+    },
+    {
+      "move": "Thunder Wave",
+      "species": "chansey",
+      "matched": [4108, 4100],
+      "item_support": ["Eviolite"],
+      "total_variation": 0.0,
+      "passed": true
+    },
+    {
+      "move": "Recover",
+      "species": "avalugghisui",
+      "matched": [8192, 8192],
+      "item_support": ["Heavy-Duty Boots"],
+      "total_variation": 0.0,
+      "passed": true
+    }
+  ],
+  "interpretation": {
+    "result": "For all six mechanically selected common status-move information patterns, the generator-conditioned hidden-item posterior is a reproducible singleton across disjoint deterministic seed families.",
+    "implication": "A status-move live extension should not invent a generic Choice-like item prior. For these treatments, public move/species evidence collapses the item before exact transition search.",
+    "next_required_falsifier": "Run an exact pinned-Showdown public-belief treatment on a frozen natural status-move decision using the singleton generator-conditioned item support."
+  },
+  "non_claims": [
+    "This does not promote status-move observations into the live player.",
+    "This does not establish competitive-optimal play.",
+    "This does not prove singleton item support for every species or status-move information state."
+  ]
+}
