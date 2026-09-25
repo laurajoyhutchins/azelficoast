@@ -1,0 +1,74 @@
+{
+  "schema": "azelficoast.natural-population-strategy-fusion-plan",
+  "schema_version": 1,
+  "source_artifact": {
+    "workflow_run_id": 36068967462,
+    "artifact_id": 10836574187,
+    "artifact_name": "live-belief-coverage",
+    "artifact_digest": "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2",
+    "head_sha": "50f035e785f805a15b44cc2d83f4f3d42ce837bf",
+    "battle_count": 256,
+    "decision_state_count": 6485
+  },
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "admissibility": {
+    "generator_rounds": 2048,
+    "persistent_only": true,
+    "requires_positive_active_hp": true,
+    "requires_live_probe_admission": true,
+    "requires_exact_item_support_match": true,
+    "requires_public_level_conditioning": true,
+    "max_exact_states": 128,
+    "overflow_selection": "ascending sha256('population-v1:' + fixture_id)"
+  },
+  "exact_treatment": {
+    "root_chance_samples": 16,
+    "continuation_chance_samples": 16,
+    "chance_seed_family": 0,
+    "positive_bias_tolerance": 1e-9
+  },
+  "primary_endpoints": [
+    "max over root actions of determinization value minus public-belief value",
+    "public-belief regret of the determinization-chosen root action",
+    "determinization/public-belief root-policy disagreement"
+  ],
+  "preregistered_predictors": [
+    "turn",
+    "own active HP fraction",
+    "opponent public HP fraction",
+    "hidden-item entropy",
+    "relative move-order separation",
+    "hidden-item KO-roll probability gap",
+    "hidden-item incoming-damage fraction gap",
+    "minimum hidden-item prior mass",
+    "persistent Protect branch presence",
+    "persistent immunity-switch branch presence",
+    "persistent branch count",
+    "legal root-action count"
+  ],
+  "inference": {
+    "cluster_unit": "battle_tag",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 1729,
+    "predictor_analysis": "preregistered univariate Spearman correlations for numeric predictors and mean-bias contrasts for binary predictors"
+  },
+  "scientific_contract": [
+    "admissibility and overflow sampling are frozen before exact policy values are computed",
+    "every source decision receives an explicit funnel outcome or remains outside the bounded hidden-Choice model",
+    "selection cannot use strategy-fusion value, chosen action, policy disagreement, or continuation values",
+    "both search methods consume the identical reconstructed hidden-world oracle for every admitted state",
+    "all exclusions and exact-evaluation failures are retained as evidence rather than silently dropped",
+    "a valid cohort with zero positive bias or zero policy disagreements is a successful falsification"
+  ],
+  "staged_claims": {
+    "current": "natural-state prevalence, value bias, corrected root-action regret, and structural associations under the bounded exact treatment",
+    "later": "paired battle-outcome experiment using policy variants on identical battle seeds after the population study is frozen"
+  },
+  "non_claims": [
+    "The bounded hidden-Choice cohort is not the full distribution of all Random Battle uncertainty.",
+    "The opponent response remains the latest observed fixed-damage move.",
+    "The exact continuation horizon remains one further player decision.",
+    "Material utility is not claimed to equal competitive win probability.",
+    "Structural associations are descriptive predictors, not causal effects."
+  ]
+}
