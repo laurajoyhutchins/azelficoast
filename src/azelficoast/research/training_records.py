@@ -295,7 +295,21 @@ def _validate_target_for_fixture(
         )
 
 
-def _battle_id(run_id: str, battle_tag: str) -> str:
+def _battle_id(
+    run_id: str,
+    battle_tag: str,
+    decision_metadata: Mapping[str, Any] | None = None,
+) -> str:
+    """Return the leakage-group identity for one source battle.
+
+    Public replay imports expose both player perspectives as separate trace runs.
+    Keep those perspectives in one split by grouping on the authoritative replay id.
+    Ordinary locally generated traces retain their run/battle identity.
+    """
+    if isinstance(decision_metadata, Mapping):
+        replay_id = decision_metadata.get("source_replay_id")
+        if isinstance(replay_id, str) and replay_id:
+            return _sha256({"public_replay_id": replay_id})
     return _sha256({"run_id": run_id, "battle_tag": battle_tag})
 
 
@@ -438,7 +452,12 @@ def build_training_records(
                 action: 1.0 if action == selected_action else 0.0
                 for action in fixture.legal_actions
             }
-            battle_id = _battle_id(run_id, battle_tag)
+            decision_metadata = control.get("decision_metadata")
+            battle_id = _battle_id(
+                run_id,
+                battle_tag,
+                decision_metadata if isinstance(decision_metadata, Mapping) else None,
+            )
             packet = target["packet"]
             settled = target["settled"]
             posterior = target["posterior"]
