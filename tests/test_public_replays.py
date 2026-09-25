@@ -16,6 +16,7 @@ from azelficoast.public_replays import (
     fetch_public_replay,
     freeze_public_replay,
 )
+from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 
 def test_discovery_uses_51st_row_only_as_pagination_signal(monkeypatch) -> None:
@@ -131,7 +132,7 @@ def test_freeze_public_replay_is_content_addressed_and_immutable(tmp_path: Path)
             "log": "|win|Alice",
             "inputlog": (
                 ">version "
-                + public_replays.PINNED_SHOWDOWN_COMMIT
+                + PINNED_SHOWDOWN_COMMIT
                 + "\n>start {}"
             ),
         },
@@ -282,7 +283,7 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
             "log": "|win|Alice",
             "inputlog": (
                 ">version "
-                + public_replays.PINNED_SHOWDOWN_COMMIT
+                + PINNED_SHOWDOWN_COMMIT
                 + "\n>start {}"
             ),
         },
@@ -310,7 +311,7 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
     ]
 
     monkeypatch.setattr(
-        public_replays, "_showdown_revision", lambda _root: public_replays.PINNED_SHOWDOWN_COMMIT
+        public_replays, "_showdown_revision", lambda _root: PINNED_SHOWDOWN_COMMIT
     )
     monkeypatch.setattr(public_replays, "discover_public_replays", lambda **_kwargs: metadata)
     monkeypatch.setattr(public_replays, "fetch_public_replay", lambda _metadata: replay)
