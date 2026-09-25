@@ -236,6 +236,35 @@ Promotion is compare-and-swap fenced to the incumbent digest used for teaching a
 evaluation. A stale concurrent cycle therefore cannot overwrite a newer admitted
 checkpoint.
 
+The outer generation loop can also run unattended against the local Random Battle
+baseline:
+
+~~~bash
+uv run azelficoast \
+  --showdown-root /path/to/pokemon-showdown \
+  training auto \
+  --incumbent artifacts/evaluators/current.json \
+  --generations 5 \
+  --battles-per-generation 24 \
+  --max-teacher-fixtures 64
+~~~
+
+Each generation creates fresh Random Battles, accumulates their immutable traces, and
+mines a bounded curriculum from public evidence only. The miner spends its first budget
+across distinct battles, then prioritizes fallback/search states, low learned-policy
+margin, high policy entropy, and larger legal action sets. The exact selection is written
+into the teacher manifest and therefore participates in its content identity.
+
+Candidate admission now has two independent gates. The scientific gate still requires
+held-out validation improvement without value or policy-loss regression. A hostile
+candidate gate additionally permutes hidden-world support and legal-action ordering and
+requires the learned evaluator to produce the same semantic prediction. Test labels
+remain report-only and are not consulted by either admission gate.
+
+A promoted generation changes only the digest-bound current pointer. A rejected or
+not-ready generation leaves the incumbent in place and the next generation continues to
+collect new battles against that incumbent.
+
 ## Evidence model
 
 The repository tries to keep claims narrower than the code around them.
