@@ -594,7 +594,7 @@ class PinnedShowdownBeliefPolicy:
         posterior_only: bool = False,
         transition_program_only: bool = False,
     ) -> Mapping[str, Any]:
-        script = Path(__file__).resolve().parents[2] / "scripts" / "probe_real_belief_trace.cjs"
+        script = Path(__file__).resolve().parents[3] / "scripts" / "probe_real_belief_trace.cjs"
         with tempfile.TemporaryDirectory(prefix="azelficoast-live-belief-") as temp_dir:
             source_path = Path(temp_dir) / "source.json"
             source_path.write_text(

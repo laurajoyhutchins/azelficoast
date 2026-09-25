@@ -624,7 +624,7 @@ def _sample_worlds(
     public_level: int,
     public_ability: str,
 ) -> dict[str, Any]:
-    script = Path(__file__).resolve().parents[2] / "scripts" / "sample_showdown_worlds.cjs"
+    script = Path(__file__).resolve().parents[3] / "scripts" / "sample_showdown_worlds.cjs"
     try:
         completed = subprocess.run(
             [
