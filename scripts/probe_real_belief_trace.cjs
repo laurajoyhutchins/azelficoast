@@ -18,8 +18,31 @@ if (!showdownRoot || !fixturePath) {
 
 const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
 const GENERATOR_ROUNDS = 2048;
-const ROOT_CHANCE_SAMPLES = 8;
-const CONTINUATION_CHANCE_SAMPLES = 8;
+
+function environmentInteger(name, fallback, {min = 0} = {}) {
+  const raw = process.env[name];
+  if (raw == null || raw === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < min) {
+    fail(`${name} must be an integer >= ${min}, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+const ROOT_CHANCE_SAMPLES = environmentInteger(
+  "AZELFICOAST_ROOT_CHANCE_SAMPLES",
+  8,
+  {min: 1}
+);
+const CONTINUATION_CHANCE_SAMPLES = environmentInteger(
+  "AZELFICOAST_CONTINUATION_CHANCE_SAMPLES",
+  8,
+  {min: 1}
+);
+const CHANCE_SEED_FAMILY = environmentInteger(
+  "AZELFICOAST_CHANCE_SEED_FAMILY",
+  0
+);
 const DEPENDENCY_CANDIDATES = [
   "opponent.active.item",
   "opponent.active.ability",
@@ -114,7 +137,7 @@ function requireProtocolOpponentSide() {
 }
 
 function seed(index, salt) {
-  const base = index + 1 + salt * 257;
+  const base = index + 1 + salt * 257 + CHANCE_SEED_FAMILY * 4099;
   return [
     base & 0xffff,
     (base * 17 + 11) & 0xffff,
@@ -686,6 +709,7 @@ process.stdout.write(JSON.stringify({
     format: "gen9customgame state reconstruction",
     root_chance_samples: ROOT_CHANCE_SAMPLES,
     continuation_chance_samples: CONTINUATION_CHANCE_SAMPLES,
+    chance_seed_family: CHANCE_SEED_FAMILY,
     opponent_response: `repeat observed ${lastOpponentMove()}`,
     continuation_scope: "all non-Tera player choices at the next decision",
     utility: "sum own team HP fractions minus opposing active HP fraction",

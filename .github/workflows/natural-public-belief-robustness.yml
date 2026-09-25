@@ -1,0 +1,247 @@
+name: natural-public-belief-robustness
+
+on:
+  pull_request:
+    paths:
+      - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/natural-public-belief-robustness-plan.json"
+      - "experiments/natural-public-belief-robustness-results.json"
+      - "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"
+      - ".github/workflows/natural-public-belief-robustness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: natural-public-belief-robustness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact:
+    strategy:
+      fail-fast: false
+      matrix:
+        seed_family: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Verify preregistration
+        env:
+          SEED_FAMILY: ${{ matrix.seed_family }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          plan = json.loads(
+              Path("experiments/natural-public-belief-robustness-plan.json").read_text()
+          )
+          family = int(os.environ["SEED_FAMILY"])
+          assert plan["source_fixture_id"] == (
+              "e3486d3564d1f2fe2310e86ce2acf2bfbc5ee4840b75308d7421893fafed5812"
+          ), plan
+          assert plan["root_chance_samples"] == 32, plan
+          assert plan["continuation_chance_samples"] == 32, plan
+          assert family in plan["chance_seed_families"], (plan, family)
+          PY
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Generate high-sample exact oracle
+        env:
+          AZELFICOAST_ROOT_CHANCE_SAMPLES: "32"
+          AZELFICOAST_CONTINUATION_CHANCE_SAMPLES: "32"
+          AZELFICOAST_CHANCE_SEED_FAMILY: ${{ matrix.seed_family }}
+        run: |
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            experiments/real-belief-source-tinkaton-zapdosgalar-mid.json \
+            > /tmp/transition-oracle.json
+
+      - name: Analyze public information sets
+        run: |
+          set -o pipefail
+          uv run python -m azelficoast.real_belief_trace \
+            /tmp/transition-oracle.json \
+            | tee /tmp/decision-trace.json
+
+      - name: Evaluate preregistered robustness criteria
+        env:
+          SEED_FAMILY: ${{ matrix.seed_family }}
+        run: |
+          python - <<'PY' | tee /tmp/summary-${SEED_FAMILY}.json
+          import json
+          import os
+          from collections import defaultdict
+          from pathlib import Path
+
+          family = int(os.environ["SEED_FAMILY"])
+          oracle = json.loads(Path("/tmp/transition-oracle.json").read_text())
+          trace = json.loads(Path("/tmp/decision-trace.json").read_text())
+
+          assert oracle["mechanics"]["root_chance_samples"] == 32, oracle["mechanics"]
+          assert oracle["mechanics"]["continuation_chance_samples"] == 32, oracle["mechanics"]
+          assert oracle["mechanics"]["chance_seed_family"] == family, oracle["mechanics"]
+          assert trace["schema_version"] == 3, trace
+          assert trace["experiment_valid"] is True, trace
+
+          protect = next(
+              row for row in trace["actions"]
+              if row["action"] == "/choose move protect"
+          )
+          immediate_independent = (
+              protect["dependency_signature"]["empirically_required_reads"] == []
+              and protect["dependency_signature"]["observable_classes_out"] == 1
+          )
+
+          conflict = next(
+              (
+                  row for row in protect["public_belief_continuations"]
+                  if row["strategy_fusion_possible"]
+              ),
+              None,
+          )
+
+          world_by_id = {
+              world["world_id"]: world
+              for world in oracle["worlds"]
+          }
+          item_choices = defaultdict(set)
+          if conflict is not None:
+              for continuation in protect["determinization_continuations"]:
+                  if continuation["observation_hash"] != conflict["observation_hash"]:
+                      continue
+                  item = world_by_id[continuation["world_id"]]["hidden"][
+                      "opponent.active.item"
+                  ]
+                  item_choices[item].add(continuation["choice"])
+
+          normalized_item_choices = {
+              item: sorted(choices)
+              for item, choices in sorted(item_choices.items())
+          }
+          causal_pattern = (
+              immediate_independent
+              and conflict is not None
+              and normalized_item_choices == {
+                  "Choice Band": ["move gigatonhammer"],
+                  "Choice Scarf": ["move protect"],
+              }
+          )
+
+          det = trace["determinization"]
+          public = trace["public_belief"]
+          root_flip = (
+              det["chosen_action"] == "/choose move protect"
+              and public["chosen_action"] == "/choose move gigatonhammer"
+          )
+
+          det_protect = det["root_values"]["/choose move protect"]
+          pub_protect = public["root_values"]["/choose move protect"]
+          pub_giga = public["root_values"]["/choose move gigatonhammer"]
+
+          summary = {
+              "schema": "azelficoast.natural-public-belief-robustness-result",
+              "schema_version": 1,
+              "seed_family": family,
+              "world_count": trace["world_count"],
+              "legal_action_count": trace["legal_action_count"],
+              "immediate_independent": immediate_independent,
+              "continuation_conflict_present": conflict is not None,
+              "item_conditioned_continuations": normalized_item_choices,
+              "causal_pattern_present": causal_pattern,
+              "determinization_action": det["chosen_action"],
+              "public_belief_action": public["chosen_action"],
+              "root_policy_flip_present": root_flip,
+              "strategy_fusion_value_advantage": det_protect - pub_protect,
+              "public_gigatonhammer_margin_over_protect": pub_giga - pub_protect,
+              "robustness_family_supported": causal_pattern and root_flip,
+          }
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: natural-public-belief-robustness-${{ matrix.seed_family }}
+          path: |
+            /tmp/transition-oracle.json
+            /tmp/decision-trace.json
+            /tmp/summary-${{ matrix.seed_family }}.json
+          if-no-files-found: warn
+
+  aggregate:
+    needs: exact
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: natural-public-belief-robustness-*
+          path: /tmp/results
+          merge-multiple: true
+
+      - name: Aggregate robustness evidence
+        run: |
+          python - <<'PY' | tee /tmp/aggregate.json
+          import json
+          from pathlib import Path
+
+          rows = sorted(
+              (
+                  json.loads(path.read_text())
+                  for path in Path("/tmp/results").glob("summary-*.json")
+              ),
+              key=lambda row: row["seed_family"],
+          )
+          if [row["seed_family"] for row in rows] != [0, 1, 2, 3]:
+              raise SystemExit(f"incomplete seed-family evidence: {rows!r}")
+
+          output = {
+              "schema": "azelficoast.natural-public-belief-robustness-aggregate",
+              "schema_version": 1,
+              "treatment_count": len(rows),
+              "all_valid_results_present": True,
+              "all_causal_patterns_present": all(
+                  row["causal_pattern_present"] for row in rows
+              ),
+              "all_root_policy_flips_present": all(
+                  row["root_policy_flip_present"] for row in rows
+              ),
+              "robustness_supported": all(
+                  row["robustness_family_supported"] for row in rows
+              ),
+              "results": rows,
+          }
+          print(json.dumps(output, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natural-public-belief-robustness-aggregate
+          path: /tmp/aggregate.json
+          if-no-files-found: error
