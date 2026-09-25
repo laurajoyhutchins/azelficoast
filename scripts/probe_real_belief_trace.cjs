@@ -1598,6 +1598,7 @@ function compileLazyWholeTurnPrograms() {
     const effectSignature = "sha256:" + sha256({
       showdown_commit: actualCommit,
       source_fixture_id: fixture.fixture_id,
+      opponent_policy: OPPONENT_POLICY,
       action,
       dependency_fields: dependencyFields,
       partition_key_hash: partitionKeyHash,
@@ -1650,6 +1651,7 @@ function compileLazyWholeTurnPrograms() {
     programs,
     producer: {
       strategy: "counterfactual-causal-refinement",
+      opponent_policy: OPPONENT_POLICY,
       root_chance_samples: ROOT_CHANCE_SAMPLES,
       unique_world_action_executions: uniqueExecutions,
       causal_probe_executions: causalProbeExecutions,
