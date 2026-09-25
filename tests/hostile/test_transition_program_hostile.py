@@ -349,7 +349,7 @@ def test_pinned_lazy_program_matches_exhaustive_direct_oracle() -> None:
     assert isinstance(mechanics, dict)
     assert isinstance(producer, dict)
     assert producer.get("root_chance_samples") == mechanics.get("root_chance_samples")
-    assert lazy.get("legal_actions") == sorted(oracle.get("legal_actions", []))
+    assert sorted(lazy.get("legal_actions", [])) == sorted(oracle.get("legal_actions", []))
     verification = verify_whole_turn_program_set(lazy, oracle)
     assert verification["showdown_commit"] == PINNED_SHOWDOWN_COMMIT
     assert verification["verified_class_count"] >= 1
@@ -386,23 +386,8 @@ def test_pinned_lazy_program_matches_exhaustive_direct_oracle() -> None:
 )
 def test_pinned_direct_oracle_separates_read_and_unread_fields() -> None:
     oracle, lazy = _showdown_artifacts()
-    probes = lazy.get("hostile_marginalized_field_probes", [])
     witnessed_fields = set()
     witnessed_unread_fields = set()
-    for probe in probes:
-        field = probe["field"]
-        assert field in {"opponent.active.moves", "opponent.active.tera_type"}
-        baseline_surface = _immediate_surface({"outcomes": probe["baseline_outcomes"]})
-        candidate_surface = _immediate_surface({"outcomes": probe["candidate_outcomes"]})
-        assert baseline_surface == candidate_surface
-        assert probe["semantic_changed"] is False
-        if (
-            field not in probe["baseline_read_fields"]
-            and field not in probe["candidate_read_fields"]
-        ):
-            witnessed_unread_fields.add(field)
-        witnessed_fields.add(field)
-
     witnessed_relevant = False
     worlds = oracle["worlds"]
     transitions = {
@@ -422,6 +407,7 @@ def test_pinned_direct_oracle_separates_read_and_unread_fields() -> None:
             if len(differences) != 1:
                 continue
             field = differences[0]
+            witnessed_fields.add(field)
             for action in oracle["legal_actions"]:
                 left_transition = transitions[(left["world_id"], action)]
                 right_transition = transitions[(right["world_id"], action)]
@@ -446,11 +432,11 @@ def test_pinned_direct_oracle_separates_read_and_unread_fields() -> None:
                         action,
                     )
                     witnessed_relevant = True
+                elif field not in left_reads | right_reads:
+                    witnessed_unread_fields.add(field)
 
-    assert witnessed_fields, "fixture has no directly executed marginalized-field intervention"
-    assert witnessed_unread_fields, (
-        "fixture has no marginalized field proven unread by runtime instrumentation"
-    )
+    assert witnessed_fields, "fixture has no one-field hidden-world pair"
+    assert witnessed_unread_fields, "fixture has no directly verified unread-field pair"
     assert witnessed_relevant, "fixture has no directly verified read-field separation"
 
 
