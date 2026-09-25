@@ -148,6 +148,13 @@ function buildBattle(fixture, variant) {
     opponent.status = toID(opponentSnapshot.status);
   }
 
+  for (const condition of Object.keys(state.side_conditions || {})) {
+    battle.p1.addSideCondition(toID(condition), "debug");
+  }
+  for (const condition of Object.keys(state.opponent_side_conditions || {})) {
+    battle.p2.addSideCondition(toID(condition), "debug");
+  }
+
   return {battle, own, opponent};
 }
 
