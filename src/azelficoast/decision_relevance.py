@@ -364,3 +364,34 @@ def analyze_quotiented_oracle(
         if key != "classes"
     }
     return trace, certificate
+
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    import argparse
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(
+        description="Certify and analyze the exact decision-relevance quotient."
+    )
+    parser.add_argument("oracle", type=Path)
+    args = parser.parse_args(argv)
+
+    document = json.loads(args.oracle.read_text(encoding="utf-8"))
+    trace, certificate = analyze_quotiented_oracle(document)
+    print(
+        json.dumps(
+            {
+                "schema": "azelficoast.decision-relevance-analysis",
+                "schema_version": 1,
+                "certificate": certificate,
+                "quotient_trace": trace,
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
