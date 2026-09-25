@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from azelficoast.belief.evaluator import (
     BeliefEvaluatorInput,
@@ -40,6 +40,14 @@ class SearchEvaluator(Protocol):
 
 class TransitionProgramSearchError(ValueError):
     """Raised when a TransitionProgram cannot support exact learned search."""
+
+
+BudgetCheck = Callable[[], None]
+
+
+def _check_budget(check_budget: BudgetCheck | None) -> None:
+    if check_budget is not None:
+        check_budget()
 
 
 @dataclass
@@ -84,6 +92,7 @@ def _normalized_inputs(
     mechanics: MechanicsExecutor,
     belief: BeliefInput,
     transport_index: BeliefTransportIndex,
+    check_budget: BudgetCheck | None = None,
 ) -> tuple[
     list[str],
     dict[str, dict[str, Any]],
@@ -91,6 +100,7 @@ def _normalized_inputs(
     dict[str, str],
     dict[str, Any],
 ]:
+    _check_budget(check_budget)
     world_ids = list(mechanics.world_ids)
     actions = list(mechanics.legal_actions)
     if len(set(world_ids)) != len(world_ids):
@@ -103,6 +113,7 @@ def _normalized_inputs(
     raw_weights: dict[str, float] = {}
     semantic_by_transport: dict[str, str] = {}
     for world_id in world_ids:
+        _check_budget(check_budget)
         semantic_identity = transport_index.semantic_identity_for(world_id)
         weight = transport_index.weight_for(world_id)
         semantic_world = semantic_worlds.get(str(semantic_identity))
@@ -132,6 +143,7 @@ def _normalized_inputs(
     raw_programs: list[dict[str, object]] = []
     try:
         for action in actions:
+            _check_budget(check_budget)
             execution = mechanics.execute(
                 MechanicsExecutionRequest(
                     mechanics_identity=mechanics.identity,
@@ -150,7 +162,9 @@ def _validated_classes(
     program_set: Mapping[str, Any],
     action: str,
     world_ids: set[str],
+    check_budget: BudgetCheck | None = None,
 ) -> list[Mapping[str, Any]]:
+    _check_budget(check_budget)
     program = program_for_action(program_set, action, error_type=TransitionProgramSearchError)
     raw_classes = program.get("classes")
     if not isinstance(raw_classes, list) or not raw_classes:
@@ -159,6 +173,7 @@ def _validated_classes(
     covered: set[str] = set()
     classes: list[Mapping[str, Any]] = []
     for row in raw_classes:
+        _check_budget(check_budget)
         if not isinstance(row, Mapping):
             raise TransitionProgramSearchError(f"{action}: execution class is not an object")
         raw_members = row.get("member_world_ids")
@@ -187,6 +202,7 @@ def _validated_classes(
 
         probability = 0.0
         for outcome in raw_outcomes:
+            _check_budget(check_budget)
             if not isinstance(outcome, Mapping):
                 raise TransitionProgramSearchError(
                     f"{action}: transition outcome is not an object"
@@ -240,7 +256,9 @@ def _leaf_value(
     semantic_by_transport: Mapping[str, str],
     belief: BeliefInput,
     evaluator: _EvaluatorMeter,
+    check_budget: BudgetCheck | None = None,
 ) -> float:
+    _check_budget(check_budget)
     if not members:
         raise TransitionProgramSearchError(
             "cannot evaluate an empty successor information set"
@@ -288,6 +306,7 @@ def _leaf_value(
     except ResearchContractError as error:
         raise TransitionProgramSearchError(str(error)) from error
 
+    _check_budget(check_budget)
     return evaluator.value(
         public_state=public_successor,
         posterior=posterior,
@@ -304,16 +323,19 @@ def _determinization_values(
     semantic_by_transport: Mapping[str, str],
     belief: BeliefInput,
     evaluator: _EvaluatorMeter,
+    check_budget: BudgetCheck | None = None,
 ) -> tuple[dict[str, float], int]:
     values: dict[str, float] = {}
     transition_evaluations = 0
     world_ids = set(worlds_by_id)
 
     for action in actions:
+        _check_budget(check_budget)
         classes = _validated_classes(
             program_set=program_set,
             action=action,
             world_ids=world_ids,
+            check_budget=check_budget,
         )
         transition_evaluations += len(classes)
         class_by_world = {
@@ -324,9 +346,11 @@ def _determinization_values(
 
         total = 0.0
         for world_id in sorted(world_ids):
+            _check_budget(check_budget)
             row = class_by_world[world_id]
             by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
             for outcome_index, outcome in enumerate(row["outcomes"]):
+                _check_budget(check_budget)
                 by_observation[canonical_json(outcome.get("observation"))].append(
                     {
                         "world_id": world_id,
@@ -338,6 +362,7 @@ def _determinization_values(
 
             world_value = 0.0
             for members in by_observation.values():
+                _check_budget(check_budget)
                 chance = sum(float(member["chance"]) for member in members)
                 world_value += chance * _leaf_value(
                     members,
@@ -346,6 +371,7 @@ def _determinization_values(
                     semantic_by_transport=semantic_by_transport,
                     belief=belief,
                     evaluator=evaluator,
+                    check_budget=check_budget,
                 )
             total += weights[world_id] * world_value
         values[action] = total
@@ -362,26 +388,32 @@ def _information_set_values(
     semantic_by_transport: Mapping[str, str],
     belief: BeliefInput,
     evaluator: _EvaluatorMeter,
+    check_budget: BudgetCheck | None = None,
 ) -> tuple[dict[str, float], int]:
     values: dict[str, float] = {}
     transition_evaluations = 0
     world_ids = set(worlds_by_id)
 
     for action in actions:
+        _check_budget(check_budget)
         classes = _validated_classes(
             program_set=program_set,
             action=action,
             world_ids=world_ids,
+            check_budget=check_budget,
         )
         transition_evaluations += len(classes)
         by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
         for row in classes:
+            _check_budget(check_budget)
             members = list(row["member_world_ids"])
             for outcome_index, outcome in enumerate(row["outcomes"]):
+                _check_budget(check_budget)
                 chance = float(outcome["probability"])
                 observation = canonical_json(outcome.get("observation"))
                 for world_id in members:
+                    _check_budget(check_budget)
                     by_observation[observation].append(
                         {
                             "world_id": world_id,
@@ -393,6 +425,7 @@ def _information_set_values(
 
         total = 0.0
         for members in by_observation.values():
+            _check_budget(check_budget)
             mass = sum(float(member["mass"]) for member in members)
             total += mass * _leaf_value(
                 members,
@@ -401,6 +434,7 @@ def _information_set_values(
                 semantic_by_transport=semantic_by_transport,
                 belief=belief,
                 evaluator=evaluator,
+                check_budget=check_budget,
             )
         values[action] = total
 
@@ -414,15 +448,18 @@ def search_transition_program(
     transport_index: BeliefTransportIndex,
     method: str,
     evaluator: SearchEvaluator,
+    check_budget: BudgetCheck | None = None,
 ) -> dict[str, Any]:
     """Evaluate a verified mechanics program without consuming an exhaustive oracle."""
 
+    _check_budget(check_budget)
     if method not in METHODS:
         raise TransitionProgramSearchError(f"unknown search method {method!r}")
     actions, worlds_by_id, weights, semantic_by_transport, program_set = _normalized_inputs(
         mechanics=mechanics,
         belief=belief,
         transport_index=transport_index,
+        check_budget=check_budget,
     )
 
     meter = _EvaluatorMeter(evaluator)
@@ -435,6 +472,7 @@ def search_transition_program(
             semantic_by_transport=semantic_by_transport,
             belief=belief,
             evaluator=meter,
+            check_budget=check_budget,
         )
     else:
         root_values, transition_evaluations = _information_set_values(
@@ -445,8 +483,10 @@ def search_transition_program(
             semantic_by_transport=semantic_by_transport,
             belief=belief,
             evaluator=meter,
+            check_budget=check_budget,
         )
 
+    _check_budget(check_budget)
     best = max(root_values.values())
     chosen_action = min(
         action for action, value in root_values.items() if value == best

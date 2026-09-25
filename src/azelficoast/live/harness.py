@@ -25,6 +25,12 @@ from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.public_replays import import_public_replays
 from azelficoast.live.player import AzelficoastPlayer
+from azelficoast.live.timing import (
+    DEFAULT_LIVE_CLOCK_RESERVE_SECONDS,
+    DEFAULT_LIVE_FALLBACK_BUDGET_SECONDS,
+    DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS,
+    LiveTimingPolicy,
+)
 from azelficoast.research.training_records import build_training_dataset
 
 BATTLE_FORMAT = "gen9randombattle"
@@ -95,26 +101,49 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--showdown-root",
         type=Path,
-        default=(Path(os.environ["AZELFICOAST_SHOWDOWN_ROOT"]) if os.getenv("AZELFICOAST_SHOWDOWN_ROOT") else None),
+        default=os.getenv("AZELFICOAST_SHOWDOWN_ROOT"),
         help=(
             "built pinned Pokémon Showdown checkout for bounded live public-belief "
             "search; defaults to AZELFICOAST_SHOWDOWN_ROOT"
         ),
     )
     parser.add_argument(
-        "--belief-timeout",
+        "--live-operation-timeout",
         type=_positive_float,
-        default=float(os.getenv("AZELFICOAST_BELIEF_TIMEOUT_SECONDS", "20")),
-        help="maximum seconds for one live public-belief probe (default: 20)",
+        default=os.getenv(
+            "AZELFICOAST_LIVE_OPERATION_TIMEOUT_SECONDS",
+            str(DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS),
+        ),
+        help=(
+            "maximum seconds for one live Showdown subprocess; the battle-clock "
+            "deadline can shorten it"
+        ),
+    )
+    parser.add_argument(
+        "--live-clock-reserve",
+        type=_nonnegative_float,
+        default=os.getenv(
+            "AZELFICOAST_LIVE_CLOCK_RESERVE_SECONDS",
+            str(DEFAULT_LIVE_CLOCK_RESERVE_SECONDS),
+        ),
+        help="seconds reserved for fallback selection and move submission (default: 5)",
+    )
+    parser.add_argument(
+        "--live-fallback-budget",
+        type=_positive_float,
+        default=os.getenv(
+            "AZELFICOAST_LIVE_FALLBACK_BUDGET_SECONDS",
+            str(DEFAULT_LIVE_FALLBACK_BUDGET_SECONDS),
+        ),
+        help=(
+            "decision budget when no authoritative Showdown timer observation is "
+            "available (default: 20)"
+        ),
     )
     parser.add_argument(
         "--evaluator-checkpoint",
         type=Path,
-        default=(
-            Path(os.environ["AZELFICOAST_EVALUATOR_CHECKPOINT"])
-            if os.getenv("AZELFICOAST_EVALUATOR_CHECKPOINT")
-            else None
-        ),
+        default=os.getenv("AZELFICOAST_EVALUATOR_CHECKPOINT"),
         help=(
             "verified learned policy/value checkpoint; without this, live behavior "
             "remains exact public-belief search"
@@ -123,7 +152,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--search-policy-margin",
         type=_unit_float,
-        default=float(os.getenv("AZELFICOAST_SEARCH_POLICY_MARGIN", "1.0")),
+        default=os.getenv("AZELFICOAST_SEARCH_POLICY_MARGIN", "1.0"),
         help=(
             "run exact search when learned top-two policy margin is at or below this "
             "threshold; 1.0 is conservative shadow mode (default: 1.0)"
@@ -293,6 +322,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_EVALUATOR_PROMOTION,
     )
     training_bootstrap_public.add_argument(
+        "--teacher-timeout",
+        type=_positive_float,
+        default=os.getenv("AZELFICOAST_TEACHER_TIMEOUT_SECONDS", "20"),
+        help="offline posterior/search subprocess timeout in seconds (default: 20)",
+    )
+    training_bootstrap_public.add_argument(
         "--split-seed",
         default="azelficoast.training-records",
     )
@@ -412,6 +447,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_EVALUATOR_PROMOTION,
     )
+    training_cycle.add_argument(
+        "--teacher-timeout",
+        type=_positive_float,
+        default=os.getenv("AZELFICOAST_TEACHER_TIMEOUT_SECONDS", "20"),
+        help="offline teacher subprocess timeout in seconds (default: 20)",
+    )
     training_cycle.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_cycle.add_argument(
         "--max-teacher-fixtures",
@@ -490,6 +531,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "because mined teacher states are searched offline after generation"
         ),
     )
+    training_auto.add_argument(
+        "--teacher-timeout",
+        type=_positive_float,
+        default=os.getenv("AZELFICOAST_TEACHER_TIMEOUT_SECONDS", "20"),
+        help="offline teacher subprocess timeout in seconds (default: 20)",
+    )
     training_auto.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_auto.add_argument(
         "--max-teacher-fixtures",
@@ -560,6 +607,14 @@ def _file_sha256(path: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def _live_timing_policy(args: argparse.Namespace) -> LiveTimingPolicy:
+    return LiveTimingPolicy(
+        safety_reserve_seconds=args.live_clock_reserve,
+        fallback_decision_budget_seconds=args.live_fallback_budget,
+        operation_timeout_seconds=args.live_operation_timeout,
+    )
+
+
 def _prepare_output_paths(results: Path, decisions: Path, replays: Path) -> None:
     results.parent.mkdir(parents=True, exist_ok=True)
     decisions.parent.mkdir(parents=True, exist_ok=True)
@@ -573,7 +628,7 @@ def _live_player(
     decisions: Path,
     *,
     showdown_root: Path | None,
-    belief_timeout: float,
+    timing_policy: LiveTimingPolicy,
     evaluator_checkpoint: Path | None,
     search_policy_margin: float,
 ) -> AzelficoastPlayer:
@@ -585,7 +640,7 @@ def _live_player(
         save_replays=str(replays),
         decision_log=decisions,
         showdown_root=showdown_root,
-        belief_timeout_seconds=belief_timeout,
+        timing_policy=timing_policy,
         evaluator_checkpoint=evaluator_checkpoint,
         search_policy_margin=search_policy_margin,
     )
@@ -632,7 +687,7 @@ async def _run_local(
     replays: Path,
     *,
     showdown_root: Path | None,
-    belief_timeout: float,
+    timing_policy: LiveTimingPolicy,
     evaluator_checkpoint: Path | None,
     search_policy_margin: float,
 ) -> None:
@@ -642,7 +697,7 @@ async def _run_local(
         save_replays=str(replays),
         decision_log=decisions,
         showdown_root=showdown_root,
-        belief_timeout_seconds=belief_timeout,
+        timing_policy=timing_policy,
         evaluator_checkpoint=evaluator_checkpoint,
         search_policy_margin=search_policy_margin,
     )
@@ -663,7 +718,7 @@ async def _run_live(args: argparse.Namespace) -> None:
         args.replays,
         args.decisions,
         showdown_root=args.showdown_root,
-        belief_timeout=args.belief_timeout,
+        timing_policy=_live_timing_policy(args),
         evaluator_checkpoint=args.evaluator_checkpoint,
         search_policy_margin=args.search_policy_margin,
     )
@@ -694,7 +749,7 @@ async def _async_main(args: argparse.Namespace) -> None:
             args.decisions,
             args.replays,
             showdown_root=args.showdown_root,
-            belief_timeout=args.belief_timeout,
+            timing_policy=_live_timing_policy(args),
             evaluator_checkpoint=args.evaluator_checkpoint,
             search_policy_margin=args.search_policy_margin,
         )
@@ -756,7 +811,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             decisions,
             replays,
             showdown_root=args.showdown_root,
-            belief_timeout=args.belief_timeout,
+            timing_policy=_live_timing_policy(args),
             evaluator_checkpoint=current_checkpoint,
             search_policy_margin=args.battle_search_policy_margin,
         )
@@ -772,7 +827,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             promotion_file=args.promotion,
             teacher_compute_budget=args.teacher_budget,
             max_teacher_fixtures=args.max_teacher_fixtures,
-            teacher_timeout_seconds=args.belief_timeout,
+            teacher_timeout_seconds=args.teacher_timeout,
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,
             validation_fraction=args.validation_fraction,
@@ -798,6 +853,12 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             "generation": index + 1,
             "battle_count": args.battles_per_generation,
             "battle_search_policy_margin": args.battle_search_policy_margin,
+            "live_timing": {
+                "clock_reserve_seconds": args.live_clock_reserve,
+                "fallback_budget_seconds": args.live_fallback_budget,
+                "operation_timeout_seconds": args.live_operation_timeout,
+            },
+            "teacher_timeout_seconds": args.teacher_timeout,
             "trace": str(decisions),
             "trace_digest": _file_sha256(decisions),
             "results": str(results),
@@ -862,7 +923,7 @@ def _run_training(args: argparse.Namespace) -> None:
             models_dir=args.models_dir,
             receipts_dir=args.receipts_dir,
             promotion_file=args.promotion,
-            posterior_timeout_seconds=args.belief_timeout,
+            posterior_timeout_seconds=args.teacher_timeout,
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,
             validation_fraction=args.validation_fraction,
@@ -912,7 +973,7 @@ def _run_training(args: argparse.Namespace) -> None:
             promotion_file=args.promotion,
             teacher_compute_budget=args.teacher_budget,
             max_teacher_fixtures=args.max_teacher_fixtures,
-            teacher_timeout_seconds=args.belief_timeout,
+            teacher_timeout_seconds=args.teacher_timeout,
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,
             validation_fraction=args.validation_fraction,

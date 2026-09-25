@@ -32,10 +32,14 @@ from azelficoast.research.typed_search import (
     search_transition_program,
 )
 from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERSION
+from azelficoast.live.timing import (
+    DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS,
+    DecisionDeadline,
+    DecisionDeadlineExceeded,
+)
 
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
-DEFAULT_TIMEOUT_SECONDS = 20.0
 
 
 @dataclass(frozen=True)
@@ -434,6 +438,7 @@ def transition_program_belief_result(
     posterior: Mapping[str, Any],
     transition_program: Mapping[str, Any],
     evaluator: Any,
+    deadline: DecisionDeadline | None = None,
 ) -> LiveDecisionResult:
     """Search one verified whole-turn mechanics program under the public belief."""
 
@@ -487,6 +492,7 @@ def transition_program_belief_result(
             transport_index=transport_index,
             method="information_set",
             evaluator=evaluator,
+            check_budget=(deadline.check if deadline is not None else None),
         )
     except (
         TransitionProgramSearchError,
@@ -569,16 +575,16 @@ class PinnedShowdownBeliefPolicy:
         self,
         showdown_root: str | Path,
         *,
-        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        operation_timeout_seconds: float = DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS,
         learned_evaluator: Any | None = None,
         search_gate: Any | None = None,
     ) -> None:
-        if timeout_seconds <= 0:
-            raise ValueError("belief timeout must be positive")
+        if operation_timeout_seconds <= 0:
+            raise ValueError("live operation timeout must be positive")
         if (learned_evaluator is None) != (search_gate is None):
             raise ValueError("learned_evaluator and search_gate must be provided together")
         self.showdown_root = Path(showdown_root)
-        self.timeout_seconds = float(timeout_seconds)
+        self.operation_timeout_seconds = float(operation_timeout_seconds)
         self.learned_evaluator = learned_evaluator
         self.search_gate = search_gate
         self._configuration_error = self._validate_showdown_root()
@@ -590,7 +596,7 @@ class PinnedShowdownBeliefPolicy:
                 check=True,
                 capture_output=True,
                 text=True,
-                timeout=min(self.timeout_seconds, 5.0),
+                timeout=min(self.operation_timeout_seconds, 5.0),
             )
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             return f"cannot-read-showdown-revision: {error}"
@@ -614,6 +620,7 @@ class PinnedShowdownBeliefPolicy:
         *,
         posterior_only: bool = False,
         transition_program_only: bool = False,
+        deadline: DecisionDeadline | None = None,
     ) -> Mapping[str, Any]:
         script = Path(__file__).resolve().parents[3] / "scripts" / "probe_real_belief_trace.cjs"
         with tempfile.TemporaryDirectory(prefix="azelficoast-live-belief-") as temp_dir:
@@ -631,23 +638,50 @@ class PinnedShowdownBeliefPolicy:
                 command.append("--posterior-only")
             if transition_program_only:
                 command.append("--transition-program-only")
-            completed = subprocess.run(
-                command,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=self.timeout_seconds,
-            )
+            timeout = self.operation_timeout_seconds
+            deadline_limited = False
+            if deadline is not None:
+                timeout, deadline_limited = deadline.operation_timeout(
+                    self.operation_timeout_seconds
+                )
+            try:
+                completed = subprocess.run(
+                    command,
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+            except subprocess.TimeoutExpired as error:
+                if deadline_limited:
+                    raise DecisionDeadlineExceeded(
+                        "live decision deadline expired during Showdown probe"
+                    ) from error
+                raise
         document = json.loads(completed.stdout)
         if not isinstance(document, Mapping):
             raise LiveBeliefPolicyError("probe output is not an object")
         return document
 
-    def _probe(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
-        return self._probe_document(source)
+    def _probe(
+        self,
+        source: Mapping[str, Any],
+        *,
+        deadline: DecisionDeadline | None = None,
+    ) -> Mapping[str, Any]:
+        return self._probe_document(source, deadline=deadline)
 
-    def _probe_posterior(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
-        document = self._probe_document(source, posterior_only=True)
+    def _probe_posterior(
+        self,
+        source: Mapping[str, Any],
+        *,
+        deadline: DecisionDeadline | None = None,
+    ) -> Mapping[str, Any]:
+        document = self._probe_document(
+            source,
+            posterior_only=True,
+            deadline=deadline,
+        )
         if (
             document.get("schema") != "azelficoast.live-belief-posterior"
             or document.get("schema_version") != 1
@@ -658,8 +692,14 @@ class PinnedShowdownBeliefPolicy:
     def _probe_transition_program(
         self,
         source: Mapping[str, Any],
+        *,
+        deadline: DecisionDeadline | None = None,
     ) -> Mapping[str, Any]:
-        document = self._probe_document(source, transition_program_only=True)
+        document = self._probe_document(
+            source,
+            transition_program_only=True,
+            deadline=deadline,
+        )
         if (
             document.get("schema") != PROGRAM_SET_SCHEMA
             or document.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
@@ -667,7 +707,18 @@ class PinnedShowdownBeliefPolicy:
             raise LiveBeliefPolicyError("unexpected transition-program probe schema")
         return document
 
-    def choose(self, fixture: DecisionFixture) -> LiveDecisionResult:
+    def choose(
+        self,
+        fixture: DecisionFixture,
+        *,
+        deadline: DecisionDeadline | None = None,
+    ) -> LiveDecisionResult:
+        if deadline is not None and deadline.remaining_seconds() <= 0:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="decision-deadline-exhausted",
+            )
         if self._configuration_error is not None:
             return LiveDecisionResult(
                 action=None,
@@ -690,21 +741,35 @@ class PinnedShowdownBeliefPolicy:
 
         if self.learned_evaluator is not None:
             try:
-                posterior = self._probe_posterior(source)
+                posterior = (
+                    self._probe_posterior(source)
+                    if deadline is None
+                    else self._probe_posterior(source, deadline=deadline)
+                )
                 if posterior.get("source_fixture_id") != fixture.fixture_id:
                     raise LiveBeliefPolicyError("posterior fixture identity mismatch")
                 if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
                     raise LiveBeliefPolicyError("posterior Showdown revision mismatch")
                 if posterior.get("legal_actions") != list(fixture.legal_actions):
                     raise LiveBeliefPolicyError("posterior legal actions drifted")
+                if deadline is not None:
+                    deadline.check()
                 route = learned_route_result(
                     fixture=fixture,
                     posterior=posterior,
                     evaluator=self.learned_evaluator,
                     search_gate=self.search_gate,
                 )
+                if deadline is not None:
+                    deadline.check()
                 if route.action is not None:
                     return route
+            except DecisionDeadlineExceeded:
+                return LiveDecisionResult(
+                    action=None,
+                    status="fallback",
+                    reason="decision-deadline-exhausted",
+                )
             except Exception as error:
                 route = LiveDecisionResult(
                     action=None,
@@ -739,12 +804,17 @@ class PinnedShowdownBeliefPolicy:
             and route.action is None
         ):
             try:
-                transition_program = self._probe_transition_program(source)
+                transition_program = (
+                    self._probe_transition_program(source)
+                    if deadline is None
+                    else self._probe_transition_program(source, deadline=deadline)
+                )
                 searched = transition_program_belief_result(
                     fixture=fixture,
                     posterior=posterior,
                     transition_program=transition_program,
                     evaluator=self.learned_evaluator,
+                    deadline=deadline,
                 )
                 if searched.action is not None:
                     return LiveDecisionResult(
@@ -760,13 +830,20 @@ class PinnedShowdownBeliefPolicy:
                     "transition_program_fallback_reason": searched.reason,
                     **dict(searched.diagnostics),
                 }
+            except DecisionDeadlineExceeded:
+                return LiveDecisionResult(
+                    action=None,
+                    status="fallback",
+                    reason="decision-deadline-exhausted",
+                    diagnostics=dict(route.diagnostics),
+                )
             except subprocess.TimeoutExpired:
                 return LiveDecisionResult(
                     action=None,
                     status="fallback",
                     reason="transition-program-search-timeout",
                     diagnostics={
-                        "timeout_seconds": self.timeout_seconds,
+                        "operation_timeout_seconds": self.operation_timeout_seconds,
                         **dict(route.diagnostics),
                     },
                 )
@@ -787,14 +864,28 @@ class PinnedShowdownBeliefPolicy:
         # Compatibility fallback for unlearned configurations or a failed program
         # path. New learned search does not require this exhaustive matrix.
         try:
-            oracle = self._probe(source)
+            oracle = (
+                self._probe(source)
+                if deadline is None
+                else self._probe(source, deadline=deadline)
+            )
+        except DecisionDeadlineExceeded:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="decision-deadline-exhausted",
+                diagnostics={
+                    **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
+                },
+            )
         except subprocess.TimeoutExpired:
             return LiveDecisionResult(
                 action=None,
                 status="fallback",
                 reason="belief-search-timeout",
                 diagnostics={
-                    "timeout_seconds": self.timeout_seconds,
+                    "operation_timeout_seconds": self.operation_timeout_seconds,
                     **(dict(route.diagnostics) if route is not None else {}),
                     **program_failure,
                 },
@@ -834,7 +925,28 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"showdown_commit": oracle.get("showdown_commit")},
             )
 
+        if deadline is not None and deadline.remaining_seconds() <= 0:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="decision-deadline-exhausted",
+                diagnostics={
+                    **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
+                },
+            )
         exact = public_belief_result(oracle, fixture.legal_actions)
+        if deadline is not None and deadline.remaining_seconds() <= 0:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="decision-deadline-exhausted",
+                diagnostics={
+                    **dict(exact.diagnostics),
+                    **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
+                },
+            )
         if route is None:
             return exact
         return LiveDecisionResult(
