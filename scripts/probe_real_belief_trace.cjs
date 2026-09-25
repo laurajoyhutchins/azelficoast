@@ -199,13 +199,15 @@ function generatorVariants() {
       : null;
     if (plausibleItems && !plausibleItems.has(set.item)) continue;
     matched++;
+    // Collapse generator-only role labels. The exact oracle never consumes
+    // role, so two sets that differ only by role are the same mechanics world
+    // and must contribute prior mass to one world rather than mint duplicate IDs.
     const semantic = {
       species: set.species || requested,
       ability: set.ability,
       item: set.item,
       level: set.level,
       moves,
-      role: set.role,
       teraType: set.teraType,
     };
     const key = JSON.stringify(stable(semantic));
