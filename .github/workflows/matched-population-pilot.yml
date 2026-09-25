@@ -1,0 +1,177 @@
+# Candidate-only matched-compute evidence; ordinary commits run ci.yml only.
+name: matched-population-pilot
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - "experiments/matched-population-pilot-plan.json"
+      - "src/azelficoast/matched_comparison.py"
+      - "src/azelficoast/matched_oracle_search.py"
+      - "src/azelficoast/matched_population.py"
+      - "src/azelficoast/matched_population_run.py"
+      - "src/azelficoast/posterior_treatments.py"
+      - "scripts/probe_real_belief_trace.cjs"
+      - "tests/test_matched_comparison.py"
+      - "tests/test_matched_oracle_search.py"
+      - "tests/test_matched_population.py"
+      - "tests/test_matched_population_run.py"
+      - "tests/test_posterior_treatments.py"
+      - ".github/workflows/matched-population-pilot.yml"
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-research-evidence/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - "experiments/evidence/canonical-evidence.json"
+      - "experiments/evidence/canonical-evidence.tar.gz"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: matched-population-pilot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+      - name: Restore canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
+      - name: Restore verified pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - name: Verify frozen pilot contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          plan = json.loads(
+              Path("experiments/matched-population-pilot-plan.json").read_text()
+          )
+          manifest = json.loads(
+              Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
+          )
+          assert plan["posterior_treatments"] == [
+              "generator_faithful",
+              "practical",
+          ], plan
+          assert plan["depths"] == [1], plan
+          assert plan["confirmatory_predictors"] == [
+              "legal_action_count",
+              "incoming_ko_roll_probability_gap",
+              "opponent_public_hp_fraction",
+          ], plan
+          assert manifest["source_decision_state_count"] == 6485, manifest
+          assert manifest["selected_count"] == 10, manifest
+          assert len({row["battle_tag"] for row in manifest["selected"]}) == 6, manifest
+          assert manifest["frozen_before_policy_values"] is True, manifest
+          assert manifest["selection_uses_policy_result"] is False, manifest
+          PY
+
+      - name: Execute matched shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          AZELFICOAST_ROOT_CHANCE_SAMPLES: "16"
+          AZELFICOAST_CONTINUATION_CHANCE_SAMPLES: "16"
+          AZELFICOAST_CONTINUATION_DECISION_HORIZONS: "1"
+          AZELFICOAST_CHANCE_SEED_FAMILY: "0"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/matched
+          python - <<'PY' > /tmp/shard.tsv
+          import json
+          import os
+          from pathlib import Path
+
+          shard = int(os.environ["SHARD"])
+          manifest = json.loads(
+              Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
+          )
+          for row in manifest["selected"]:
+              index = int(row["population_index"])
+              if (index - 1) % 5 == shard:
+                  print(index, row["filename"], sep="\t")
+          PY
+
+          while IFS=$'\t' read -r index filename; do
+            test -n "$index" || continue
+            source="/tmp/azelficoast-evidence/population/selected/$filename"
+            oracle="/tmp/oracle-$index.json"
+
+            node scripts/probe_real_belief_trace.cjs               /tmp/pokemon-showdown               "$source"               > "$oracle"
+
+            uv run python -m azelficoast.matched_population_run state               experiments/matched-population-pilot-plan.json               "$source"               /tmp/azelficoast-evidence/population/manifest.json               "$oracle"               --population-index "$index"               --output-dir /tmp/matched               > "/tmp/run-$index.json"
+
+            rm -f "$oracle"
+          done < /tmp/shard.tsv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-population-pilot-exact-${{ matrix.shard }}
+          path: /tmp/matched/results
+          if-no-files-found: error
+
+  aggregate:
+    needs: exact
+    if: always() && needs.exact.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+      - name: Restore canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
+
+      - name: Freeze matched cohort projection
+        run: |
+          uv run python -m azelficoast.matched_population_run cohort             /tmp/azelficoast-evidence/population/manifest.json             --output /tmp/matched-cohort.json             > /tmp/cohort-output.json
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: matched-population-pilot-exact-*
+          path: /tmp/exact
+          merge-multiple: true
+
+      - name: Aggregate complete matched matrix
+        run: |
+          uv run python -m azelficoast.matched_population             experiments/matched-population-pilot-plan.json             /tmp/matched-cohort.json             /tmp/exact             --output /tmp/matched-population-pilot-aggregate.json             | tee /tmp/aggregate-output.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/matched-population-pilot-aggregate.json").read_text()
+          )
+          assert result["source_state_count"] == 10, result
+          assert result["posterior_treatments"] == [
+              "generator_faithful",
+              "practical",
+          ], result
+          assert result["depths"] == [1], result
+          assert result["matrix_complete"] is True, result
+          assert result["matched_input"] is True, result
+          assert result["matched_authorized_compute"] is True, result
+          assert len(result["figure_rows"]) == 2, result
+          assert all(row["state_count"] == 10 for row in result["figure_rows"]), result
+          assert all(row["battle_count"] == 6 for row in result["figure_rows"]), result
+          print(json.dumps(result["figure_rows"], sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-population-pilot-results
+          path: |
+            /tmp/matched-population-pilot-aggregate.json
+            /tmp/aggregate-output.json
+            /tmp/matched-cohort.json
+          if-no-files-found: error
