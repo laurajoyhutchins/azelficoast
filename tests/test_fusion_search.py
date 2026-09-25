@@ -219,3 +219,47 @@ def test_freeze_selection_rejects_item_support_drift(tmp_path) -> None:
             fixtures=[_fixture(fixture_id)],
             output_dir=tmp_path,
         )
+
+
+def test_freeze_selection_excludes_fainted_active_before_ranking(tmp_path) -> None:
+    live = _fixture("live")
+    fainted = _fixture("fainted")
+    fainted = DecisionFixture(
+        fixture_id=fainted.fixture_id,
+        state={
+            **fainted.state,
+            "active": {**fainted.state["active"], "current_hp": 0},
+        },
+        protocol_prefix=fainted.protocol_prefix,
+        control_decisions=fainted.control_decisions,
+    )
+
+    result = freeze_selection(
+        plan=_plan(top_k=1),
+        candidates_document={
+            "schema": "azelficoast.natural-fusion-candidates",
+            "persistent_only": True,
+            "candidates": [_candidate("fainted"), _candidate("live")],
+        },
+        mechanics_document={
+            "schema": "azelficoast.public-belief-speed-fork-mechanics",
+            "showdown_commit": "pinned",
+            "cases": [
+                _case(
+                    "fainted",
+                    band=(180, 60, 70, 16),
+                    scarf=(260, 20, 30, 0),
+                ),
+                _case(
+                    "live",
+                    band=(180, 40, 45, 0),
+                    scarf=(180, 30, 35, 0),
+                ),
+            ],
+        },
+        fixtures=[fainted, live],
+        output_dir=tmp_path,
+    )
+
+    assert result["selected"][0]["fixture_id"] == "live"
+    assert result["ineligible_reason_counts"] == {"active-hp-nonpositive": 1}
