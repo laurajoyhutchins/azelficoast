@@ -534,6 +534,21 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     )[0]
     assert '"opponent.active.moves"' in dependency_block
     assert '"opponent.active.tera_type"' in dependency_block
+    assert '"opponent.bench"' not in dependency_block
+    assert 'DEPENDENCY_CANDIDATES.push("opponent.bench")' in source
+
+    assert "function jointOpponentWorlds()" in source
+    assert "function jointMemberHpStates(member)" in source
+    assert '"opponent.bench": bench.map' in source
+    assert '"uniform-exact-hp-support-within-public-percentage-bucket"' in source
+    assert "preserves_joint_team_set_correlations" in source
+    assert "if (JOINT_OPPONENT_POSTERIOR) return true" in source
+    assert 'hiddenReads.add("opponent.bench")' in source
+    assert 'field === "opponent.bench"' in source
+    assert "joint opponent posterior contains Illusion state" in source
+    assert "excludedIllusionParticles" not in source
+    assert "function opponentTeraHistory()" in source
+    assert "pokemon.canTerastallize = null" in source
 
     assert "mechanics_projection_variant_count" in source
     assert (
@@ -571,6 +586,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'hiddenReads.add("opponent.active.exact_hp")' in source
     assert 'hiddenReads.add("opponent.active.tera_type")' in source
     assert 'row.choice + " terastallize"' in source
+    assert "return material(battle.p1) - material(battle.p2)" in source
     assert '"repeat-last-or-uniform-legal-moves"' not in source
     assert "showdown_turn_executions: showdownTurnExecutions" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
