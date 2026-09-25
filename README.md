@@ -250,11 +250,12 @@ uv run azelficoast \
 ~~~
 
 Each generation creates fresh Random Battles, accumulates their immutable traces, and
-mines a bounded curriculum from public evidence only. The miner spends its first budget
-across distinct battles, then prioritizes searched/uncertain states, low learned-policy
-margin, high policy entropy, and larger legal action sets. Fallback counts remain recorded
-as evidence debt but do not outrank states the current teacher can actually label. The exact selection is written
-into the teacher manifest and therefore participates in its content identity.
+mines a bounded curriculum from public evidence only. The miner admits at most one
+teacher state per `(run_id, battle_tag)`, prioritizing searched/uncertain states, low
+learned-policy margin, high policy entropy, and larger legal action sets. Fallback counts
+remain recorded as evidence debt but do not outrank states the current teacher can
+actually label. The exact selection is written into the teacher manifest and therefore
+participates in its content identity.
 
 Candidate admission now has two independent gates. The scientific gate still requires
 held-out validation improvement without value or policy-loss regression. A hostile
