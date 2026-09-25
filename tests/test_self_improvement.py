@@ -210,6 +210,8 @@ def test_teacher_evidence_is_reproducible_and_settled(tmp_path) -> None:
     assert "resource_accounting" not in info
     assert det["packet_digest"] == info["packet_digest"]
     assert det["evaluator_checkpoint_digest"] == _FakeEvaluator.identity["checkpoint_digest"]
+    packet = json.loads(first.packet_paths[0].read_text(encoding="utf-8"))
+    assert packet["run_id"] == "run"
 
     settled = json.loads(
         (first.packet_paths[0].parent / "settled.json").read_text(encoding="utf-8")
@@ -250,7 +252,9 @@ def _mining_fixture(
         protocol_prefix=(),
         control_decisions=(
             {
+                "run_id": f"run-{battle_tag}",
                 "battle_tag": battle_tag,
+                "event_index": 1,
                 "decision_metadata": {
                     "belief": {
                         "status": status,
