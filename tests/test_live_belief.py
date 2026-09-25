@@ -7,6 +7,7 @@ from azelficoast.belief_evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.corpus import DecisionFixture
 from azelficoast.live_belief import (
     LiveDecisionResult,
+    PinnedShowdownBeliefPolicy,
     build_probe_source,
     live_fixture,
     public_belief_result,
@@ -423,3 +424,59 @@ def test_player_uses_live_belief_action_when_it_maps_to_valid_order() -> None:
     order = player.choose_move(_battle())
 
     assert order.message == "/choose move protect"
+
+
+
+def test_live_high_margin_route_skips_transition_oracle_probe() -> None:
+    class LiveEvaluator:
+        spec = BeliefEvaluatorSpec(
+            public_width=8,
+            world_width=8,
+            action_width=8,
+            hidden_width=8,
+            world_hidden_width=8,
+        )
+        identity = {
+            "checkpoint_digest": "sha256:" + "b" * 64,
+            "observability": "public_belief_only",
+        }
+
+        def predict(self, inputs) -> BeliefPrediction:
+            return BeliefPrediction(
+                value=0.4,
+                legal_actions=inputs.legal_actions,
+                probabilities=(0.95, 0.05),
+                selected_action=inputs.legal_actions[0],
+                policy_margin=0.90,
+                policy_entropy_bits=0.29,
+            )
+
+    fixture = live_fixture(_state(), _protocol())
+    policy = object.__new__(PinnedShowdownBeliefPolicy)
+    policy._configuration_error = None
+    policy.learned_evaluator = LiveEvaluator()
+    policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
+    policy._probe_posterior = lambda source: {
+        "schema": "azelficoast.live-belief-posterior",
+        "schema_version": 1,
+        "source_fixture_id": fixture.fixture_id,
+        "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "legal_actions": list(fixture.legal_actions),
+        "worlds": [
+            {"world_id": "a", "weight": 0.5, "hidden": {"item": "band"}},
+            {"world_id": "b", "weight": 0.5, "hidden": {"item": "scarf"}},
+        ],
+    }
+
+    def unexpected_full_probe(source):
+        raise AssertionError("high-margin learned route expanded the transition oracle")
+
+    policy._probe = unexpected_full_probe
+
+    result = policy.choose(fixture)
+
+    assert result.action == fixture.legal_actions[0]
+    assert result.reason == "learned-public-belief"
+    assert result.diagnostics["learned_route"] == "direct-policy"
