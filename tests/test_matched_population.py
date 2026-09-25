@@ -59,7 +59,7 @@ def _packet(fixture: str, battle: str, treatment: str, depth: int) -> dict[str, 
 
 def _result(fixture: str, battle: str, treatment: str, depth: int) -> dict[str, object]:
     packet = _packet(fixture, battle, treatment, depth)
-    return settle_packet(
+    result = settle_packet(
         packet=packet,
         receipts=[
             {
@@ -80,6 +80,15 @@ def _result(fixture: str, battle: str, treatment: str, depth: int) -> dict[str, 
             },
         ],
     )
+    result["posterior_construction"] = {
+        "total_variation_from_generator_faithful": (
+            0.0 if treatment == "generator_faithful" else 0.25
+        ),
+        "changed_world_weight_count": (
+            0 if treatment == "generator_faithful" else 2
+        ),
+    }
+    return result
 
 
 def test_population_requires_complete_state_posterior_depth_matrix() -> None:
@@ -110,6 +119,15 @@ def test_population_requires_complete_state_posterior_depth_matrix() -> None:
     assert abs(row["mean_value_optimism"] - 0.2) < 1e-12
     assert abs(row["mean_regret"] - 0.05) < 1e-12
     assert row["policy_disagreement_rate"] == 1.0
+    assert row["mean_posterior_total_variation_from_generator_faithful"] == 0.0
+    assert row["posterior_changed_state_count"] == 0
+    practical = next(
+        candidate
+        for candidate in aggregate["figure_rows"]
+        if candidate["posterior_treatment"] == "practical"
+    )
+    assert practical["mean_posterior_total_variation_from_generator_faithful"] == 0.25
+    assert practical["posterior_changed_state_count"] == 2
 
 
 def test_population_refuses_missing_treatment_cell() -> None:
