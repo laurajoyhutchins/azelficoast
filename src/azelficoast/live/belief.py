@@ -15,13 +15,13 @@ from poke_env.data import GenData
 
 from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.corpus import DecisionFixture
-from azelficoast.decision_relevance import (
+from azelficoast.search.decision_relevance import (
     DecisionRelevanceError,
     analyze_quotiented_oracle,
 )
 from azelficoast.real_belief_trace import BeliefTraceError
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
-from azelficoast.transition_program_search import (
+from azelficoast.search.transition_program import (
     TransitionProgramSearchError,
     search_transition_program,
 )

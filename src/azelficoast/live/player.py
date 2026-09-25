@@ -11,12 +11,12 @@ from poke_env.player.battle_order import BattleOrder
 
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.instrumentation import DecisionTraceWriter, battle_view
-from azelficoast.live_belief import (
+from azelficoast.live.belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,
     live_fixture,
 )
-from azelficoast.selective_belief import PolicyMarginSearchGate
+from azelficoast.search.selective import PolicyMarginSearchGate
 
 
 class AzelficoastPlayer(SimpleHeuristicsPlayer):
