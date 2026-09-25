@@ -962,15 +962,26 @@ function exactMaxHpForVariant(variant) {
   return Math.floor(Math.floor(inner) * level / 100 + 10);
 }
 
-function hpSupportForVariant(variant) {
+function hpSupportForObservedPercent(variant, observedPercent) {
   const maxhp = exactMaxHpForVariant(variant);
-  const observed = Number(fixture.state.opponent_active.current_hp);
+  const observed = Number(observedPercent);
+  if (!Number.isFinite(observed) || observed < 0 || observed > 100) {
+    fail("public HP percentage must be finite and between 0 and 100");
+  }
+  if (observed === 0) return {maxhp, support: [0]};
   const support = [];
   for (let hp = 1; hp <= maxhp; hp++) {
     if (publicPercent(hp, maxhp) === observed) support.push(hp);
   }
   if (!support.length) fail(`no exact HP is compatible with public ${observed}/100`);
   return {maxhp, support};
+}
+
+function hpSupportForVariant(variant) {
+  return hpSupportForObservedPercent(
+    variant,
+    Number(fixture.state.opponent_active.current_hp)
+  );
 }
 
 function applyFixtureState(battle, world) {
@@ -984,12 +995,41 @@ function applyFixtureState(battle, world) {
   }
   const opponent = battle.p2.active[0];
   opponent.hp = Number(world.exactHp);
+  opponent.fainted = opponent.hp <= 0;
   opponent.boosts = {...fixture.state.opponent_active.boosts};
   const opponentStatus = fixture.state.opponent_active.status;
   opponent.status =
     opponentStatus && opponentStatus !== "FNT" ? toID(opponentStatus) : "";
 
+  if (OPPONENT_TERA_HISTORY) {
+    const teraUser = battle.p2.pokemon.find(
+      pokemon => toID(pokemon.species.name) === OPPONENT_TERA_HISTORY.species
+    );
+    if (!teraUser) {
+      fail("reconstructed opponent team omits the publicly observed Tera user");
+    }
+    if (["ogerpon", "terapagos"].includes(toID(teraUser.species.baseSpecies))) {
+      fail("previously Terastallized Ogerpon/Terapagos reconstruction is not yet exact");
+    }
+    teraUser.teraType = OPPONENT_TERA_HISTORY.type;
+    teraUser.terastallized = OPPONENT_TERA_HISTORY.type;
+    teraUser.addedType = "";
+    teraUser.knownType = true;
+    teraUser.apparentType = OPPONENT_TERA_HISTORY.type;
+    for (const pokemon of battle.p2.pokemon) pokemon.canTerastallize = null;
+  }
+
+  const jointBench = Array.isArray(world.opponentBench)
+    ? new Map(world.opponentBench.map(row => [toID(row.species), row]))
+    : null;
   for (const bench of battle.p2.pokemon.filter(pokemon => !pokemon.active)) {
+    const joint = jointBench && jointBench.get(toID(bench.species.name));
+    if (joint) {
+      bench.hp = Number(joint.exactHp);
+      bench.fainted = bench.hp <= 0;
+      bench.status = joint.status || "";
+      continue;
+    }
     const view = publicOpponentView(bench.species.name);
     if (!view) continue;
     const hpFraction = Number(view.hp_fraction);
@@ -1010,13 +1050,16 @@ function applyFixtureState(battle, world) {
 }
 
 function buildBattle(world, benchOverride = benchSet) {
+  const opponentTeam = Array.isArray(world.opponentBench)
+    ? [opponentSet(world), ...world.opponentBench.map(row => ({...row.set}))]
+    : benchOverride
+      ? [opponentSet(world), benchOverride]
+      : [opponentSet(world)];
   const battle = common.createBattle(
     {preview: false, seed: [1, 2, 3, 4]},
     [
       ownTeam,
-      benchOverride
-        ? [opponentSet(world), benchOverride]
-        : [opponentSet(world)],
+      opponentTeam,
     ]
   );
   applyRecordedOwnStats(battle);
