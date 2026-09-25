@@ -329,6 +329,14 @@ def public_belief_result(
                 else None
             ),
             "public_belief_value": public.get("value"),
+            "public_belief_root_values": (
+                dict(public.get("root_values"))
+                if isinstance(public.get("root_values"), Mapping)
+                else None
+            ),
+            "public_belief_search_horizons": trace.get(
+                "continuation_decision_horizons"
+            ),
         },
     )
 

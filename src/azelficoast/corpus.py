@@ -294,6 +294,13 @@ def build_fixtures(
                 "event_index": event_index,
                 "chosen_action": chosen_action,
             }
+            decision_metadata = record.get("decision_metadata")
+            if decision_metadata is not None:
+                if not isinstance(decision_metadata, Mapping):
+                    raise CorpusError(
+                        f"run {run_id!r} event {event_index}: malformed decision_metadata"
+                    )
+                control["decision_metadata"] = copy.deepcopy(dict(decision_metadata))
 
             if fixture_id not in fixtures:
                 fixtures[fixture_id] = {
