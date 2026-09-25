@@ -2540,8 +2540,12 @@ function counterfactualWorld(baseWorld, donorWorld, field) {
     world.variant.evs = cloneJson(donorWorld.variant.evs);
   } else if (field === "opponent.active.ivs") {
     world.variant.ivs = cloneJson(donorWorld.variant.ivs);
+  } else if (field === "opponent.active.tera_type") {
+    world.variant.teraType = donorWorld.variant.teraType;
   } else if (field === "opponent.active.exact_hp") {
     world.exactHp = donorWorld.exactHp;
+  } else if (field === "opponent.bench") {
+    world.opponentBench = cloneJson(donorWorld.opponentBench || []);
   } else {
     fail("cannot intervene on unknown hidden transition field " + field);
   }
@@ -2977,33 +2981,51 @@ process.stdout.write(JSON.stringify({
       CONTINUATION_DECISION_HORIZONS === 1
         ? "all non-Tera player choices at the next decision"
         : "all non-Tera player choices at the next two public decisions",
-    utility: "sum own team HP fractions minus opposing active HP fraction",
+    utility: JOINT_OPPONENT_POSTERIOR
+      ? "sum own team HP fractions minus sum opposing team HP fractions"
+      : "sum own team HP fractions minus opposing active HP fraction",
   },
-  reconstruction: {
-    generator_rounds: GENERATOR_ROUNDS,
-    generator_matches: matched,
-    generator_variant_count: variants.length,
-    mechanics_projection_variant_count: mechanicsProjectionCount,
-    mechanics_projection_fields:
-      OPPONENT_POLICY.kind === "uniform-legal-moves"
-        ? ["opponent.active.tera_type"]
-        : ["opponent.active.moves", "opponent.active.tera_type"],
-    mechanics_projection_rule:
-      "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
-    observed_opponent_moves: observedOpponentMoves(),
-    opponent_policy: OPPONENT_POLICY,
-    hidden_world_count: outputWorlds.length,
-    own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
-    opponent_bench_species: OPPONENT_BENCH_SPECIES,
-    bench_species_mode: BENCH_PRIOR ? "factored-prior" : "concrete",
-    bench_factor_support_count: BENCH_PRIOR
-      ? BENCH_PRIOR.distribution.length
-      : 0,
-    bench_factor_unread_action_count: benchFactor
-      ? benchFactor.unread_actions.length
-      : 0,
-    declared_read_mode: "instrumented-showdown-hidden-state-boundary",
-  },
+  reconstruction: jointSupport
+    ? {
+        kind: "joint-team-particles-with-dynamic-hp",
+        posterior_treatment: posteriorTreatment,
+        joint_posterior_sha256: jointSupport.posteriorSha256,
+        joint_particle_count: jointSupport.particleCount,
+        preserves_joint_team_set_correlations: true,
+        damaged_revealed_bench_hp:
+          "uniform-exact-hp-support-within-public-percentage-bucket",
+        opponent_policy: OPPONENT_POLICY,
+        hidden_world_count: outputWorlds.length,
+        own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+        declared_read_mode: "instrumented-showdown-hidden-state-boundary",
+      }
+    : {
+        kind: "active-set-generator-posterior",
+        posterior_treatment: posteriorTreatment,
+        generator_rounds: GENERATOR_ROUNDS,
+        generator_matches: matched,
+        generator_variant_count: variants.length,
+        mechanics_projection_variant_count: mechanicsProjectionCount,
+        mechanics_projection_fields:
+          OPPONENT_POLICY.kind === "uniform-legal-moves"
+            ? ["opponent.active.tera_type"]
+            : ["opponent.active.moves", "opponent.active.tera_type"],
+        mechanics_projection_rule:
+          "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
+        observed_opponent_moves: observedOpponentMoves(),
+        opponent_policy: OPPONENT_POLICY,
+        hidden_world_count: outputWorlds.length,
+        own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+        opponent_bench_species: OPPONENT_BENCH_SPECIES,
+        bench_species_mode: BENCH_PRIOR ? "factored-prior" : "concrete",
+        bench_factor_support_count: BENCH_PRIOR
+          ? BENCH_PRIOR.distribution.length
+          : 0,
+        bench_factor_unread_action_count: benchFactor
+          ? benchFactor.unread_actions.length
+          : 0,
+        declared_read_mode: "instrumented-showdown-hidden-state-boundary",
+      },
   factored_hidden: factoredHidden,
   dependency_candidates: DEPENDENCY_CANDIDATES,
   declared_reads: declared,
