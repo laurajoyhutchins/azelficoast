@@ -721,6 +721,14 @@ def mine_candidates(
         if not _plain_speed_context(fixture):
             skip("non-plain-speed-context")
             continue
+        weather = fixture.state.get("weather")
+        if isinstance(weather, Mapping) and weather:
+            skip("weather-reconstruction-unsupported")
+            continue
+        fields = fixture.state.get("fields")
+        if isinstance(fields, Mapping) and fields:
+            skip("field-reconstruction-unsupported")
+            continue
 
         active = fixture.state.get("active")
         opponent_active = fixture.state.get("opponent_active")
