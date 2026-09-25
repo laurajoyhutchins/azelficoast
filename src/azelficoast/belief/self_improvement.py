@@ -13,6 +13,7 @@ from typing import Any, Mapping, Protocol, Sequence
 from azelficoast.belief.competence import build_competence_ledger, curriculum_priority
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.improvement import AdmissionPolicy, ImprovementError, improve_checkpoint
+from azelficoast.belief.validity import power_reweight_posterior
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
 from azelficoast.research.matched_comparison import (
@@ -29,7 +30,9 @@ from azelficoast.research.training_records import (
 from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
-TEACHER_MANIFEST_SCHEMA_VERSION = 2
+TEACHER_MANIFEST_SCHEMA_VERSION = 3
+CHALLENGER_POSTERIOR_TREATMENTS = (("flattened", 0.0), ("sharpened", 2.0))
+DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD = 0.75
 CYCLE_RECEIPT_SCHEMA = "azelficoast.self-improvement-cycle"
 CYCLE_RECEIPT_SCHEMA_VERSION = 2
 
@@ -173,6 +176,63 @@ def _fixture_mining_signals(fixture: DecisionFixture) -> dict[str, Any]:
         "source_kinds": sorted(source_kinds),
     }
 
+
+def _challenger_teacher_required(
+    signals: Mapping[str, Any],
+    *,
+    uncertainty_threshold: float,
+) -> bool:
+    """Spend challenger compute only on evidence that already looks hard."""
+
+    if (
+        not isinstance(uncertainty_threshold, (int, float))
+        or isinstance(uncertainty_threshold, bool)
+        or not 0.0 <= float(uncertainty_threshold) <= 1.0
+    ):
+        raise TeacherEvidenceError(
+            "challenger uncertainty threshold must be within [0, 1]"
+        )
+    uncertainty = signals.get("uncertainty", 0.0)
+    if isinstance(uncertainty, bool) or not isinstance(uncertainty, (int, float)):
+        uncertainty = 0.0
+    search_count = signals.get("search_count", 0)
+    fallback_count = signals.get("fallback_count", 0)
+    return bool(
+        (
+            isinstance(search_count, int)
+            and not isinstance(search_count, bool)
+            and search_count > 0
+        )
+        or (
+            isinstance(fallback_count, int)
+            and not isinstance(fallback_count, bool)
+            and fallback_count > 0
+        )
+        or float(uncertainty) >= float(uncertainty_threshold)
+    )
+
+
+def _challenger_consensus(
+    baseline_action: str,
+    challenger_actions: Mapping[str, str],
+) -> dict[str, Any]:
+    """Require the information-set teacher action to survive prior stress."""
+
+    if not baseline_action:
+        raise TeacherEvidenceError("baseline teacher action must be non-empty")
+    required = {name for name, _ in CHALLENGER_POSTERIOR_TREATMENTS}
+    if set(challenger_actions) != required:
+        raise TeacherEvidenceError("challenger actions do not cover required treatments")
+    actions = {
+        "generator_faithful": baseline_action,
+        **{name: challenger_actions[name] for name, _ in CHALLENGER_POSTERIOR_TREATMENTS},
+    }
+    passed = len(set(actions.values())) == 1
+    return {
+        "passed": passed,
+        "actions": actions,
+        "rule": "information-set-action-consensus-across-prior-weight-stress",
+    }
 
 def _mine_informative_fixtures(
     fixtures: Sequence[DecisionFixture],
@@ -398,7 +458,10 @@ def _teacher_plan(
     return {
         "schema": PLAN_SCHEMA,
         "schema_version": PLAN_SCHEMA_VERSION,
-        "posterior_treatments": ["generator_faithful"],
+        "posterior_treatments": [
+            "generator_faithful",
+            *[name for name, _ in CHALLENGER_POSTERIOR_TREATMENTS],
+        ],
         "compute_budget": {
             "unit": "transition_evaluations",
             "per_method_limit": compute_budget,
@@ -427,6 +490,7 @@ def generate_teacher_evidence(
     output_root: str | Path,
     compute_budget: int = 4096,
     max_teacher_fixtures: int | None = None,
+    challenger_uncertainty_threshold: float = DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD,
 ) -> TeacherEvidence:
     """Generate settled search teacher artifacts from completed real traces."""
 
@@ -436,6 +500,25 @@ def generate_teacher_evidence(
         all_fixtures,
         max_fixtures=max_teacher_fixtures,
     )
+    selected_signals: dict[tuple[str, str, str, int | None], Mapping[str, Any]] = {}
+    raw_selected = selection.get("selected")
+    if isinstance(raw_selected, list):
+        for row in raw_selected:
+            if not isinstance(row, Mapping):
+                continue
+            signals = row.get("signals")
+            fixture_id = row.get("fixture_id")
+            run_id = row.get("run_id")
+            battle_tag = row.get("battle_tag")
+            event_index = row.get("event_index")
+            if (
+                isinstance(signals, Mapping)
+                and isinstance(fixture_id, str)
+                and isinstance(run_id, str)
+                and isinstance(battle_tag, str)
+                and (event_index is None or isinstance(event_index, int))
+            ):
+                selected_signals[(fixture_id, run_id, battle_tag, event_index)] = signals
     evaluator_identity = getattr(evaluator, "identity", None)
     if not isinstance(evaluator_identity, Mapping):
         raise TeacherEvidenceError("teacher evaluator lacks an immutable identity")
@@ -451,6 +534,7 @@ def generate_teacher_evidence(
             "evaluator": dict(evaluator_identity),
             "showdown_commit": source.showdown_commit,
             "compute_budget": compute_budget,
+            "challenger_uncertainty_threshold": challenger_uncertainty_threshold,
             "selection": selection,
         }
     )
@@ -497,6 +581,7 @@ def generate_teacher_evidence(
         for control in fixture.control_decisions:
             run_id = control.get("run_id")
             battle_tag = control.get("battle_tag")
+            event_index = control.get("event_index")
             if (
                 not isinstance(run_id, str)
                 or not run_id
@@ -531,8 +616,6 @@ def generate_teacher_evidence(
                     method=method,
                     evaluator=evaluator,
                 )
-                # Wall-clock telemetry is useful operationally but is not scientific
-                # authority and would make identical teacher evidence non-reproducible.
                 receipt = dict(receipt)
                 receipt.pop("resource_accounting", None)
                 receipts.append(receipt)
@@ -548,6 +631,149 @@ def generate_teacher_evidence(
             _write_immutable_json(det_path, receipts[0])
             _write_immutable_json(info_path, receipts[1])
             _write_immutable_json(settled_path, settled)
+
+            signal_key = (
+                fixture.fixture_id,
+                run_id,
+                battle_tag,
+                event_index if isinstance(event_index, int) else None,
+            )
+            signals = selected_signals.get(signal_key, {})
+            challenger_evidence: dict[str, Any] = {
+                "required": _challenger_teacher_required(
+                    signals,
+                    uncertainty_threshold=challenger_uncertainty_threshold,
+                ),
+                "uncertainty_threshold": challenger_uncertainty_threshold,
+                "signals": dict(signals),
+            }
+            if challenger_evidence["required"]:
+                chosen_actions = settled.get("chosen_actions")
+                baseline_action = (
+                    chosen_actions.get("information_set")
+                    if isinstance(chosen_actions, Mapping)
+                    else None
+                )
+                if not isinstance(baseline_action, str) or not baseline_action:
+                    raise TeacherEvidenceError(
+                        "settled baseline teacher lacks information-set action"
+                    )
+                challenger_actions: dict[str, str] = {}
+                challenger_rows: list[dict[str, Any]] = []
+                challenger_failure: dict[str, str] | None = None
+                for treatment, exponent in CHALLENGER_POSTERIOR_TREATMENTS:
+                    try:
+                        stressed_posterior = power_reweight_posterior(
+                            posterior,
+                            exponent=exponent,
+                            treatment=treatment,
+                        )
+                        stressed_packet = freeze_packet(
+                            plan=plan,
+                            state=state,
+                            posterior=stressed_posterior,
+                            posterior_treatment=treatment,
+                            depth=1,
+                        )
+                        stressed_receipt = execute_method(
+                            packet=stressed_packet,
+                            posterior=stressed_posterior,
+                            transition_program=transition_program,
+                            method="information_set",
+                            evaluator=evaluator,
+                        )
+                        stressed_receipt = dict(stressed_receipt)
+                        stressed_receipt.pop("resource_accounting", None)
+                        action = stressed_receipt.get("chosen_action")
+                        if not isinstance(action, str) or not action:
+                            raise TeacherEvidenceError(
+                                f"{treatment} challenger returned no action"
+                            )
+                        challenger_actions[treatment] = action
+
+                        stressed_digest = _digest(stressed_posterior)
+                        stressed_path = (
+                            artifacts_dir
+                            / f"posterior-{stressed_digest.removeprefix('sha256:')}.json"
+                        )
+                        _write_immutable_json(stressed_path, stressed_posterior)
+                        challenger_root = packet_root / "challengers" / treatment
+                        challenger_packet_path = challenger_root / "packet.json"
+                        challenger_receipt_path = (
+                            challenger_root / "information-set.json"
+                        )
+                        _write_immutable_json(challenger_packet_path, stressed_packet)
+                        _write_immutable_json(
+                            challenger_receipt_path,
+                            stressed_receipt,
+                        )
+                        challenger_rows.append(
+                            {
+                                "treatment": treatment,
+                                "exponent": exponent,
+                                "posterior_digest": stressed_digest,
+                                "packet_digest": stressed_packet["packet_digest"],
+                                "consumed": stressed_receipt["consumed"],
+                                "chosen_action": action,
+                                "packet": str(
+                                    challenger_packet_path.relative_to(root)
+                                ),
+                                "receipt": str(
+                                    challenger_receipt_path.relative_to(root)
+                                ),
+                            }
+                        )
+                    except ValueError as error:
+                        challenger_failure = {
+                            "treatment": treatment,
+                            "type": type(error).__name__,
+                            "detail": str(error)[-1000:],
+                        }
+                        break
+
+                challenger_evidence["runs"] = challenger_rows
+                if challenger_failure is not None:
+                    challenger_evidence.update(
+                        {
+                            "passed": False,
+                            "failure": challenger_failure,
+                            "rule": "fail-closed-on-challenger-error",
+                        }
+                    )
+                else:
+                    challenger_evidence.update(
+                        _challenger_consensus(
+                            baseline_action,
+                            challenger_actions,
+                        )
+                    )
+                if challenger_evidence.get("passed") is not True:
+                    excluded_rows.append(
+                        {
+                            "fixture_id": fixture.fixture_id,
+                            "run_id": run_id,
+                            "battle_tag": battle_tag,
+                            "decision_count": 1,
+                            "reason": (
+                                "challenger-teacher-failed"
+                                if challenger_failure is not None
+                                else "posterior-sensitive-teacher-target"
+                            ),
+                            "challenger": challenger_evidence,
+                        }
+                    )
+                    continue
+            else:
+                challenger_evidence.update(
+                    {
+                        "passed": True,
+                        "rule": (
+                            "baseline-teacher-sufficient-for-low-uncertainty-state"
+                        ),
+                        "runs": [],
+                    }
+                )
+
             packet_paths.append(packet_path)
             receipt_paths.extend((det_path, info_path))
             admitted_rows.append(
@@ -560,6 +786,7 @@ def generate_teacher_evidence(
                     "program_digest": program_digest,
                     "packet": str(packet_path.relative_to(root)),
                     "settled": str(settled_path.relative_to(root)),
+                    "challenger": challenger_evidence,
                 }
             )
 
@@ -577,6 +804,16 @@ def generate_teacher_evidence(
         "evaluator": dict(evaluator_identity),
         "plan": plan,
         "selection": selection,
+        "challenger_policy": {
+            "kind": "posterior-weight-consensus",
+            "uncertainty_threshold": challenger_uncertainty_threshold,
+            "treatments": [
+                {"name": name, "exponent": exponent}
+                for name, exponent in CHALLENGER_POSTERIOR_TREATMENTS
+            ],
+            "trigger": "search-or-fallback-or-uncertainty-threshold",
+            "failure_mode": "exclude-training-target",
+        },
         "admitted_decision_count": len(admitted_rows),
         "excluded_decision_count": sum(
             int(row["decision_count"]) for row in excluded_rows
@@ -616,6 +853,7 @@ def run_self_improvement_cycle(
     promotion_file: str | Path,
     teacher_compute_budget: int = 4096,
     max_teacher_fixtures: int | None = None,
+    challenger_uncertainty_threshold: float = DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD,
     teacher_timeout_seconds: float = 20.0,
     split_seed: str = "azelficoast.training-records",
     train_fraction: float = 0.8,
@@ -641,11 +879,13 @@ def run_self_improvement_cycle(
         output_root=Path(workspace) / "teachers",
         compute_budget=teacher_compute_budget,
         max_teacher_fixtures=max_teacher_fixtures,
+        challenger_uncertainty_threshold=challenger_uncertainty_threshold,
     )
     cycle_inputs = {
         "teacher_manifest_digest": teacher.manifest_digest,
         "incumbent_checkpoint_digest": incumbent_digest,
         "max_teacher_fixtures": max_teacher_fixtures,
+        "challenger_uncertainty_threshold": challenger_uncertainty_threshold,
         "split_seed": split_seed,
         "train_fraction": train_fraction,
         "validation_fraction": validation_fraction,

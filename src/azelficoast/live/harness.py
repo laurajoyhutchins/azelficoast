@@ -29,7 +29,10 @@ from azelficoast.belief.improvement import (
     promote_deferred_candidate,
 )
 from azelficoast.belief.public_pretraining import run_public_pretraining
-from azelficoast.belief.self_improvement import run_self_improvement_cycle
+from azelficoast.belief.self_improvement import (
+    DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD,
+    run_self_improvement_cycle,
+)
 from azelficoast.live.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.live.opponents import DirtyTricksPlayer
 from azelficoast.research.public_replays import PublicReplayError, import_public_replays
@@ -454,6 +457,15 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     training_cycle.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_cycle.add_argument(
+        "--teacher-challenger-uncertainty",
+        type=_unit_float,
+        default=DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD,
+        help=(
+            "run posterior-stress challenger teachers when public policy uncertainty "
+            "reaches this threshold; search/fallback states always challenge"
+        ),
+    )
+    training_cycle.add_argument(
         "--max-teacher-fixtures",
         type=_positive_int,
         help="mine at most this many battle-diverse informative fixtures per cycle",
@@ -563,6 +575,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="maximum one-sided exact superiority p-value for battle promotion",
     )
     training_auto.add_argument("--teacher-budget", type=_positive_int, default=4096)
+    training_auto.add_argument(
+        "--teacher-challenger-uncertainty",
+        type=_unit_float,
+        default=DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD,
+        help=(
+            "run posterior-stress challenger teachers when public policy uncertainty "
+            "reaches this threshold; search/fallback states always challenge"
+        ),
+    )
     training_auto.add_argument(
         "--max-teacher-fixtures",
         type=_positive_int,
@@ -1162,6 +1183,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             promotion_file=args.promotion,
             teacher_compute_budget=args.teacher_budget,
             max_teacher_fixtures=args.max_teacher_fixtures,
+            challenger_uncertainty_threshold=args.teacher_challenger_uncertainty,
             teacher_timeout_seconds=args.belief_timeout,
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,
@@ -1353,6 +1375,7 @@ def _run_training(args: argparse.Namespace) -> None:
             promotion_file=args.promotion,
             teacher_compute_budget=args.teacher_budget,
             max_teacher_fixtures=args.max_teacher_fixtures,
+            challenger_uncertainty_threshold=args.teacher_challenger_uncertainty,
             teacher_timeout_seconds=args.belief_timeout,
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,

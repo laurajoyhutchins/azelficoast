@@ -136,6 +136,7 @@ def test_training_cycle_parsing() -> None:
     assert [path.name for path in args.traces] == ["decisions.jsonl"]
     assert str(args.showdown_root) == "/tmp/pokemon-showdown"
     assert args.teacher_budget == 2048
+    assert args.teacher_challenger_uncertainty == 0.75
 
 
 def test_training_auto_parsing() -> None:
@@ -160,6 +161,7 @@ def test_training_auto_parsing() -> None:
     assert args.battles_per_generation == 20
     assert args.battle_search_policy_margin == 0.0
     assert args.max_teacher_fixtures == 48
+    assert args.teacher_challenger_uncertainty == 0.75
 
 
 def test_nonnegative_int_allows_zero_and_rejects_negative() -> None:
@@ -177,6 +179,20 @@ def test_training_battle_remainders_rotate_across_generations() -> None:
     assert _balanced_battle_allocation(2, 4, rotation=0) == (1, 1, 0, 0)
     assert _balanced_battle_allocation(2, 4, rotation=2) == (0, 0, 1, 1)
     assert _balanced_battle_allocation(5, 4, rotation=3) == (1, 1, 1, 2)
+
+
+def test_teacher_challenger_threshold_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "training",
+            "cycle",
+            "decisions.jsonl",
+            "--teacher-challenger-uncertainty",
+            "0.6",
+        ]
+    )
+
+    assert args.teacher_challenger_uncertainty == 0.6
 
 
 def test_training_auto_replenishes_public_curriculum_by_default() -> None:
