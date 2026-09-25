@@ -25,7 +25,9 @@
     "requires_public_forme_conditioning": true,
     "requires_exact_lead_context": true,
     "requires_public_ability_conditioning": true,
-    "requires_opponent_not_terastallized": true
+    "requires_opponent_not_terastallized": true,
+    "requires_empty_weather": true,
+    "requires_empty_field_effects": true
   },
   "exact_treatment": {
     "root_chance_samples": 16,
@@ -65,7 +67,8 @@
     "both search methods consume the identical reconstructed hidden-world oracle for every admitted state",
     "all exclusions and exact-evaluation failures are retained as evidence rather than silently dropped",
     "a valid cohort with zero positive bias or zero policy disagreements is a successful falsification",
-    "exact reconstruction must reproduce the discovery-time hidden-item sample counts before policy evaluation"
+    "exact reconstruction must reproduce the discovery-time hidden-item sample counts before policy evaluation",
+    "mechanics screening and exact search must reconstruct the same public statuses and side conditions"
   ],
   "staged_claims": {
     "current": "natural-state prevalence, value bias, corrected root-action regret, and structural associations under the bounded exact treatment",
