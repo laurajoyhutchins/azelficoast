@@ -2,6 +2,7 @@ name: decision-relevance-quotient
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/decision_relevance.py"
       - "src/azelficoast/live_belief.py"
