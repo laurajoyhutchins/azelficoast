@@ -31,7 +31,7 @@ from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOW
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
 TEACHER_MANIFEST_SCHEMA_VERSION = 2
 CYCLE_RECEIPT_SCHEMA = "azelficoast.self-improvement-cycle"
-CYCLE_RECEIPT_SCHEMA_VERSION = 1
+CYCLE_RECEIPT_SCHEMA_VERSION = 2
 
 
 class TeacherEvidenceError(ValueError):
@@ -625,8 +625,9 @@ def run_self_improvement_cycle(
     policy_weight: float = 1.0,
     value_target_source: str = "public_belief_search_return",
     admission_policy: AdmissionPolicy = AdmissionPolicy(),
+    defer_promotion: bool = False,
 ) -> dict[str, Any]:
-    """Run trace -> teacher -> dataset -> candidate -> admission -> promotion."""
+    """Run trace -> teacher -> dataset -> candidate -> admission, optionally deferring promotion."""
 
     evaluator = BeliefEvaluatorRuntime.from_checkpoint(incumbent_checkpoint)
     incumbent_digest = str(evaluator.identity["checkpoint_digest"])
@@ -653,6 +654,7 @@ def run_self_improvement_cycle(
         "policy_weight": policy_weight,
         "value_target_source": value_target_source,
         "admission_policy": admission_policy.as_record(),
+        "defer_promotion": defer_promotion,
     }
     cycle_id = _digest(cycle_inputs)
     cycle_dir = Path(workspace) / "cycles" / cycle_id.removeprefix("sha256:")
@@ -715,6 +717,7 @@ def run_self_improvement_cycle(
             policy_weight=policy_weight,
             value_target_source=value_target_source,
             admission_policy=admission_policy,
+            promote=not defer_promotion,
         )
     except ImprovementError as error:
         raise TeacherEvidenceError(str(error)) from error
@@ -723,7 +726,13 @@ def run_self_improvement_cycle(
         "schema": CYCLE_RECEIPT_SCHEMA,
         "schema_version": CYCLE_RECEIPT_SCHEMA_VERSION,
         "cycle_id": cycle_id,
-        "status": "promoted" if improvement["admitted"] else "rejected",
+        "status": (
+            "candidate-admitted"
+            if improvement["admitted"] and defer_promotion
+            else "promoted"
+            if improvement["admitted"]
+            else "rejected"
+        ),
         "inputs": cycle_inputs,
         "teacher_manifest": str(teacher.manifest_path),
         "dataset": str(dataset_path),
