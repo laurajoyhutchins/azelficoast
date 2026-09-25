@@ -55,7 +55,7 @@ jobs:
         run: |
           node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             experiments/real-belief-source-gliscor-urshifu.json             > /tmp/real-belief-transition-oracle.json
 
-      - name: Generate lazy whole-turn transition program
+      - name: Generate read-refinement whole-turn transition program
         run: |
           node scripts/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
@@ -79,7 +79,7 @@ jobs:
           )
           certificate = verify_whole_turn_program_set(program, oracle)
           producer = program.get("producer", {})
-          assert producer.get("strategy") == "counterfactual-causal-refinement", producer
+          assert producer.get("strategy") == "representative-dynamic-read-refinement", producer
           unique = int(producer.get("unique_world_action_executions", -1))
           exhaustive = int(producer.get("exhaustive_world_action_product", -1))
           saved = int(producer.get("saved_world_action_executions", -1))

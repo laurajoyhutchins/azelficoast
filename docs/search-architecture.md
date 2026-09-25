@@ -27,9 +27,12 @@ public decision state + hidden-world support + root action
                            search / evaluation
 ```
 
-The direct oracle and the program producer are separate evidence paths. Verification
-compares the program's representative execution classes with direct Showdown outcomes
-for every member of the supplied finite support.
+The direct oracle and the program producer are separate evidence paths. Exact candidate
+CI compares the program's representative execution classes with direct Showdown outcomes
+for every member of the supplied finite support. Live play does not repeat that exhaustive
+comparison. It admits a revision-bound read-refinement kernel whose correctness boundary
+is attacked offline by the exact candidate suite, then validates only the kernel
+preconditions and the current program structure online.
 
 The important distinction is:
 
@@ -89,6 +92,55 @@ The program therefore distinguishes:
 This distinction is part of the verified transition semantics. It was exposed by the
 real Gliscor/Urshifu candidate proof: after some root outcomes the public request is a
 forced wait even though the battle continues.
+
+## Amortized read-refinement kernel
+
+The live program producer no longer tries to rediscover a minimal causal theorem with
+one-field counterfactual probes and then rely on a per-turn exhaustive verifier. Its hot
+path is a recursive dynamic-read refinement kernel:
+
+```text
+all posterior worlds for one root action
+        |
+        v
+execute one representative in pinned Showdown
+        |
+        v
+record every instrumented hidden field actually read
+        |
+        v
+split worlds by those read values
+     /      \
+ same       differ
+  |           |
+reuse      recurse on each subgroup
+```
+
+The semantic hidden boundary is explicit and revision-bound. It includes opponent item,
+ability, moves, Tera type, EVs, IVs, and exact HP. The execution dependency candidates
+are narrower: item, ability, EVs, IVs, and exact HP. Hidden moves and Tera remain in the
+posterior but are explicitly excluded from the online execution key only because
+this kernel fixes the opponent to a previously observed move and does not permit an
+opponent Tera choice. Exact candidate CI must independently keep proving that
+nonexecution classification against direct Showdown. If the boundary, nonexecution-semantic-field set,
+algorithm identity, or Showdown revision drifts, Python admission fails closed.
+
+This changes where the expensive proof lives. Candidate CI still constructs the
+exhaustive world × action oracle and independently runs
+`verify_whole_turn_program_set` against the kernel-produced program. That is where stale
+instrumentation, an omitted hidden input, or a bad merge is supposed to be falsified.
+The live turn trusts only the exact revision of that checked kernel and performs cheap
+projection/admission checks instead of replaying every hidden world through Showdown.
+
+The kernel is deliberately narrower than a theorem about all Pokémon mechanics. Its
+current scope is the pinned Showdown revision, the complete declared hidden boundary,
+the fixed observed-move opponent response, the fixed chance-seed family, and no opponent
+Tera choice. Broadening any of those surfaces requires new exact evidence rather than
+silently widening the claim.
+
+Live diagnostics report posterior construction, transition-program generation, program
+admission/search, and exhaustive-oracle fallback wall time separately. This prevents a
+fast search microbenchmark from hiding an expensive producer.
 
 ## Information-set search
 
@@ -210,9 +262,12 @@ Three different statements must not be conflated:
 Azelficoast currently claims the second when its verifier passes. It does not infer the
 third from one successful program.
 
-Candidate CI exercises this distinction explicitly. The real-belief decision trace
-generates both a direct oracle and a lazy whole-turn program, then independently checks
-their equivalence before accepting the compression evidence.
+Candidate CI exercises this distinction explicitly. The exact-corpus workflow
+generates both a direct oracle and a read-kernel whole-turn program from the same frozen
+candidate, records kernel generation wall time, then independently checks every class
+member against the direct oracle before accepting the kernel evidence. Online admission
+is therefore an amortized trust decision about that checked kernel revision, not a claim
+that each new finite support was exhaustively re-proved during the turn.
 
 ## What this replaces
 

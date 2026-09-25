@@ -10,6 +10,8 @@ EXECUTION_SCHEMA = "azelficoast.core.weighted-transition-outcomes"
 EXECUTION_SCHEMA_VERSION = 1
 VERIFICATION_SCHEMA = "azelficoast.core.transition-program-verification"
 VERIFICATION_SCHEMA_VERSION = 1
+READ_KERNEL_SCHEMA = "azelficoast.core.read-refinement-kernel"
+READ_KERNEL_SCHEMA_VERSION = 1
 
 
 class TransitionProgramError(ValueError):
