@@ -181,17 +181,35 @@ function lastOpponentMove() {
   return toID(last);
 }
 
+function resolveGeneratorSpecies(requested) {
+  const dexSpecies = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0])
+    .dex.species.get(requested);
+  const candidates = [
+    dexSpecies.id,
+    typeof dexSpecies.battleOnly === "string" ? toID(dexSpecies.battleOnly) : "",
+    typeof dexSpecies.baseSpecies === "string" ? toID(dexSpecies.baseSpecies) : "",
+  ].filter(Boolean);
+  for (const candidate of [...new Set(candidates)]) {
+    if (randomSets[candidate]) return candidate;
+  }
+  fail(`no randbats set data for ${requested}`);
+}
+
 function generatorVariants() {
   const requested = fixture.state.opponent_active.species;
-  const species = toID(requested);
-  if (!randomSets[species]) fail(`no randbats set data for ${requested}`);
+  const species = resolveGeneratorSpecies(requested);
   const observed = new Set(observedOpponentMoves());
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   const variants = new Map();
   let matched = 0;
   for (let i = 0; i < GENERATOR_ROUNDS; i++) {
     generator.setSeed([i, i, i, i]);
-    const set = generator.randomSet(species, {}, false, false);
+    const set = generator.randomSet(
+      species,
+      {},
+      source.opponent_is_lead === true,
+      false
+    );
     // Forme and level are public Random Battle information. In particular,
     // getForme() consumes RNG before set construction, so impossible cosmetic
     // forme draws must be rejected rather than normalized after sampling.
