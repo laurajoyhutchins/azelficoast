@@ -7,7 +7,7 @@ on:
       - ".github/actions/setup-python-environment/action.yml"
       - "experiments/status-move-prior-selection.json"
       - "scripts/sample_showdown_worlds.cjs"
-      - "src/azelficoast/status_move_prior.py"
+      - "src/azelficoast/belief/status_move_prior.py"
       - "tests/test_status_move_prior.py"
       - ".github/workflows/status-move-hidden-world-prior.yml"
   workflow_dispatch:
@@ -46,7 +46,7 @@ jobs:
 
       - name: Compare disjoint status-move prior families
         run: |
-          uv run python -m azelficoast.status_move_prior \
+          uv run python -m azelficoast.belief.status_move_prior \
             experiments/status-move-prior-selection.json \
             --showdown-root /tmp/pokemon-showdown \
             | tee /tmp/status-move-prior-results.json

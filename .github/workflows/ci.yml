@@ -30,7 +30,7 @@ jobs:
       - name: Test
         run: uv run pytest
       - name: Imperfect-information reference experiment
-        run: uv run python -m azelficoast.imperfect_information
+        run: uv run python -m azelficoast.search.imperfect_information
       - name: Pokémon-shaped counterexample
         run: uv run python -m azelficoast.pokemon_counterexample
       - name: Simulator dependency experiment
