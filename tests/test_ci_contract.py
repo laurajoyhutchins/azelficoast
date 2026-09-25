@@ -56,3 +56,36 @@ def test_expensive_pr_workflows_only_run_for_candidate_heads() -> None:
         checked.append(path.name)
 
     assert checked, "expected at least one candidate-only research workflow"
+
+
+def test_python_workflows_use_locked_dependency_resolution() -> None:
+    checked: list[str] = []
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        if "uv sync" not in source:
+            continue
+
+        assert "python -m pip install uv==0.12.18" in source, (
+            f"{path.name} must pin the CI uv bootstrap"
+        )
+
+        sync_lines = [
+            line.strip()
+            for line in source.splitlines()
+            if "uv sync" in line
+        ]
+        assert sync_lines, f"{path.name} must contain a uv sync command"
+        assert all("--locked" in line for line in sync_lines), (
+            f"{path.name} must install only from the committed uv lock: {sync_lines!r}"
+        )
+
+        if '- "pyproject.toml"' in source:
+            assert '- "uv.lock"' in source, (
+                f"{path.name} treats pyproject.toml as dependency-sensitive "
+                "and must treat uv.lock the same way"
+            )
+
+        checked.append(path.name)
+
+    assert checked, "expected at least one uv-managed workflow"
