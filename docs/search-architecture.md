@@ -191,9 +191,10 @@ that dependency and Azelficoast integrates over the posterior rather than observ
 realized set.
 
 The bounded policy does **not** currently assign probability to voluntary switches or
-opponent Terastallization. Forced switches remain part of the reconstructed Showdown
-transaction. These omissions are opponent-model limitations, not missing battle
-mechanics, and should be widened or learned independently of the mechanics executor.
+opponent Terastallization. When Showdown requires a replacement, the policy distributes
+mass uniformly across the reconstructed legal switch targets. These omissions are
+opponent-model limitations, not missing battle mechanics, and should be widened or
+learned independently of the mechanics executor.
 
 The posterior is generator-faithful: known public item evidence constrains the generated
 set support, while unknown items remain uncertain instead of being restricted to Choice
