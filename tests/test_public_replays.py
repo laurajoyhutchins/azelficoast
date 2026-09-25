@@ -45,7 +45,7 @@ def test_discovery_uses_51st_row_only_as_pagination_signal(monkeypatch) -> None:
     assert len(rows) == 28
     assert all(int(row["rating"]) >= 1200 for row in rows)
     assert len(urls) == 2
-    assert "before=9951" in urls[1]
+    assert "before=9950" in urls[1]
     assert "gen9randombattle-50" not in {row["id"] for row in rows}
 
 
