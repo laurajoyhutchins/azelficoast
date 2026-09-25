@@ -131,6 +131,8 @@ def _search_evidence(
         best = max(values.values())
         chosen = min(action for action, value in values.items() if value == best)
         return {
+            "schema": "azelficoast.matched-search-receipt",
+            "schema_version": 2,
             "packet_digest": packet["packet_digest"],
             "method": method,
             "input_digest": packet["input_digest"],
