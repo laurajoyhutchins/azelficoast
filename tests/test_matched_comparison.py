@@ -81,6 +81,8 @@ def _receipt(
     consumed: int = 3000,
 ) -> dict[str, object]:
     return {
+        "schema": "azelficoast.matched-search-receipt",
+        "schema_version": 2,
         "packet_digest": packet["packet_digest"],
         "method": method,
         "input_digest": packet["input_digest"],
