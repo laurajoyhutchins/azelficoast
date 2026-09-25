@@ -31,7 +31,7 @@ def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> N
     assert "cancel-in-progress: true" in source
 
 
-def test_expensive_pr_workflows_only_run_for_candidate_heads() -> None:
+def test_expensive_pr_workflows_are_exact_head_fenced() -> None:
     checked: list[str] = []
 
     for path in sorted(WORKFLOWS.glob("*.yml")):
@@ -43,9 +43,14 @@ def test_expensive_pr_workflows_only_run_for_candidate_heads() -> None:
             continue
 
         pull_request = _event_block(source, "pull_request")
-        assert "types: [ready_for_review]" in pull_request, (
-            f"{path.name} must not spend research evidence on ordinary PR updates"
-        )
+        if path.name == "candidate-research.yml":
+            assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
+            assert "github.event.pull_request.draft == false" in source
+            assert "github.event.pull_request.head.sha || github.sha" in source
+        else:
+            assert "types: [ready_for_review]" in pull_request, (
+                f"{path.name} must remain candidate-only until migrated"
+            )
         assert "  workflow_dispatch:\n" in source, (
             f"{path.name} must retain an explicit manual evidence path"
         )
@@ -55,7 +60,7 @@ def test_expensive_pr_workflows_only_run_for_candidate_heads() -> None:
         assert "cancel-in-progress: true" in source
         checked.append(path.name)
 
-    assert checked, "expected at least one candidate-only research workflow"
+    assert checked, "expected at least one research workflow"
 
 
 def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
@@ -152,6 +157,19 @@ def test_completed_discovery_workflows_are_not_executable_ci() -> None:
         "real-belief-candidate-corpus.yml",
         "natural-public-belief-exact.yml",
         "natural-public-belief-robustness.yml",
+        "simulator-adaptive-execution-experiment.yml",
+        "simulator-attack-transition-experiment.yml",
+        "simulator-class-native-belief-experiment.yml",
+        "simulator-gen9-damage-experiment.yml",
+        "simulator-jax-experiment.yml",
+        "simulator-native-damage-experiment.yml",
+        "simulator-ordered-attack-experiment.yml",
+        "simulator-showdown-experiment.yml",
+        "simulator-two-attack-turn-experiment.yml",
+        "stateful-protect-turn-experiment.yml",
+        "switch-entry-hazard-experiment.yml",
+        "switch-intimidate-experiment.yml",
+        "voluntary-switch-turn-experiment.yml",
     }
     present = {path.name for path in WORKFLOWS.glob("*.yml")}
     assert obsolete.isdisjoint(present), sorted(obsolete & present)
