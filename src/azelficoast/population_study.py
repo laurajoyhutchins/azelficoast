@@ -429,6 +429,11 @@ def freeze_population(
         candidate = row["candidate"]
         source["observed_opponent_moves"] = list(candidate["revealed_moves"])
         source["opponent_is_lead"] = bool(candidate["is_lead"])
+        source["expected_item_counts"] = {
+            str(item): int(count)
+            for item, count in candidate["item_counts"].items()
+        }
+        source["expected_generator_rounds"] = int(candidate["sample_rounds"])
         source["source_artifact"] = {
             **source_artifact,
             "population_index": index,
