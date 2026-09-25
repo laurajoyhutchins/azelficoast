@@ -24,7 +24,7 @@ from poke_env.player.battle_order import BattleOrder
 from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION, battle_view
 
 PUBLIC_REPLAY_SCHEMA = "azelficoast.public-replay-corpus"
-PUBLIC_REPLAY_SCHEMA_VERSION = 1
+PUBLIC_REPLAY_SCHEMA_VERSION = 2
 DEFAULT_REPLAY_FORMAT = "gen9randombattle"
 REPLAY_ORIGIN = "https://replay.pokemonshowdown.com"
 
@@ -291,8 +291,16 @@ def _require_replay_revision(replay: PublicReplay, revision: str) -> None:
         )
 
 
+def _scripts_dir() -> Path:
+    return Path(__file__).resolve().parents[3] / "scripts"
+
+
 def _bridge_script() -> Path:
-    return Path(__file__).resolve().parents[2] / "scripts" / "replay_inputlog_to_streams.cjs"
+    return _scripts_dir() / "replay_inputlog_to_streams.cjs"
+
+
+def _truth_bridge_script() -> Path:
+    return _scripts_dir() / "replay_hidden_truth.cjs"
 
 
 def _replay_streams(showdown_root: Path, inputlog: str) -> dict[str, list[str]]:
@@ -328,7 +336,7 @@ def _replay_streams(showdown_root: Path, inputlog: str) -> dict[str, list[str]]:
     return sides
 
 
-def _input_players(inputlog: str) -> dict[str, dict[str, Any]]:
+def _input_player_options(inputlog: str) -> dict[str, dict[str, Any]]:
     players: dict[str, dict[str, Any]] = {}
     for line in inputlog.splitlines():
         if not line.startswith(">player "):
@@ -338,15 +346,91 @@ def _input_players(inputlog: str) -> dict[str, dict[str, Any]]:
             document = json.loads(raw)
         except (ValueError, json.JSONDecodeError) as error:
             raise PublicReplayError(f"malformed inputlog player line: {line!r}") from error
-        name = document.get("name") if isinstance(document, Mapping) else None
-        if side in {"p1", "p2"} and isinstance(name, str) and name:
-            players[side] = {
-                "name": name,
-                "rating": _optional_int(document.get("rating")),
-            }
+        if side in {"p1", "p2"} and isinstance(document, Mapping):
+            name = document.get("name")
+            if isinstance(name, str) and name:
+                players[side] = dict(document)
     if set(players) != {"p1", "p2"}:
         raise PublicReplayError("inputlog does not identify both players")
     return players
+
+
+def _input_players(inputlog: str) -> dict[str, dict[str, Any]]:
+    return {
+        side: {
+            "name": str(options["name"]),
+            "rating": _optional_int(options.get("rating")),
+        }
+        for side, options in _input_player_options(inputlog).items()
+    }
+
+
+def _has_recoverable_hidden_truth(inputlog: str) -> bool:
+    players = _input_player_options(inputlog)
+    for options in players.values():
+        team = options.get("team")
+        seed = options.get("seed")
+        if isinstance(team, str) and team:
+            continue
+        if (
+            isinstance(seed, list)
+            and len(seed) == 4
+            and all(
+                isinstance(value, int) and not isinstance(value, bool)
+                for value in seed
+            )
+        ):
+            continue
+        return False
+    return True
+
+
+def _replay_hidden_truth(
+    showdown_root: Path,
+    replay: PublicReplay,
+) -> dict[str, Any]:
+    script = _truth_bridge_script()
+    if not script.is_file():
+        raise PublicReplayError(f"missing replay truth bridge: {script}")
+    with tempfile.TemporaryDirectory(prefix="azelficoast-replay-truth-") as directory:
+        input_path = Path(directory) / "input.log"
+        input_path.write_text(replay.inputlog, encoding="utf-8")
+        try:
+            result = subprocess.run(
+                [
+                    "node",
+                    str(script),
+                    str(showdown_root),
+                    str(input_path),
+                    replay.replay_id,
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            detail = getattr(error, "stderr", None) or str(error)
+            raise PublicReplayError(f"Showdown replay truth bridge failed: {detail}") from error
+    try:
+        document = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise PublicReplayError("Showdown replay truth bridge returned invalid JSON") from error
+    if not isinstance(document, Mapping):
+        raise PublicReplayError("Showdown replay truth bridge returned a non-object")
+    if (
+        document.get("schema") != "azelficoast.public-replay-hidden-truth"
+        or document.get("schema_version") != 1
+        or document.get("replay_id") != replay.replay_id
+        or document.get("showdown_commit") != replay.source_showdown_version
+    ):
+        raise PublicReplayError("Showdown replay truth bridge identity drifted")
+    sides = document.get("sides")
+    if not isinstance(sides, Mapping) or not all(
+        isinstance(sides.get(side), list) for side in ("p1", "p2")
+    ):
+        raise PublicReplayError("Showdown replay truth bridge omitted side evidence")
+    return dict(document)
 
 
 def _input_choices(inputlog: str, side: str) -> list[str]:
@@ -759,6 +843,29 @@ def import_public_replays(
                 cache_hit_count += 1
             frozen = freeze_public_replay(replay, root)
             _require_replay_revision(replay, revision)
+
+            truth_record: dict[str, Any]
+            if _has_recoverable_hidden_truth(replay.inputlog):
+                truth = _replay_hidden_truth(showdown, replay)
+                truth_path = root / "truth" / f"{replay.replay_id}.json"
+                truth_sha256 = _write_immutable(
+                    truth_path, (_canonical(truth) + "\n").encode("utf-8")
+                )
+                sides = truth["sides"]
+                truth_record = {
+                    "truth_status": "available",
+                    "truth_path": str(truth_path),
+                    "truth_sha256": truth_sha256,
+                    "truth_decision_count": sum(
+                        len(sides[side]) for side in ("p1", "p2")
+                    ),
+                }
+            else:
+                truth_record = {
+                    "truth_status": "unavailable-missing-team-or-seed",
+                    "truth_decision_count": 0,
+                }
+
             replay_rows = asyncio.run(
                 _reconstruct_replay_trace(replay, showdown_root=showdown)
             )
@@ -766,6 +873,7 @@ def import_public_replays(
             admitted.append(
                 {
                     **frozen,
+                    **truth_record,
                     "trace_record_count": len(replay_rows),
                     "decision_count": sum(
                         row.get("kind") == "decision" for row in replay_rows
@@ -818,7 +926,8 @@ def import_public_replays(
             "acquisition": "downloaded and deterministically replayed",
             "transformation": (
                 "public replay JSON plus autogenerated-team inputlog replayed through "
-                "pinned Showdown into player-perspective poke-env decision traces"
+                "pinned Showdown into player-perspective poke-env decision traces; "
+                "recoverable hidden truth is written only to separate post-hoc sidecars"
             ),
             "contains_third_party_assets": False,
             "contains_user_identifiers": True,
@@ -851,5 +960,14 @@ def import_public_replays(
         "admitted_count": len(admitted),
         "excluded_count": len(excluded),
         "decision_count": manifest["decision_count"],
+        "truth_paths": [
+            str(row["truth_path"])
+            for row in admitted
+            if row.get("truth_status") == "available"
+            and isinstance(row.get("truth_path"), str)
+        ],
+        "truth_decision_count": sum(
+            int(row.get("truth_decision_count", 0)) for row in admitted
+        ),
         "next_before": next_before,
     }
