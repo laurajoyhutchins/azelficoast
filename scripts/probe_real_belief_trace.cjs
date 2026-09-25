@@ -201,6 +201,7 @@ function generatorVariants() {
   const observed = new Set(observedOpponentMoves());
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   const variants = new Map();
+  const itemCounts = new Map();
   let matched = 0;
   for (let i = 0; i < GENERATOR_ROUNDS; i++) {
     generator.setSeed([i, i, i, i]);
@@ -225,6 +226,7 @@ function generatorVariants() {
       : null;
     if (plausibleItems && !plausibleItems.has(set.item)) continue;
     matched++;
+    itemCounts.set(set.item, (itemCounts.get(set.item) || 0) + 1);
     // Collapse generator-only role labels. The exact oracle never consumes
     // role, so two sets that differ only by role are the same mechanics world
     // and must contribute prior mass to one world rather than mint duplicate IDs.
@@ -242,7 +244,13 @@ function generatorVariants() {
     variants.set(key, prior);
   }
   if (!matched) fail("generator sweep produced no Choice worlds compatible with public moves");
-  return {matched, variants: [...variants.values()]};
+  return {
+    matched,
+    itemCounts: Object.fromEntries(
+      [...itemCounts.entries()].sort(([left], [right]) => left.localeCompare(right))
+    ),
+    variants: [...variants.values()],
+  };
 }
 
 function ownActiveTeraType() {
@@ -661,7 +669,24 @@ function declaredReads(_action) {
   return [...DEPENDENCY_CANDIDATES];
 }
 
-const {matched, variants} = generatorVariants();
+const {matched, itemCounts, variants} = generatorVariants();
+if (
+  source.expected_generator_rounds != null &&
+  Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
+) {
+  fail(
+    `expected generator rounds ${source.expected_generator_rounds}, probe uses ${GENERATOR_ROUNDS}`
+  );
+}
+if (source.expected_item_counts != null) {
+  const expectedCounts = stable(source.expected_item_counts);
+  const observedCounts = stable(itemCounts);
+  if (JSON.stringify(expectedCounts) !== JSON.stringify(observedCounts)) {
+    fail(
+      `exact hidden-world prior drift: expected ${JSON.stringify(expectedCounts)}, got ${JSON.stringify(observedCounts)}`
+    );
+  }
+}
 const worldById = new Map();
 for (const entry of variants) {
   const {maxhp, support} = hpSupportForVariant(entry.set);
