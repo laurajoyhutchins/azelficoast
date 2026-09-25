@@ -100,7 +100,7 @@
     "invalidated_before_outcome_read": true,
     "invalidation_reason": "exact adapter requires a known surviving opponent bench species or proof that the public bench is exhausted; one selected source lacked either structural witness"
   },
-  "treatment_enabled": false,
+  "treatment_enabled": true,
   "preregistration_amendment": {
     "reason": "structural exact-reconstruction preflight omitted from initial admissibility",
     "trigger": "index 5 failed before oracle construction because opponent bench was publicly unresolved",
@@ -147,5 +147,19 @@
       "exclude already-Terastallized opponents from this bounded study until exact type-state reconstruction is supported",
       "exclude transformed opponents"
     ]
+  },
+  "frozen_cohort": {
+    "workflow_run_id": 36092751541,
+    "artifact_id": 10845773798,
+    "artifact_name": "natural-population-selection",
+    "artifact_digest": "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6",
+    "head_sha": "506b9ccf9791f403e1170c72ef27bc23c8f6512f",
+    "source_decision_state_count": 6485,
+    "bounded_candidate_count": 13,
+    "eligible_count": 10,
+    "selected_count": 10,
+    "overflow_sampling_applied": false,
+    "frozen_before_policy_values": true,
+    "selection_uses_policy_result": false
   }
 }
