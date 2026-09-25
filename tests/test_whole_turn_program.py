@@ -241,7 +241,10 @@ def _instrumented_branching_oracle() -> dict[str, object]:
 
 def test_dynamic_read_refinement_keeps_branch_local_dependencies_local() -> None:
     program = program_for_action(
-        compile_whole_turn_programs(_instrumented_branching_oracle()),
+        compile_whole_turn_programs(
+            _instrumented_branching_oracle(),
+            partition_strategy="dynamic_reads",
+        ),
         "turn",
     )
 
@@ -281,12 +284,18 @@ def test_dynamic_read_refinement_fails_closed_on_missing_instrumentation() -> No
         WholeTurnProgramError,
         match="instrumented transition reads are incomplete",
     ):
-        compile_whole_turn_programs(oracle)
+        compile_whole_turn_programs(
+            oracle,
+            partition_strategy="dynamic_reads",
+        )
 
 
 def test_direct_oracle_verifies_read_refined_program() -> None:
     oracle = _instrumented_branching_oracle()
-    program_set = compile_whole_turn_programs(oracle)
+    program_set = compile_whole_turn_programs(
+        oracle,
+        partition_strategy="dynamic_reads",
+    )
 
     certificate = verify_whole_turn_program_set(program_set, oracle)
 
@@ -301,7 +310,10 @@ def test_direct_oracle_verifies_read_refined_program() -> None:
 
 def test_direct_oracle_rejects_semantically_invalid_lazy_class() -> None:
     oracle = _instrumented_branching_oracle()
-    program_set = compile_whole_turn_programs(oracle)
+    program_set = compile_whole_turn_programs(
+        oracle,
+        partition_strategy="dynamic_reads",
+    )
     program = program_for_action(program_set, "turn")
     classes = program["classes"]
     assert isinstance(classes, list)
@@ -318,3 +330,21 @@ def test_direct_oracle_rejects_semantically_invalid_lazy_class() -> None:
         match="merges semantically different world",
     ):
         verify_whole_turn_program_set(program_set, oracle)
+
+
+def test_semantic_analysis_does_not_inherit_conservative_runtime_reads() -> None:
+    oracle = _instrumented_branching_oracle()
+
+    semantic = program_for_action(compile_whole_turn_programs(oracle), "turn")
+    read_refined = program_for_action(
+        compile_whole_turn_programs(
+            oracle,
+            partition_strategy="dynamic_reads",
+        ),
+        "turn",
+    )
+
+    assert semantic["partition_method"] == "finite-support-minimal-semantics"
+    assert semantic["classes_out"] == 4
+    assert read_refined["partition_method"] == "dynamic-read-refinement"
+    assert read_refined["classes_out"] == 3
