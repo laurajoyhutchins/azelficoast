@@ -97,6 +97,16 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     if plan.get("cluster_unit") != "battle_tag":
         raise MatchedComparisonError("population inference must cluster by battle_tag")
 
+    inference = plan.get("inference")
+    if not isinstance(inference, Mapping):
+        raise MatchedComparisonError("plan must declare population inference")
+    replicates = inference.get("bootstrap_replicates")
+    seed = inference.get("bootstrap_seed")
+    if not isinstance(replicates, int) or isinstance(replicates, bool) or replicates < 1:
+        raise MatchedComparisonError("bootstrap replicates must be a positive integer")
+    if not isinstance(seed, int) or isinstance(seed, bool):
+        raise MatchedComparisonError("bootstrap seed must be an integer")
+
     showdown_commit = plan.get("showdown_commit")
     if not isinstance(showdown_commit, str) or not showdown_commit:
         raise MatchedComparisonError("plan must pin a Showdown commit")
@@ -138,6 +148,22 @@ def freeze_packet(
         raise MatchedComparisonError("state must contain non-empty legal actions")
     if len(set(legal_actions)) != len(legal_actions):
         raise MatchedComparisonError("legal actions must be unique")
+
+    predictors = state.get("predictors")
+    if not isinstance(predictors, Mapping):
+        raise MatchedComparisonError("state must contain preregistered predictors")
+    frozen_predictors: dict[str, Any] = {}
+    for predictor in checked_plan["confirmatory_predictors"]:
+        if predictor not in predictors:
+            raise MatchedComparisonError(
+                f"state lacks confirmatory predictor {predictor!r}"
+            )
+        value = predictors[predictor]
+        if not isinstance(value, (bool, int, float)):
+            raise MatchedComparisonError(
+                f"confirmatory predictor {predictor!r} must be numeric or boolean"
+            )
+        frozen_predictors[str(predictor)] = value
 
     if posterior.get("treatment") != posterior_treatment:
         raise MatchedComparisonError("posterior artifact treatment does not match packet")
@@ -186,6 +212,7 @@ def freeze_packet(
         "posterior_digest": posterior_digest,
         "input_digest": input_digest,
         "legal_actions": list(legal_actions),
+        "predictors": frozen_predictors,
         "compute_budget": budget,
         "work": [
             {
@@ -295,6 +322,10 @@ def settle_packet(
         "matched_authorized_compute": True,
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
+        "predictors": dict(packet["predictors"]),
+        "two_player_information_sets_preserved": (
+            packet["opponent_model"] == "two_sided_information_sets"
+        ),
         "max_determinization_value_optimism": max_gap,
         "max_optimism_action": max_gap_action,
         "information_set_regret_of_determinization_action": regret,
