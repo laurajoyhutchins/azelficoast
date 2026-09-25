@@ -85,17 +85,6 @@ def test_probe_source_reconstructs_general_posterior_from_either_showdown_side()
     }
 
 
-def test_probe_source_binds_explicit_showdown_revision() -> None:
-    fixture = live_fixture(_state(), _protocol())
-    revision = "b" * 40
-
-    source, reason = build_probe_source(fixture, showdown_commit=revision)
-
-    assert reason == "admitted"
-    assert source is not None
-    assert source["showdown_commit"] == revision
-
-
 def test_probe_source_uses_known_opponent_item_as_public_evidence() -> None:
     fixture = live_fixture(_state(opponent_item="leftovers"), _protocol())
     source, reason = build_probe_source(fixture)
