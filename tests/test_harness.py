@@ -125,3 +125,26 @@ def test_training_cycle_parsing() -> None:
     assert [path.name for path in args.traces] == ["decisions.jsonl"]
     assert str(args.showdown_root) == "/tmp/pokemon-showdown"
     assert args.teacher_budget == 2048
+
+
+def test_training_auto_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "--showdown-root",
+            "/tmp/pokemon-showdown",
+            "training",
+            "auto",
+            "--incumbent",
+            "artifacts/evaluators/current.json",
+            "--generations",
+            "3",
+            "--battles-per-generation",
+            "20",
+            "--max-teacher-fixtures",
+            "48",
+        ]
+    )
+    assert args.training_command == "auto"
+    assert args.generations == 3
+    assert args.battles_per_generation == 20
+    assert args.max_teacher_fixtures == 48
