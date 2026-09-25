@@ -13,7 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
-from azelficoast.belief_evaluator import build_evaluator_input
+from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.corpus import DecisionFixture
 from azelficoast.decision_relevance import (
     DecisionRelevanceError,

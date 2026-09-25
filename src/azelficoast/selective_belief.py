@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-from azelficoast.belief_evaluator import BeliefPrediction
+from azelficoast.belief.evaluator import BeliefPrediction
 
 
 class SelectiveBeliefError(ValueError):

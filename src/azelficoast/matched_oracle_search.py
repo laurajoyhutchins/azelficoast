@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.belief_evaluator import BeliefEvaluatorRuntime
+from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.matched_comparison import (
     METHODS,
     PACKET_SCHEMA,
