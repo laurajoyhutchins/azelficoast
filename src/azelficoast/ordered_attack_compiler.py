@@ -6,9 +6,6 @@ changing that compiler's public attack surface.
 
 from __future__ import annotations
 
-import platform
-import subprocess
-import tempfile
 from pathlib import Path
 from typing import Iterable
 
@@ -18,6 +15,8 @@ from azelficoast.native_damage_compiler import (
     NativeBuild,
     NativeKernelCompileError,
     _Emitter,
+    _build_shared_library,
+    _emit_native_c,
     _selected_functions,
 )
 
@@ -25,14 +24,6 @@ ORDERED_ATTACK_KERNEL_FUNCTIONS = (
     "_attacker_acts_first_numeric",
     "ordered_attack_transition_numeric",
 )
-
-
-def _link_flags() -> tuple[str, ...]:
-    if platform.system() == "Darwin":
-        return ("-dynamiclib",)
-    if platform.system() == "Windows":
-        raise NativeKernelCompileError("the research compiler currently supports Unix C toolchains")
-    return ("-shared", "-fPIC")
 
 
 def emit_ordered_attack_c(
@@ -54,20 +45,7 @@ def emit_ordered_attack_c(
     )
     body = "".join(emitter.function(function) for function in functions)
 
-    return f"""#include <stdint.h>
-#include <stddef.h>
-
-static int64_t az_floor_div(int64_t a, int64_t b) {{
-    int64_t q = a / b;
-    int64_t r = a % b;
-    if (r != 0 && ((r > 0) != (b > 0))) {{
-        q -= 1;
-    }}
-    return q;
-}}
-
-{body}
-int32_t az_ordered_attack_one(
+    return _emit_native_c(body, f"""int32_t az_ordered_attack_one(
     const int32_t *params,
     int32_t order_tie_roll,
     int32_t accuracy_roll,
@@ -98,7 +76,7 @@ void az_ordered_attack_batch(
         );
     }}
 }}
-"""
+""")
 
 
 def build_ordered_attack_library(
@@ -122,19 +100,10 @@ def build_ordered_attack_library(
         context_width=context_width,
     )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="azelficoast-native-") as temp_dir:
-        c_path = Path(temp_dir) / "ordered_attack_kernel.c"
-        c_path.write_text(c_source, encoding="utf-8")
-        command = [
-            cc, "-std=c99", "-O3", *extra_cflags, *_link_flags(),
-            str(c_path), "-o", str(output_path),
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
-        if completed.returncode != 0:
-            raise NativeKernelCompileError(
-                "C compiler failed:\n"
-                + completed.stderr
-                + ("\n" + completed.stdout if completed.stdout else "")
-            )
-    return NativeBuild(library=output_path, c_source=c_source)
+    return _build_shared_library(
+        c_source,
+        output_path,
+        source_name="ordered_attack_kernel.c",
+        cc=cc,
+        extra_cflags=extra_cflags,
+    )

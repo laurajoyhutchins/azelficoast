@@ -6,8 +6,6 @@ import argparse
 import hashlib
 import itertools
 import json
-import os
-import platform
 import statistics
 import time
 from dataclasses import dataclass
@@ -22,6 +20,7 @@ from azelficoast.adaptive_execution import (
     ExecutionFeatures,
     ExecutionPath,
     choose_execution_path,
+    current_jax_execution_target,
 )
 from azelficoast.class_native_belief import (
     ClassNativeBelief,
@@ -59,10 +58,20 @@ class Treatment:
 class CostModelShape:
     direct_quadratic_term: bool
     projected_canonical_term: bool
+    direct_saturation_term: bool = False
+
+    def __post_init__(self) -> None:
+        if self.direct_quadratic_term and self.direct_saturation_term:
+            raise ValueError("direct quadratic and saturation terms are alternative shapes")
 
     @property
     def name(self) -> str:
-        direct = "direct-linear+quadratic" if self.direct_quadratic_term else "direct-linear"
+        if self.direct_quadratic_term:
+            direct = "direct-linear+quadratic"
+        elif self.direct_saturation_term:
+            direct = "direct-linear+saturation"
+        else:
+            direct = "direct-linear"
         projected = (
             "projected-canonical+execution"
             if self.projected_canonical_term
@@ -72,7 +81,12 @@ class CostModelShape:
 
     @property
     def complexity(self) -> int:
-        return 4 + int(self.direct_quadratic_term) + int(self.projected_canonical_term)
+        return (
+            4
+            + int(self.direct_quadratic_term)
+            + int(self.direct_saturation_term)
+            + int(self.projected_canonical_term)
+        )
 
 
 TRAINING_TREATMENTS = (
@@ -110,6 +124,8 @@ MODEL_SHAPES = (
     CostModelShape(False, True),
     CostModelShape(True, False),
     CostModelShape(True, True),
+    CostModelShape(False, False, True),
+    CostModelShape(False, True, True),
 )
 
 
@@ -139,28 +155,8 @@ def _load_contexts(path: Path) -> tuple[DamageContext, ...]:
     return contexts
 
 
-def _cpu_model_name() -> str:
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.exists():
-        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.lower().startswith("model name"):
-                return line.partition(":")[2].strip()
-    return platform.processor() or "unknown"
-
-
 def _execution_target_signature() -> str:
-    devices = jax.devices()
-    payload = {
-        "jax_backend": jax.default_backend(),
-        "device_kinds": sorted(str(device.device_kind) for device in devices),
-        "device_count": len(devices),
-        "machine": platform.machine(),
-        "system": platform.system(),
-        "cpu_count": os.cpu_count(),
-        "cpu_model": _cpu_model_name(),
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+    return current_jax_execution_target()[1]
 
 
 def _effect_signature(contexts: Sequence[DamageContext]) -> str:
@@ -394,9 +390,23 @@ def _noise_weights(
     return 1.0 / np.maximum(noise, floor)
 
 
+def _direct_saturation_start_worlds(
+    rows: Sequence[Mapping[str, object]],
+    shape: CostModelShape,
+) -> int:
+    if not shape.direct_saturation_term:
+        return 0
+    worlds = sorted(int(row["logical_world_count"]) for row in rows)
+    # The upper median is derived only from calibration features, never timings.
+    # It gives the saturation shape a fixed low-work region while allowing a
+    # second non-negative slope to absorb high-work cache/backend saturation.
+    return worlds[len(worlds) // 2]
+
+
 def _direct_design(
     rows: Sequence[Mapping[str, object]],
     shape: CostModelShape,
+    saturation_start_worlds: int,
 ) -> np.ndarray:
     values = []
     for row in rows:
@@ -404,6 +414,8 @@ def _direct_design(
         columns = [1.0, worlds]
         if shape.direct_quadratic_term:
             columns.append(worlds * worlds)
+        if shape.direct_saturation_term:
+            columns.append(max(0.0, worlds - saturation_start_worlds))
         values.append(columns)
     return np.asarray(values, dtype=np.float64)
 
@@ -427,9 +439,10 @@ def _fit_structural_coefficients(
     shape: CostModelShape,
     *,
     noise_weighted: bool,
-) -> tuple[float, float, float, float, float, float]:
+) -> tuple[float, float, float, float, float, float, float, float]:
+    saturation_start_worlds = _direct_saturation_start_worlds(rows, shape)
     direct = _nonnegative_least_squares(
-        _direct_design(rows, shape),
+        _direct_design(rows, shape, saturation_start_worlds),
         np.asarray(
             [float(row["direct_median_ms"]) for row in rows],
             dtype=np.float64,
@@ -455,7 +468,15 @@ def _fit_structural_coefficients(
 
     direct_intercept = float(direct[0])
     direct_per_world = float(direct[1])
-    direct_quadratic = float(direct[2]) if shape.direct_quadratic_term else 0.0
+    direct_index = 2
+    direct_quadratic = 0.0
+    if shape.direct_quadratic_term:
+        direct_quadratic = float(direct[direct_index])
+        direct_index += 1
+    direct_saturation = 0.0
+    if shape.direct_saturation_term:
+        direct_saturation = float(direct[direct_index])
+
     projected_intercept = float(projected[0])
     if shape.projected_canonical_term:
         projected_canonical = float(projected[1])
@@ -467,6 +488,8 @@ def _fit_structural_coefficients(
         direct_intercept,
         direct_per_world,
         direct_quadratic,
+        float(saturation_start_worlds),
+        direct_saturation,
         projected_intercept,
         projected_canonical,
         projected_execution,
@@ -474,22 +497,26 @@ def _fit_structural_coefficients(
 
 
 def _predict_costs(
-    coefficients: tuple[float, float, float, float, float, float],
+    coefficients: tuple[float, float, float, float, float, float, float, float],
     row: Mapping[str, object],
 ) -> tuple[float, float]:
     (
         direct_intercept,
         direct_per_world,
         direct_quadratic,
+        saturation_start_worlds,
+        direct_saturation,
         projected_intercept,
         projected_canonical,
         projected_execution,
     ) = coefficients
     worlds = float(row["logical_world_count"])
+    saturated_worlds = max(0.0, worlds - saturation_start_worlds)
     direct = (
         direct_intercept
         + direct_per_world * worlds
         + direct_quadratic * worlds * worlds
+        + direct_saturation * saturated_worlds
     )
     projected = (
         projected_intercept
@@ -522,6 +549,61 @@ def _leave_one_out_metrics(
         "mae": statistics.fmean(errors),
         "choice_accuracy": correct / len(rows),
     }
+
+
+def _fixed_class_crossover_bracket(
+    rows: Sequence[Mapping[str, object]],
+) -> tuple[int, int, int, int]:
+    by_shape: dict[tuple[int, int], list[Mapping[str, object]]] = {}
+    for row in rows:
+        shape = (
+            int(row["active_canonical_classes"]),
+            int(row["active_projected_classes"]),
+        )
+        by_shape.setdefault(shape, []).append(row)
+
+    candidates: list[tuple[int, int, int, int, int]] = []
+    for (canonical, projected), shape_rows in by_shape.items():
+        direct_worlds = sorted(
+            int(row["logical_world_count"])
+            for row in shape_rows
+            if str(row["oracle_path"]) == ExecutionPath.DIRECT.value
+        )
+        projected_worlds = sorted(
+            int(row["logical_world_count"])
+            for row in shape_rows
+            if str(row["oracle_path"]) == ExecutionPath.PROJECTED.value
+        )
+        if not direct_worlds or not projected_worlds:
+            continue
+
+        direct_max = max(direct_worlds)
+        projected_min = min(projected_worlds)
+        if direct_max >= projected_min:
+            continue
+
+        candidates.append(
+            (
+                len(shape_rows),
+                canonical,
+                projected,
+                direct_max,
+                projected_min,
+            )
+        )
+
+    if not candidates:
+        return (0, 0, 0, 0)
+
+    _row_count, canonical, projected, direct_max, projected_min = max(
+        candidates,
+        key=lambda candidate: (
+            candidate[0],
+            candidate[1],
+            candidate[2],
+        ),
+    )
+    return (canonical, projected, direct_max, projected_min)
 
 
 def _fit_cost_profile(
@@ -573,6 +655,7 @@ def _fit_cost_profile(
         key=lambda candidate: (
             float(candidate["mae"]),
             candidate["shape"].direct_quadratic_term,
+            candidate["shape"].direct_saturation_term,
             candidate["shape"].projected_canonical_term,
         ),
     )
@@ -593,10 +676,18 @@ def _fit_cost_profile(
         direct_intercept,
         direct_per_world,
         direct_quadratic,
+        direct_saturation_start_worlds,
+        direct_saturation,
         projected_intercept,
         projected_canonical,
         projected_execution,
     ) = coefficients
+    (
+        crossover_canonical,
+        crossover_projected,
+        crossover_direct_max,
+        crossover_projected_min,
+    ) = _fixed_class_crossover_bracket(rows)
     profile = ExecutionCostProfile(
         backend=backend,
         target_signature=target_signature,
@@ -617,6 +708,12 @@ def _fit_cost_profile(
         calibrated_max_projected_classes=max(
             int(row["active_projected_classes"]) for row in rows
         ),
+        direct_saturation_start_worlds=int(direct_saturation_start_worlds),
+        direct_saturation_per_world_ms=direct_saturation,
+        crossover_canonical_classes=crossover_canonical,
+        crossover_projected_classes=crossover_projected,
+        crossover_direct_max_worlds=crossover_direct_max,
+        crossover_projected_min_worlds=crossover_projected_min,
     )
     return profile, {
         "selected_shape": shape.name,
@@ -634,6 +731,15 @@ def _fit_cost_profile(
         "selection_policy": "choice-accuracy_then_complexity_then-delta-mae",
         "selected_delta_mae_ms": selected["mae"],
         "selected_choice_accuracy": selected["choice_accuracy"],
+        "selected_direct_saturation_start_worlds": int(
+            direct_saturation_start_worlds
+        ),
+        "fixed_class_crossover_bracket": {
+            "canonical_classes": crossover_canonical,
+            "projected_classes": crossover_projected,
+            "direct_max_worlds": crossover_direct_max,
+            "projected_min_worlds": crossover_projected_min,
+        },
         "uncertainty_guard_ms": uncertainty_guard,
     }
 
@@ -650,12 +756,22 @@ def _fit_absolute_baseline(
         shape,
         noise_weighted=False,
     )
+    (
+        direct_intercept,
+        direct_per_world,
+        _direct_quadratic,
+        _direct_saturation_start,
+        _direct_saturation,
+        projected_intercept,
+        projected_canonical,
+        projected_execution,
+    ) = coefficients
     return {
-        "direct_intercept_ms": coefficients[0],
-        "direct_per_world_ms": coefficients[1],
-        "projected_intercept_ms": coefficients[3],
-        "projected_per_canonical_class_ms": coefficients[4],
-        "projected_per_execution_class_ms": coefficients[5],
+        "direct_intercept_ms": direct_intercept,
+        "direct_per_world_ms": direct_per_world,
+        "projected_intercept_ms": projected_intercept,
+        "projected_per_canonical_class_ms": projected_canonical,
+        "projected_per_execution_class_ms": projected_execution,
     }
 
 
@@ -813,6 +929,12 @@ def _profile_record(profile: ExecutionCostProfile) -> dict[str, object]:
         "direct_intercept_ms": profile.direct_intercept_ms,
         "direct_per_world_ms": profile.direct_per_world_ms,
         "direct_per_world_squared_ms": profile.direct_per_world_squared_ms,
+        "direct_saturation_start_worlds": profile.direct_saturation_start_worlds,
+        "direct_saturation_per_world_ms": profile.direct_saturation_per_world_ms,
+        "crossover_canonical_classes": profile.crossover_canonical_classes,
+        "crossover_projected_classes": profile.crossover_projected_classes,
+        "crossover_direct_max_worlds": profile.crossover_direct_max_worlds,
+        "crossover_projected_min_worlds": profile.crossover_projected_min_worlds,
         "projected_intercept_ms": profile.projected_intercept_ms,
         "projected_per_canonical_class_ms": profile.projected_per_canonical_class_ms,
         "projected_per_execution_class_ms": profile.projected_per_execution_class_ms,
@@ -883,7 +1005,7 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
 
     return {
         "schema": "azelficoast.adaptive-execution-experiment",
-        "schema_version": 2,
+        "schema_version": 4,
         "showdown_commit": PINNED_SHOWDOWN_COMMIT,
         "jax_version": jax.__version__,
         "backend": backend,
@@ -914,7 +1036,9 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
             "the direct timed path receives pre-materialized device-resident worlds",
             "the projected path pays projection, compaction, representative assembly, and transfer",
             "the uncertainty guard is diagnostic, not a probabilistic confidence interval",
-            "the quadratic direct term is a bounded empirical saturation approximation",
+            "quadratic and hinge direct terms are alternative bounded saturation approximations",
+            "the hinge knee is the upper median calibration world count and is timing-independent",
+            "a fixed-class monotone crossover bracket is used only when calibration collapses to one workload dimension",
             "native and GPU backends remain separately calibratable",
         ],
     }

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import itertools
 import json
+import math
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
@@ -172,7 +173,91 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
         raise BeliefTraceError("world weights must be positive")
     total_world_weight = sum(float(world["weight"]) for world in worlds)
 
+    raw_factors = document.get("factored_hidden", {})
+    if not isinstance(raw_factors, Mapping):
+        raise BeliefTraceError("factored_hidden must be an object")
+
+    concrete_hidden_fields = {key for world in worlds for key in world["hidden"]}
+    factored_hidden: dict[str, dict[str, Any]] = {}
+    for raw_field, raw_factor in raw_factors.items():
+        field = str(raw_field)
+        if field in concrete_hidden_fields:
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} is also materialized in worlds"
+            )
+        if not isinstance(raw_factor, Mapping):
+            raise BeliefTraceError(f"factored hidden field {field!r} must be an object")
+        distribution = raw_factor.get("distribution")
+        if not isinstance(distribution, list) or not distribution:
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} must have a non-empty distribution"
+            )
+
+        seen_values: set[str] = set()
+        total_factor_weight = 0.0
+        normalized_distribution: list[dict[str, Any]] = []
+        for entry in distribution:
+            if not isinstance(entry, Mapping) or "value" not in entry:
+                raise BeliefTraceError(
+                    f"factored hidden field {field!r} has a malformed distribution entry"
+                )
+            weight = entry.get("weight")
+            if not isinstance(weight, (int, float)) or float(weight) <= 0:
+                raise BeliefTraceError(
+                    f"factored hidden field {field!r} weights must be positive"
+                )
+            value_key = _canonical(entry["value"])
+            if value_key in seen_values:
+                raise BeliefTraceError(
+                    f"factored hidden field {field!r} has duplicate values"
+                )
+            seen_values.add(value_key)
+            total_factor_weight += float(weight)
+            normalized_distribution.append(
+                {"value": entry["value"], "weight": float(weight)}
+            )
+        if abs(total_factor_weight - 1.0) > 1e-9:
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} weights sum to "
+                f"{total_factor_weight}, not 1"
+            )
+
+        unread_actions = raw_factor.get("unread_actions")
+        if not isinstance(unread_actions, list) or not all(
+            isinstance(action, str) for action in unread_actions
+        ):
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} must declare unread_actions"
+            )
+        unread = list(dict.fromkeys(unread_actions))
+        evidence = raw_factor.get("evidence")
+        if evidence is not None and not isinstance(evidence, Mapping):
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} evidence must be an object"
+            )
+        factored_hidden[field] = {
+            "distribution": normalized_distribution,
+            "unread_actions": unread,
+            "evidence": dict(evidence or {}),
+        }
+
     legal_actions = [str(action) for action in raw_actions]
+    for field, factor in factored_hidden.items():
+        unread = set(factor["unread_actions"])
+        unknown_actions = unread - set(legal_actions)
+        if unknown_actions:
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} names unknown actions: "
+                f"{sorted(unknown_actions)!r}"
+            )
+        requiring_expansion = [
+            action for action in legal_actions if action not in unread
+        ]
+        if requiring_expansion:
+            raise BeliefTraceError(
+                f"factored hidden field {field!r} is read by actions "
+                f"{requiring_expansion!r}; materialize that factor before analysis"
+            )
     raw_candidates = document.get("dependency_candidates")
     if raw_candidates is None:
         dependency_candidates = sorted({key for world in worlds for key in world["hidden"]})
@@ -205,6 +290,25 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
     missing = expected - set(transitions)
     if missing:
         raise BeliefTraceError(f"oracle omitted root transitions: {sorted(missing)[:3]!r}")
+
+    for field, factor in factored_hidden.items():
+        unread = set(factor["unread_actions"])
+        for action in unread:
+            for world_id in world_by_id:
+                for outcome in _outcomes(transitions[(world_id, action)]):
+                    raw_reads = outcome.get("hidden_reads")
+                    if not isinstance(raw_reads, list) or not all(
+                        isinstance(read, str) for read in raw_reads
+                    ):
+                        raise BeliefTraceError(
+                            f"{action}: factored hidden field {field!r} requires "
+                            "an explicit per-outcome hidden_reads witness"
+                        )
+                    if field in raw_reads:
+                        raise BeliefTraceError(
+                            f"{action}: hidden_reads proves factored field "
+                            f"{field!r} was read"
+                        )
 
     action_reports: list[dict[str, Any]] = []
     determinization_values: dict[str, float] = {}
@@ -367,6 +471,7 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
                     "worlds_in": len(worlds),
                     "classes_out": len(dependency_classes),
                     "observable_classes_out": len(observation_members),
+                    "marginalized_hidden_factors": sorted(factored_hidden),
                 },
                 "successor_beliefs": successor_beliefs,
                 "determinization_continuations": det_choices,
@@ -396,6 +501,23 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
         "source_fixture_id": document.get("source_fixture_id"),
         "showdown_commit": document.get("showdown_commit"),
         "world_count": len(worlds),
+        "materialized_world_count": len(worlds),
+        "latent_world_count": len(worlds)
+        * math.prod(
+            len(factor["distribution"]) for factor in factored_hidden.values()
+        ),
+        "factoring_ratio": math.prod(
+            len(factor["distribution"]) for factor in factored_hidden.values()
+        ),
+        "factored_hidden": {
+            field: {
+                "support_count": len(factor["distribution"]),
+                "distribution_sha256": _sha256(factor["distribution"]),
+                "unread_actions": factor["unread_actions"],
+                "evidence": factor["evidence"],
+            }
+            for field, factor in sorted(factored_hidden.items())
+        },
         "legal_action_count": len(legal_actions),
         "actions": action_reports,
         "determinization": {

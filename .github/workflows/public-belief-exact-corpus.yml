@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
@@ -41,15 +42,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-
-      - name: Install uv
-        run: python -m pip install uv
-
-      - name: Install Azelficoast
-        run: uv sync
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
 
       - name: Fetch frozen discovery artifact
         env:
@@ -208,20 +202,9 @@ jobs:
               out.write("supported=true\n")
           PY
 
-      - name: Fetch pinned Pokémon Showdown
+      - name: Setup verified Pokémon Showdown
         if: steps.extract.outputs.supported == 'true'
-        run: |
-          git init /tmp/pokemon-showdown
-          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
-          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
-          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
-
-      - name: Build Pokémon Showdown
-        if: steps.extract.outputs.supported == 'true'
-        working-directory: /tmp/pokemon-showdown
-        run: |
-          npm ci --omit=optional --no-audit --no-fund
-          npm run build
+        uses: ./.github/actions/setup-showdown
 
       - name: Generate exact mechanics oracle
         if: steps.extract.outputs.supported == 'true'

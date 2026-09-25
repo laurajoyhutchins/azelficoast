@@ -1,9 +1,4 @@
-"""Class-native support specialized to the ordered-attack transition.
-
-This module deliberately does not widen the canonical support used by the earlier
-damage and whole-attack experiments. New RNG axes live only where their semantics
-are actually needed.
-"""
+"""Class-native finite support for the bounded two-attack turn."""
 
 from __future__ import annotations
 
@@ -17,35 +12,35 @@ from azelficoast.belief_projection import (
     compile_projection_ids,
     uniform_integer_weights,
 )
-from azelficoast.gen9_ordered_attack import (
-    OrderedAttackContext,
-    ordered_attack_dependency_key,
-    ordered_attack_dependency_signature,
+from azelficoast.gen9_two_attack_turn import (
+    TwoAttackTurnContext,
+    two_attack_turn_dependency_key,
+    two_attack_turn_dependency_signature,
 )
 
 
 @dataclass(frozen=True)
-class OrderedAttackSupport:
+class TwoAttackTurnSupport:
     context_index: np.ndarray
     bench_signature: np.ndarray
     order_tie_roll: np.ndarray
-    accuracy_roll: np.ndarray
-    damage_roll: np.ndarray
-    secondary_roll: np.ndarray
+    p1_damage_roll: np.ndarray
+    p1_secondary_roll: np.ndarray
+    p2_damage_roll: np.ndarray
 
     def __post_init__(self) -> None:
         size = len(self.context_index)
         columns = (
             self.bench_signature,
             self.order_tie_roll,
-            self.accuracy_roll,
-            self.damage_roll,
-            self.secondary_roll,
+            self.p1_damage_roll,
+            self.p1_secondary_roll,
+            self.p2_damage_roll,
         )
         if any(len(column) != size for column in columns):
-            raise ValueError("ordered-attack support columns must have equal length")
+            raise ValueError("two-attack support columns must have equal length")
         if any(column.dtype.kind not in "iu" for column in (self.context_index, *columns)):
-            raise ValueError("ordered-attack support columns must be integer")
+            raise ValueError("two-attack support columns must be integer")
 
     @property
     def class_count(self) -> int:
@@ -53,13 +48,13 @@ class OrderedAttackSupport:
 
 
 @dataclass(frozen=True)
-class OrderedAttackBelief:
-    support: OrderedAttackSupport
+class TwoAttackTurnBelief:
+    support: TwoAttackTurnSupport
     weights: np.ndarray
 
     def __post_init__(self) -> None:
         if len(self.weights) != self.support.class_count:
-            raise ValueError("belief weights must match ordered-attack support")
+            raise ValueError("belief weights must match two-attack support")
         if self.weights.dtype.kind not in "iu":
             raise ValueError("belief weights must be integer")
         if np.any(self.weights < 0):
@@ -75,7 +70,7 @@ class OrderedAttackBelief:
 
 
 @dataclass(frozen=True)
-class OrderedAttackProjection:
+class TwoAttackTurnProjection:
     name: str
     class_ids: np.ndarray
     representative_indices: np.ndarray
@@ -87,8 +82,8 @@ class OrderedAttackProjection:
 
 
 @dataclass(frozen=True)
-class ProjectedOrderedAttackBelief:
-    projection: OrderedAttackProjection
+class ProjectedTwoAttackTurnBelief:
+    projection: TwoAttackTurnProjection
     weights: np.ndarray
 
     @property
@@ -100,73 +95,74 @@ class ProjectedOrderedAttackBelief:
         return int(np.count_nonzero(self.weights))
 
 
-def build_ordered_attack_support(
+def build_two_attack_turn_support(
     context_count: int,
     *,
     bench_variants: int,
     order_tie_rolls: int = 2,
-    accuracy_rolls: int = 100,
-    damage_rolls: int = 16,
-    secondary_rolls: int = 100,
-) -> OrderedAttackSupport:
+    p1_damage_rolls: int = 16,
+    p1_secondary_rolls: int = 31,
+    p2_damage_rolls: int = 16,
+) -> TwoAttackTurnSupport:
     dimensions = (
         context_count,
         bench_variants,
         order_tie_rolls,
-        accuracy_rolls,
-        damage_rolls,
-        secondary_rolls,
+        p1_damage_rolls,
+        p1_secondary_rolls,
+        p2_damage_rolls,
     )
     if any(value <= 0 for value in dimensions):
-        raise ValueError("ordered-attack support dimensions must be positive")
+        raise ValueError("two-attack support dimensions must be positive")
 
     context: list[int] = []
     bench: list[int] = []
     order: list[int] = []
-    accuracy: list[int] = []
-    damage: list[int] = []
-    secondary: list[int] = []
+    p1_damage: list[int] = []
+    p1_secondary: list[int] = []
+    p2_damage: list[int] = []
     for context_index in range(context_count):
         for bench_signature in range(bench_variants):
             for order_roll in range(order_tie_rolls):
-                for accuracy_roll in range(accuracy_rolls):
-                    for damage_roll in range(damage_rolls):
-                        for secondary_roll in range(secondary_rolls):
+                for first_damage_roll in range(p1_damage_rolls):
+                    for secondary_roll in range(p1_secondary_rolls):
+                        for second_damage_roll in range(p2_damage_rolls):
                             context.append(context_index)
                             bench.append(bench_signature)
                             order.append(order_roll)
-                            accuracy.append(accuracy_roll)
-                            damage.append(damage_roll)
-                            secondary.append(secondary_roll)
-    return OrderedAttackSupport(
+                            p1_damage.append(first_damage_roll)
+                            p1_secondary.append(secondary_roll)
+                            p2_damage.append(second_damage_roll)
+
+    return TwoAttackTurnSupport(
         context_index=np.asarray(context, dtype=np.int32),
         bench_signature=np.asarray(bench, dtype=np.int32),
         order_tie_roll=np.asarray(order, dtype=np.int32),
-        accuracy_roll=np.asarray(accuracy, dtype=np.int32),
-        damage_roll=np.asarray(damage, dtype=np.int32),
-        secondary_roll=np.asarray(secondary, dtype=np.int32),
+        p1_damage_roll=np.asarray(p1_damage, dtype=np.int32),
+        p1_secondary_roll=np.asarray(p1_secondary, dtype=np.int32),
+        p2_damage_roll=np.asarray(p2_damage, dtype=np.int32),
     )
 
 
-def uniform_ordered_attack_belief(
-    support: OrderedAttackSupport,
+def uniform_two_attack_turn_belief(
+    support: TwoAttackTurnSupport,
     logical_world_count: int,
-) -> OrderedAttackBelief:
-    return OrderedAttackBelief(
+) -> TwoAttackTurnBelief:
+    return TwoAttackTurnBelief(
         support=support,
         weights=uniform_integer_weights(support.class_count, logical_world_count),
     )
 
 
 def _compile_ids(
-    support: OrderedAttackSupport,
+    support: TwoAttackTurnSupport,
     key_at: Callable[[int], tuple[int, ...]],
     *,
     name: str,
     effect_signature: str | None,
-) -> OrderedAttackProjection:
+) -> TwoAttackTurnProjection:
     class_ids, representatives = compile_projection_ids(support.class_count, key_at)
-    return OrderedAttackProjection(
+    return TwoAttackTurnProjection(
         name=name,
         class_ids=class_ids,
         representative_indices=representatives,
@@ -174,39 +170,41 @@ def _compile_ids(
     )
 
 
-def compile_ordered_attack_projection(
-    support: OrderedAttackSupport,
-    contexts: Sequence[OrderedAttackContext],
+def compile_two_attack_turn_projection(
+    support: TwoAttackTurnSupport,
+    contexts: Sequence[TwoAttackTurnContext],
     *,
-    include_order_tie_roll: bool = True,
-    include_secondary_roll: bool = True,
-) -> OrderedAttackProjection:
-    complete = include_order_tie_roll and include_secondary_roll
+    include_order_tie: bool = True,
+    include_secondary: bool = True,
+) -> TwoAttackTurnProjection:
+    complete = include_order_tie and include_secondary
     return _compile_ids(
         support,
-        lambda index: ordered_attack_dependency_key(
+        lambda index: two_attack_turn_dependency_key(
             contexts[int(support.context_index[index])],
             order_tie_roll=int(support.order_tie_roll[index]),
-            accuracy_roll=int(support.accuracy_roll[index]),
-            damage_roll=int(support.damage_roll[index]),
-            secondary_roll=int(support.secondary_roll[index]),
-            include_order_tie_roll=include_order_tie_roll,
-            include_secondary_roll=include_secondary_roll,
+            p1_accuracy_roll=0,
+            p1_damage_roll=int(support.p1_damage_roll[index]),
+            p1_secondary_roll=int(support.p1_secondary_roll[index]),
+            p2_accuracy_roll=0,
+            p2_damage_roll=int(support.p2_damage_roll[index]),
+            include_order_tie=include_order_tie,
+            include_secondary=include_secondary,
         ),
-        name="ordered-attack-transition" if complete else "ordered-attack-incomplete",
-        effect_signature=ordered_attack_dependency_signature() if complete else None,
+        name="two-attack-turn" if complete else "two-attack-turn-incomplete",
+        effect_signature=two_attack_turn_dependency_signature() if complete else None,
     )
 
 
-def project_ordered_attack_belief(
-    belief: OrderedAttackBelief,
-    projection: OrderedAttackProjection,
-) -> ProjectedOrderedAttackBelief:
+def project_two_attack_turn_belief(
+    belief: TwoAttackTurnBelief,
+    projection: TwoAttackTurnProjection,
+) -> ProjectedTwoAttackTurnBelief:
     weights = aggregate_projected_weights(
         belief.weights,
         projection.class_ids,
         projection.class_count,
         support_class_count=belief.support.class_count,
-        mismatch_message="projection does not match ordered-attack support",
+        mismatch_message="projection does not match two-attack support",
     )
-    return ProjectedOrderedAttackBelief(projection=projection, weights=weights)
+    return ProjectedTwoAttackTurnBelief(projection=projection, weights=weights)

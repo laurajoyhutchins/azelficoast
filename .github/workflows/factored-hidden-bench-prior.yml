@@ -1,0 +1,225 @@
+name: factored-hidden-bench-prior
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - ".github/actions/setup-python-environment/action.yml"
+      - "src/azelficoast/real_belief_trace.py"
+      - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/evaluate_conditional_team_prior.cjs"
+      - "tests/test_real_belief_trace.py"
+      - ".github/workflows/factored-hidden-bench-prior.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: factored-hidden-bench-prior-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+
+      - name: Test factored hidden-state admission
+        run: uv run pytest tests/test_real_belief_trace.py
+
+      - name: Fetch frozen Staraptor discovery fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail --location \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10827665365/zip" \
+            --output /tmp/discovery.zip
+
+          python - <<'PY'
+          import json
+          import zipfile
+          from pathlib import Path
+
+          fixture_id = (
+              "6314b9a24e28265bb3b36c490c0297357ece57e7963ac653c3d798f4d3b82821"
+          )
+          with zipfile.ZipFile("/tmp/discovery.zip") as archive:
+              fixture = next(
+                  json.loads(raw)
+                  for raw in archive.open("speed-fork-fixtures.jsonl")
+                  if json.loads(raw).get("fixture_id") == fixture_id
+              )
+              candidates = json.load(archive.open("speed-fork-candidates.json"))
+              candidate = next(
+                  row
+                  for row in candidates["candidates"]
+                  if row["fixture_id"] == fixture_id
+              )
+
+          source = {
+              "schema": "azelficoast.real-belief-source-fixture",
+              "schema_version": 1,
+              "fixture_id": fixture_id,
+              "showdown_commit": candidate["showdown_commit"],
+              "fixture": fixture,
+              "observed_opponent_moves": ["doubleedge"],
+              "opponent_response_move": "doubleedge",
+              "plausible_items": sorted(candidate["item_counts"]),
+              "source_artifact": {
+                  "id": 10827665365,
+                  "digest": (
+                      "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34"
+                  ),
+              },
+          }
+          Path("/tmp/source.json").write_text(
+              json.dumps(source, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Rebuild validated conditional team prior
+        run: |
+          node scripts/evaluate_conditional_team_prior.cjs \
+            /tmp/pokemon-showdown 80000 10000 10000 \
+            > /tmp/conditional-team-prior.json
+
+      - name: Verify prior remains predictive
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/conditional-team-prior.json").read_text()
+          )
+          unigram = result["test"]["unigram_compatible"]
+          pairwise = result["test"]["pairwise_compatible"]
+          real = result["real_staraptor_fixture"]
+
+          assert pairwise["support_misses"] == 0, pairwise
+          assert unigram["mean_nll"] - pairwise["mean_nll"] >= 0.05, result
+          assert pairwise["top20_recall"] - unigram["top20_recall"] >= 0.02, result
+          assert len(real["species_prior"]) == real["support_count"], real
+          assert real["support_count"] == 504, real
+          assert abs(
+              sum(row["probability"] for row in real["species_prior"]) - 1
+          ) <= 1e-9, real
+          PY
+
+      - name: Generate factored Staraptor transition oracle
+        run: |
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            /tmp/source.json \
+            --bench-prior /tmp/conditional-team-prior.json \
+            > /tmp/factored-bench-oracle.json
+
+      - name: Analyze factored public belief
+        run: |
+          uv run python -m azelficoast.real_belief_trace \
+            /tmp/factored-bench-oracle.json \
+            | tee /tmp/factored-bench-trace.json
+
+      - name: Verify full-support factor collapse
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          oracle = json.loads(Path("/tmp/factored-bench-oracle.json").read_text())
+          trace = json.loads(Path("/tmp/factored-bench-trace.json").read_text())
+
+          field = "opponent.bench.species"
+          factor = oracle["factored_hidden"][field]
+          evidence = factor["evidence"]
+          legal_actions = oracle["legal_actions"]
+
+          assert len(factor["distribution"]) == 504, factor
+          assert evidence["audited_support_count"] == 504, evidence
+          assert evidence["audited_active_variant_count"] >= 1, evidence
+          assert set(factor["unread_actions"]) == set(legal_actions), factor
+          assert all(evidence["immediate_equivalence_by_action"].values()), evidence
+          assert not any(evidence["continuation_read_by_action"].values()), evidence
+          assert evidence["first_divergence_by_action"] == {}, evidence
+
+          # Negative control: Body Slam really can cross the switch frontier at
+          # the root. The factor remains safe only because this bounded
+          # continuation returns on our wait request before selecting that bench.
+          assert evidence["root_survival_by_action"]["/choose move bodyslam"] is False
+          assert (
+              evidence["root_survival_by_action"][
+                  "/choose move bodyslam terastallize"
+              ]
+              is False
+          )
+
+          assert trace["materialized_world_count"] == trace["world_count"], trace
+          assert trace["factoring_ratio"] == 504, trace
+          assert (
+              trace["latent_world_count"]
+              == trace["materialized_world_count"] * 504
+          ), trace
+          assert trace["factored_hidden"][field]["support_count"] == 504, trace
+          assert all(
+              row["dependency_signature"]["marginalized_hidden_factors"]
+              == [field]
+              for row in trace["actions"]
+          ), trace
+          assert trace["experiment_valid"] is True, trace
+
+          print(json.dumps({
+              "materialized_world_count": trace["materialized_world_count"],
+              "latent_world_count": trace["latent_world_count"],
+              "factoring_ratio": trace["factoring_ratio"],
+              "bench_support_count": 504,
+              "audited_active_variant_count": (
+                  evidence["audited_active_variant_count"]
+              ),
+              "legal_action_count": len(legal_actions),
+              "root_switch_frontier_actions": sorted(
+                  action
+                  for action, survives in evidence["root_survival_by_action"].items()
+                  if not survives
+              ),
+              "dynamic_bench_read_actions": sorted(
+                  action
+                  for action, read in evidence["continuation_read_by_action"].items()
+                  if read
+              ),
+              "policy_disagreement": trace["policy_disagreement"],
+              "determinization_action": trace["determinization"]["chosen_action"],
+              "public_belief_action": trace["public_belief"]["chosen_action"],
+          }, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: factored-hidden-bench-prior
+          path: |
+            /tmp/source.json
+            /tmp/conditional-team-prior.json
+            /tmp/factored-bench-oracle.json
+            /tmp/factored-bench-trace.json
+          if-no-files-found: warn

@@ -1,0 +1,27 @@
+name: showdown-build-cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/setup-showdown/action.yml"
+      - ".github/workflows/showdown-build-cache.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: showdown-build-cache
+  cancel-in-progress: true
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Populate verified Pokémon Showdown cache
+        uses: ./.github/actions/setup-showdown
+        with:
+          save-cache: "true"
