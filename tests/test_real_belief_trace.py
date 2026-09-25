@@ -510,6 +510,17 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert '"opponent.active.ivs": entry.set.ivs' in source
     assert '"opponent.active.exact_hp": exactHp' in source
 
+    hp_block = source.split("function exactMaxHpForVariant(variant)", 1)[1].split(
+        "function applyFixtureState", 1
+    )[0]
+    assert "species.baseStats.hp" in hp_block
+    assert "variant.level" in hp_block
+    assert "variant.ivs && variant.ivs.hp" in hp_block
+    assert "variant.evs && variant.evs.hp" in hp_block
+    assert "species.maxHP" in hp_block
+    assert "Math.floor(ev / 4)" in hp_block
+    assert "buildBattle(" not in hp_block
+
     world_block = source.split("const worldById = new Map();", 1)[1].split(
         "const worlds = [...worldById.values()];", 1
     )[0]

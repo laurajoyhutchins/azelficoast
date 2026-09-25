@@ -197,9 +197,13 @@ human decisions from another generator revision are excluded rather than
 reinterpreted. Within one bootstrap run, the deterministic 2,048-seed Random
 Battle generator population is computed once per exact Showdown revision,
 species, and lead/non-lead role, then reused before fixture-specific move,
-item, ability, level, and HP evidence is applied. The cache is execution-only:
-posterior JSON and its digest do not contain cache state, and the cache is
-discarded after the run.
+item, ability, level, and HP evidence is applied. Exact HP support no longer
+constructs a temporary battle for every compatible set: max HP is derived
+directly from Showdown's Gen 9 stat formula using species base HP, level, HP IV,
+HP EV, and the species max-HP override, then the public percentage bucket is
+expanded exactly as before. The population cache is execution-only: posterior
+JSON and its digest do not contain cache state, and the cache is discarded
+after the run.
 
 It compares the trained candidate against a deterministic untrained baseline on
 battle-grouped validation data and creates the promotion pointer only if the
