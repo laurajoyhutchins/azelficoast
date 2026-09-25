@@ -10,6 +10,7 @@ from azelficoast.public_replays import (
     PublicReplay,
     PublicReplayError,
     _input_choices,
+    _input_players,
     _recorded_action,
     discover_public_replays,
     fetch_public_replay,
@@ -86,6 +87,20 @@ def test_fetch_replay_preserves_source_revision_for_later_reconstruction(
 
     assert replay.source_showdown_version == source_revision
     assert replay.rating == 1500
+
+
+def test_input_players_preserve_side_specific_ratings() -> None:
+    inputlog = "\n".join(
+        (
+            '>player p1 {"name":"Alice","rating":1801}',
+            '>player p2 {"name":"Bob","rating":"1664"}',
+        )
+    )
+
+    assert _input_players(inputlog) == {
+        "p1": {"name": "Alice", "rating": 1801},
+        "p2": {"name": "Bob", "rating": 1664},
+    }
 
 
 def test_input_choices_remove_cancelled_choice_on_undo() -> None:
