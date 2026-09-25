@@ -700,13 +700,21 @@ def mine_candidates(
     cache: dict[tuple[str, tuple[str, ...], bool], dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
     skipped: dict[str, int] = {}
+    excluded_fixtures: list[dict[str, str]] = []
+    current_fixture_id: str | None = None
 
     def skip(reason: str) -> None:
         skipped[reason] = skipped.get(reason, 0) + 1
+        if current_fixture_id is None:
+            raise NaturalDisagreementError("exclusion lacks fixture identity")
+        excluded_fixtures.append(
+            {"fixture_id": current_fixture_id, "reason": reason}
+        )
 
     fixture_count = 0
     for fixture in fixtures:
         fixture_count += 1
+        current_fixture_id = fixture.fixture_id
         legal_actions = fixture.legal_actions
         if not _plain_speed_context(fixture):
             skip("non-plain-speed-context")
@@ -927,6 +935,10 @@ def mine_candidates(
             for candidate in candidates
         ),
         "candidates": candidates,
+        "excluded_fixtures": sorted(
+            excluded_fixtures,
+            key=lambda row: row["fixture_id"],
+        ),
         "skipped": dict(sorted(skipped.items())),
     }
 
