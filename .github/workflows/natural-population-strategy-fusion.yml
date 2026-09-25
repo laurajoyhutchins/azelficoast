@@ -6,11 +6,13 @@ on:
     types: [ready_for_review]
     paths:
       - "experiments/natural-population-strategy-fusion-plan.json"
+      - "experiments/showdown-revision.txt"
       - "src/azelficoast/research/population.py"
       - "src/azelficoast/research/natural_disagreements.py"
       - "src/azelficoast/search/fusion.py"
       - "src/azelficoast/live/belief.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
+      - "src/azelficoast/research/hosted/**"
       - "scripts/sample_showdown_worlds.cjs"
       - "scripts/screen_public_belief_speed_forks.cjs"
       - "scripts/probe_real_belief_trace.cjs"
@@ -42,69 +44,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-
-      - name: Verify frozen outcome-blind cohort
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(
-              Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
-          )
-          assert manifest["source_decision_state_count"] == 6485, manifest
-          assert manifest["bounded_candidate_count"] == 13, manifest
-          assert manifest["eligible_count"] == 10, manifest
-          assert manifest["selected_count"] == 10, manifest
-          assert manifest["overflow_sampling_applied"] is False, manifest
-          assert manifest["frozen_before_policy_values"] is True, manifest
-          assert manifest["selection_uses_policy_result"] is False, manifest
-          PY
+      - uses: ./.github/actions/setup-research-evidence
       - uses: ./.github/actions/setup-python-environment
-
-
-      - name: Restore verified pinned Pokémon Showdown
-        uses: ./.github/actions/setup-showdown
-
-      - name: Execute exact shard
-        env:
-          SHARD: ${{ matrix.shard }}
-          AZELFICOAST_ROOT_CHANCE_SAMPLES: "16"
-          AZELFICOAST_CONTINUATION_CHANCE_SAMPLES: "16"
-          AZELFICOAST_CHANCE_SEED_FAMILY: "0"
-        run: |
-          mkdir -p /tmp/results
-          python - <<'PY' > /tmp/shard.tsv
-          import json
-          import os
-          from pathlib import Path
-          shard = int(os.environ["SHARD"])
-          manifest = json.loads(Path("/tmp/azelficoast-evidence/population/manifest.json").read_text())
-          for row in manifest["selected"]:
-              index = int(row["population_index"])
-              if (index - 1) % 8 == shard:
-                  print(index, row["filename"], sep="\t")
-          PY
-
-          while IFS=$'\t' read -r index filename; do
-            test -n "$index" || continue
-            source="/tmp/azelficoast-evidence/population/selected/$filename"
-            node scripts/probe_real_belief_trace.cjs \
-              /tmp/pokemon-showdown \
-              "$source" \
-              > /tmp/oracle.json
-            uv run python -m azelficoast.research.verification.real_belief_trace \
-              /tmp/oracle.json \
-              > "/tmp/results/trace-$index.json"
-            uv run python -m azelficoast.research.population summarize \
-              "$source" \
-              "/tmp/results/trace-$index.json" \
-              --output "/tmp/results/summary-$index.json" \
-              > /tmp/summary-output.json
-            rm -f /tmp/oracle.json
-          done < /tmp/shard.tsv
-
+      - uses: ./.github/actions/setup-showdown
+      - name: Execute hosted population shard
+        run: uv run python -m azelficoast.research.hosted natural-population-shard "${{ matrix.shard }}"
       - uses: actions/upload-artifact@v4
         with:
           name: natural-population-exact-${{ matrix.shard }}
@@ -118,59 +62,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-environment
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-
-      - name: Verify frozen outcome-blind cohort
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(
-              Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
-          )
-          assert manifest["source_decision_state_count"] == 6485, manifest
-          assert manifest["bounded_candidate_count"] == 13, manifest
-          assert manifest["eligible_count"] == 10, manifest
-          assert manifest["selected_count"] == 10, manifest
-          assert manifest["overflow_sampling_applied"] is False, manifest
-          assert manifest["frozen_before_policy_values"] is True, manifest
-          assert manifest["selection_uses_policy_result"] is False, manifest
-          PY
+      - uses: ./.github/actions/setup-research-evidence
       - uses: actions/download-artifact@v4
         with:
           pattern: natural-population-exact-*
           path: /tmp/exact
           merge-multiple: true
-
-      - name: Aggregate preregistered population endpoints
-        run: |
-          uv run python -m azelficoast.research.population aggregate \
-            experiments/natural-population-strategy-fusion-plan.json \
-            /tmp/azelficoast-evidence/population/manifest.json \
-            /tmp/exact \
-            --output /tmp/natural-population-aggregate.json \
-            | tee /tmp/aggregate-output.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          result = json.loads(
-              Path("/tmp/natural-population-aggregate.json").read_text()
-          )
-          cohort = result["cohort"]
-          outcomes = result["outcomes"]
-          assert cohort["source_decision_state_count"] == 6485
-          assert cohort["selected_count"] > 0
-          print(
-              "exact_states=", cohort["selected_count"],
-              "exact_battles=", cohort["exact_battle_count"],
-              "positive_bias_rate=", outcomes["positive_bias_rate"],
-              "policy_disagreement_rate=", outcomes["policy_disagreement_rate"],
-              "mean_bias=", outcomes["mean_max_strategy_fusion_value_advantage"],
-              "mean_regret=", outcomes["mean_determinization_public_regret"],
-          )
-          PY
-
+      - name: Aggregate hosted population evidence
+        run: uv run python -m azelficoast.research.hosted natural-population-aggregate
       - uses: actions/upload-artifact@v4
         with:
           name: natural-population-strategy-fusion-results
