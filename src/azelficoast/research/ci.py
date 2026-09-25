@@ -568,9 +568,12 @@ def _run(command: Sequence[str], *, stdout: Path | None = None) -> None:
     if stdout is None:
         subprocess.run(command, check=True)
         return
-    with stdout.open("w", encoding="utf-8") as handle:
-        subprocess.run(command, check=True, text=True, stdout=handle)
-    print(stdout.read_text(encoding="utf-8"), end="")
+    try:
+        with stdout.open("w", encoding="utf-8") as handle:
+            subprocess.run(command, check=True, text=True, stdout=handle)
+    finally:
+        if stdout.is_file():
+            print(stdout.read_text(encoding="utf-8"), end="", flush=True)
 
 
 def _read_path(record: object, path: Sequence[str | int]) -> object:
