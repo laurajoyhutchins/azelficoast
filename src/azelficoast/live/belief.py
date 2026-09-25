@@ -752,12 +752,16 @@ class PinnedShowdownBeliefPolicy:
                     raise LiveBeliefPolicyError("posterior Showdown revision mismatch")
                 if posterior.get("legal_actions") != list(fixture.legal_actions):
                     raise LiveBeliefPolicyError("posterior legal actions drifted")
+                if deadline is not None:
+                    deadline.check()
                 route = learned_route_result(
                     fixture=fixture,
                     posterior=posterior,
                     evaluator=self.learned_evaluator,
                     search_gate=self.search_gate,
                 )
+                if deadline is not None:
+                    deadline.check()
                 if route.action is not None:
                     return route
             except DecisionDeadlineExceeded:
@@ -921,7 +925,28 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"showdown_commit": oracle.get("showdown_commit")},
             )
 
+        if deadline is not None and deadline.remaining_seconds() <= 0:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="decision-deadline-exhausted",
+                diagnostics={
+                    **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
+                },
+            )
         exact = public_belief_result(oracle, fixture.legal_actions)
+        if deadline is not None and deadline.remaining_seconds() <= 0:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="decision-deadline-exhausted",
+                diagnostics={
+                    **dict(exact.diagnostics),
+                    **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
+                },
+            )
         if route is None:
             return exact
         return LiveDecisionResult(
