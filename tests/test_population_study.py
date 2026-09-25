@@ -290,3 +290,28 @@ def test_aggregate_results_clusters_by_battle_and_retains_zeroes() -> None:
     assert result["outcomes"]["policy_disagreement_count"] == 1
     assert result["cluster_bootstrap"]["cluster_count"] == 2
     assert result["cluster_bootstrap"]["replicates"] == 20
+
+    associations = result["predictor_associations"]
+    assert set(associations) == {
+        "max_strategy_fusion_value_advantage",
+        "determinization_public_regret",
+    }
+    assert (
+        associations["max_strategy_fusion_value_advantage"]["numeric_spearman"][
+            "turn"
+        ]["rho"]
+        is not None
+    )
+    assert (
+        associations["determinization_public_regret"]["numeric_spearman"]["turn"][
+            "rho"
+        ]
+        is not None
+    )
+    regret_binary = associations["determinization_public_regret"][
+        "binary_mean_contrast"
+    ]["relative_move_order_changes"]
+    assert regret_binary["true_n"] == 1
+    assert regret_binary["false_n"] == 2
+    assert regret_binary["true_mean"] == 0.01
+    assert regret_binary["false_mean"] == 0.0
