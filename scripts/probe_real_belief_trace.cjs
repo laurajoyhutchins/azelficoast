@@ -883,12 +883,19 @@ function opponentActionDistribution(battle, hiddenReads = null) {
   }
   if (request.forceSwitch) {
     if (hiddenReads && BENCH_PRIOR) hiddenReads.add(BENCH_FACTOR_FIELD);
-    const target = battle.p2.pokemon.find(pokemon => pokemon.hp && !pokemon.active);
-    return [{
-      choice: target ? `switch ${target.position + 1}` : "",
-      probability: 1,
-      mode: "forced-switch",
-    }];
+    const switches = battle.p2.pokemon
+      .filter(pokemon => pokemon.hp && !pokemon.active)
+      .map(pokemon => `switch ${pokemon.position + 1}`)
+      .sort();
+    if (!switches.length) {
+      return [{choice: "", probability: 1, mode: "forced-switch-unavailable"}];
+    }
+    const probability = 1 / switches.length;
+    return switches.map(choice => ({
+      choice,
+      probability,
+      mode: "uniform-forced-switch",
+    }));
   }
   if (!request.active) {
     return [{choice: "", probability: 1, mode: "no-action"}];
