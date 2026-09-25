@@ -88,7 +88,11 @@ jobs:
               >= acceptance["minimum_hidden_worlds"]
           ), oracle
           assert len(oracle["legal_actions"]) == acceptance["expected_legal_action_count"], oracle
-          assert oracle["mechanics"]["opponent_response"] == "repeat observed roost", oracle
+          assert oracle["mechanics"]["opponent_policy"] == {
+              "kind": "repeat-last-or-uniform-legal-moves",
+              "preferred_move": "roost",
+              "voluntary_switches": False,
+          }, oracle
           assert {
               world["hidden"]["opponent.active.item"]
               for world in oracle["worlds"]
