@@ -10,7 +10,12 @@ on:
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
+      - "src/azelficoast/core/decision_relevance.py"
+      - "src/azelficoast/core/program.py"
+      - "src/azelficoast/core/transition.py"
+      - "src/azelficoast/whole_turn_program.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "tests/hostile/test_transition_program_hostile.py"
       - ".github/workflows/public-belief-exact-corpus.yml"
   workflow_dispatch:
 
@@ -65,14 +70,14 @@ jobs:
           fixture = None
           candidate = None
 
-          with Path("/tmp/azelficoast-evidence/discovery/speed-fork-fixtures.jsonl").open() as stream:
+          with Path("/tmp/azelficoast-evidence/discovery/fixtures.jsonl").open() as stream:
               for raw in stream:
                   row = json.loads(raw)
                   if row.get("fixture_id") == fixture_id:
                       fixture = row
                       break
           candidates = json.loads(
-              Path("/tmp/azelficoast-evidence/discovery/speed-fork-candidates.json").read_text()
+              Path("/tmp/azelficoast-evidence/discovery/candidates.json").read_text()
           )
           candidate = next(
               (
@@ -210,6 +215,24 @@ jobs:
             /tmp/candidate-source.json \
             > /tmp/candidate-oracle.json
 
+      - name: Generate lazy transition program
+        if: steps.extract.outputs.supported == 'true'
+        run: |
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            /tmp/candidate-source.json \
+            --transition-program-only \
+            > /tmp/candidate-lazy-program.json
+
+      - name: Run pinned-Showdown hostile certification
+        if: steps.extract.outputs.supported == 'true'
+        env:
+          AZELFICOAST_HOSTILE_ORACLE_PATH: /tmp/candidate-oracle.json
+          AZELFICOAST_HOSTILE_LAZY_PROGRAM_PATH: /tmp/candidate-lazy-program.json
+        run: |
+          uv run pytest tests/hostile/test_transition_program_hostile.py \
+            -m hostile_showdown
+
       - name: Analyze information set
         if: steps.extract.outputs.supported == 'true'
         run: |
@@ -279,6 +302,7 @@ jobs:
             /tmp/candidate-status.json
             /tmp/candidate-source.json
             /tmp/candidate-oracle.json
+            /tmp/candidate-lazy-program.json
             /tmp/candidate-trace.json
             /tmp/candidate-mining.json
             /tmp/candidate-result.json
