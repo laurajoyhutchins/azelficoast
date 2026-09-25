@@ -19,6 +19,7 @@ from azelficoast.belief.improvement import (
     AdmissionPolicy,
     improve_checkpoint,
 )
+from azelficoast.belief.public_pretraining import run_public_pretraining
 from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.public_replays import import_public_replays
@@ -32,6 +33,7 @@ DEFAULT_REPLAYS = Path("artifacts/replays")
 DEFAULT_CORPUS = Path("artifacts/corpus.jsonl")
 DEFAULT_PUBLIC_CORPUS = Path("artifacts/public-replays")
 DEFAULT_TRAINING = Path("artifacts/training.jsonl")
+DEFAULT_PUBLIC_PRETRAINING = Path("artifacts/public-pretraining.jsonl")
 DEFAULT_EVALUATOR_MODELS = Path("artifacts/evaluators/candidates")
 DEFAULT_EVALUATOR_RECEIPTS = Path("artifacts/evaluators/receipts")
 DEFAULT_EVALUATOR_PROMOTION = Path("artifacts/evaluators/current.json")
@@ -261,6 +263,70 @@ def _build_parser() -> argparse.ArgumentParser:
         "--validation-fraction",
         type=_unit_float,
         default=0.1,
+    )
+
+    training_bootstrap_public = training_commands.add_parser(
+        "bootstrap-public",
+        help="cold-start an evaluator from public human Random Battle decisions",
+    )
+    training_bootstrap_public.add_argument("traces", nargs="+", type=Path)
+    training_bootstrap_public.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_PUBLIC_PRETRAINING,
+        help="frozen public imitation/value training dataset",
+    )
+    training_bootstrap_public.add_argument(
+        "--models-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_MODELS,
+    )
+    training_bootstrap_public.add_argument(
+        "--receipts-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_RECEIPTS,
+    )
+    training_bootstrap_public.add_argument(
+        "--promotion",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+    )
+    training_bootstrap_public.add_argument(
+        "--split-seed",
+        default="azelficoast.training-records",
+    )
+    training_bootstrap_public.add_argument("--train-fraction", type=_unit_float, default=0.8)
+    training_bootstrap_public.add_argument(
+        "--validation-fraction",
+        type=_unit_float,
+        default=0.1,
+    )
+    training_bootstrap_public.add_argument("--seed", type=int, default=0)
+    training_bootstrap_public.add_argument("--epochs", type=_positive_int, default=1)
+    training_bootstrap_public.add_argument(
+        "--learning-rate",
+        type=_positive_float,
+        default=3e-4,
+    )
+    training_bootstrap_public.add_argument(
+        "--policy-weight",
+        type=_nonnegative_float,
+        default=1.0,
+    )
+    training_bootstrap_public.add_argument(
+        "--min-validation-improvement",
+        type=_nonnegative_float,
+        default=1e-6,
+    )
+    training_bootstrap_public.add_argument(
+        "--max-validation-value-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_bootstrap_public.add_argument(
+        "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
     )
 
     training_improve = training_commands.add_parser(
@@ -577,6 +643,34 @@ def _run_training(args: argparse.Namespace) -> None:
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,
             validation_fraction=args.validation_fraction,
+        )
+    elif args.training_command == "bootstrap-public":
+        if args.showdown_root is None:
+            raise ValueError(
+                "public pretraining requires --showdown-root or AZELFICOAST_SHOWDOWN_ROOT"
+            )
+        summary = run_public_pretraining(
+            args.traces,
+            showdown_root=args.showdown_root,
+            dataset_path=args.output,
+            models_dir=args.models_dir,
+            receipts_dir=args.receipts_dir,
+            promotion_file=args.promotion,
+            posterior_timeout_seconds=args.belief_timeout,
+            split_seed=args.split_seed,
+            train_fraction=args.train_fraction,
+            validation_fraction=args.validation_fraction,
+            seed=args.seed,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            policy_weight=args.policy_weight,
+            admission_policy=AdmissionPolicy(
+                min_validation_total_improvement=args.min_validation_improvement,
+                max_validation_value_mse_regression=args.max_validation_value_regression,
+                max_validation_policy_cross_entropy_regression=(
+                    args.max_validation_policy_regression
+                ),
+            ),
         )
     elif args.training_command == "improve":
         summary = improve_checkpoint(
