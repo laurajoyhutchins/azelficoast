@@ -41,6 +41,8 @@ def _fixture(fixture_id: str, battle_tag: str, hp: int = 100) -> DecisionFixture
             (
                 ("", "player", "p1", "Azelficoast"),
                 ("", "player", "p2", "Rival"),
+                ("", "teamsize", "p2", "6"),
+                ("", "switch", "p2a: Lapras", "Lapras, L80", "100/100"),
                 ("", "switch", "p2a: Zapdos-Galar", "Zapdos-Galar, L77", "100/100"),
                 ("", "move", "p2a: Zapdos-Galar", "U-turn", "p1a: Tinkaton"),
             ),
