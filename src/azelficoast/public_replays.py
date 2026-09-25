@@ -134,7 +134,8 @@ def discover_public_replays(
 
         if len(raw) <= 50:
             break
-        last_upload = page[-1].get("uploadtime")
+        sentinel = raw[-1]
+        last_upload = sentinel.get("uploadtime") if isinstance(sentinel, Mapping) else None
         if not isinstance(last_upload, int) or last_upload <= 0 or last_upload == cursor:
             raise PublicReplayError("replay pagination did not expose a usable before cursor")
         cursor = last_upload
@@ -455,6 +456,10 @@ async def _trace_side(
     protocol_index = 0
     decision_index = 0
     records: list[dict[str, Any]] = []
+
+    reader.ps_client._battle_locks[battle_tag] = asyncio.Lock()
+    battle = await reader._create_battle(f">{battle_tag}".split("-"))
+    battle.logger = None
 
     for chunk in chunks:
         messages = _protocol_messages(chunk)
