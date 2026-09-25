@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.corpus import DecisionFixture
+from azelficoast.core.transition import sha256_json
 from azelficoast.live.belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,
@@ -794,3 +795,101 @@ def test_live_low_margin_route_uses_transition_program_without_full_oracle() -> 
     assert result.reason == "transition-program-public-belief"
     assert result.diagnostics["learned_route"] == "transition-program-search"
     assert result.diagnostics["transition_evaluations"] == 3
+
+
+def _as_read_kernel(program_set: dict[str, object]) -> dict[str, object]:
+    program_set = json.loads(json.dumps(program_set))
+    candidates = program_set["dependency_candidates"]
+    assert isinstance(candidates, list)
+    program_set["kernel_evidence"] = {
+        "schema": "azelficoast.core.read-refinement-kernel",
+        "schema_version": 1,
+        "mechanics_revision": program_set["showdown_commit"],
+        "algorithm": "representative-dynamic-read-refinement",
+        "hidden_boundary": candidates,
+        "execution_dependency_candidates": candidates,
+        "marginalized_hidden_fields": [],
+    }
+    programs = program_set["programs"]
+    assert isinstance(programs, list)
+    for program in programs:
+        assert isinstance(program, dict)
+        program["partition_method"] = "instrumented-read-kernel"
+        classes = program["classes"]
+        assert isinstance(classes, list)
+        program["partition_key_hash"] = sha256_json(
+            {
+                "action": program["action"],
+                "partition_method": program["partition_method"],
+                "fields": program["dependency_fields"],
+                "classes": [
+                    {
+                        "class_id": row["class_id"],
+                        "members": row["member_world_ids"],
+                        "semantic_hash": row["semantic_hash"],
+                    }
+                    for row in classes
+                ],
+            }
+        )
+        program["effect_signature"] = "sha256:" + sha256_json(
+            {
+                "showdown_commit": program_set["showdown_commit"],
+                "source_fixture_id": program_set["source_fixture_id"],
+                "action": program["action"],
+                "dependency_fields": program["dependency_fields"],
+                "partition_key_hash": program["partition_key_hash"],
+            }
+        )
+    return program_set
+
+
+def test_live_search_admits_revision_bound_read_kernel_without_exhaustive_oracle() -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    kernel_program = _as_read_kernel(compile_whole_turn_programs(oracle))
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=kernel_program,
+        evaluator=_PosteriorSpreadEvaluator(),
+    )
+
+    assert result.status == "selected"
+    assert result.action == "safe"
+    assert result.reason == "transition-program-public-belief"
+
+
+def test_live_search_rejects_read_kernel_revision_drift() -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    kernel_program = _as_read_kernel(compile_whole_turn_programs(oracle))
+    kernel = kernel_program["kernel_evidence"]
+    assert isinstance(kernel, dict)
+    kernel["mechanics_revision"] = "wrong-revision"
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=kernel_program,
+        evaluator=_PosteriorSpreadEvaluator(),
+    )
+
+    assert result.action is None
+    assert result.reason == "transition-program-search-failed"
+    assert "another mechanics revision" in result.diagnostics["error"]
