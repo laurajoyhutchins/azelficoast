@@ -104,3 +104,24 @@ def test_training_improve_parsing() -> None:
     assert args.dataset.name == "training.jsonl"
     assert str(args.incumbent) == "models/incumbent"
     assert args.epochs == 3
+
+
+
+def test_training_cycle_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "--showdown-root",
+            "/tmp/pokemon-showdown",
+            "training",
+            "cycle",
+            "decisions.jsonl",
+            "--incumbent",
+            "artifacts/evaluators/current.json",
+            "--teacher-budget",
+            "2048",
+        ]
+    )
+    assert args.training_command == "cycle"
+    assert [path.name for path in args.traces] == ["decisions.jsonl"]
+    assert str(args.showdown_root) == "/tmp/pokemon-showdown"
+    assert args.teacher_budget == 2048
