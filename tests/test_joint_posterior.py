@@ -40,6 +40,7 @@ def _posterior() -> dict[str, object]:
         "realized_hidden_state_revealed": False,
         "construction": {
             "kind": "full-team-generator-rejection-particles",
+            "posterior_treatment": "generator_faithful_joint_empirical",
             "preserves_joint_team_set_correlations": True,
         },
         "public_evidence": {
@@ -107,4 +108,27 @@ def test_joint_posterior_can_be_inspected_but_not_consumed_when_support_is_low()
 
     validate_joint_posterior(document, require_sufficient_support=False)
     with pytest.raises(JointPosteriorError, match="insufficient"):
+        validate_joint_posterior(document)
+
+
+
+def test_joint_posterior_accepts_explicit_practical_completion_treatment() -> None:
+    document = _posterior()
+    document["construction"] = {
+        "kind": "full-team-conditioned-completion-particles",
+        "posterior_treatment": "practical_joint_completion",
+        "preserves_joint_team_set_correlations": True,
+        "proposal_caveats": ["not exact generator conditioning"],
+    }
+
+    checked = validate_joint_posterior(document)
+
+    assert checked["construction"]["posterior_treatment"] == "practical_joint_completion"
+
+
+def test_joint_posterior_rejects_treatment_masquerading_as_generator_faithful() -> None:
+    document = _posterior()
+    document["construction"]["kind"] = "full-team-conditioned-completion-particles"
+
+    with pytest.raises(JointPosteriorError, match="treatment"):
         validate_joint_posterior(document)
