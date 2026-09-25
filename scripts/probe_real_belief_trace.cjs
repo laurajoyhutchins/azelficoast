@@ -1158,7 +1158,8 @@ function moveDamageHeuristic(battle, moveId) {
   if (!move.exists || move.category === "Status" || Number(move.basePower) <= 0) {
     return 0;
   }
-  const accuracy = move.accuracy === true ? 1 : Number(move.accuracy) / 100;
+  const rawAccuracy = move.accuracy === true ? 1 : Number(move.accuracy) / 100;
+  const accuracy = Number.isFinite(rawAccuracy) ? rawAccuracy : 1;
   const stab = attacker.getTypes().includes(move.type) ? 1.5 : 1;
   const immune = battle.dex.getImmunity(move, defender);
   if (!immune) return 0;
@@ -1372,6 +1373,7 @@ function opponentActionDistribution(battle, hiddenReads = null) {
     if (OPPONENT_POLICY.kind === "strategy-mixture") {
       hiddenReads.add("opponent.active.evs");
       hiddenReads.add("opponent.active.ivs");
+      hiddenReads.add("opponent.active.exact_hp");
     }
   }
 
