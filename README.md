@@ -159,30 +159,29 @@ Policies can also be supplied as package.module:policy_object, allowing new sear
 
 ### Build policy/value training records
 
-Training records are joined from real completed battle traces, not synthetic state
-snapshots. Every emitted record keeps only the public information available before
-that decision, then attaches two value signals: the eventual battle outcome and the
-public-belief searched return.
+Training records are joined from real completed battle traces and independently
+settled matched-search evidence. The builder re-runs matched settlement from the
+frozen packet plus both method receipts, resolves the exact posterior by digest, and
+then attaches two value signals: the eventual battle outcome and the information-set
+searched return.
 
 ~~~bash
 uv run azelficoast training build artifacts/decisions.jsonl \
+  --search-packet artifacts/search/packet.json \
+  --search-receipt artifacts/search/determinization.json \
+  --search-receipt artifacts/search/information-set.json \
+  --posterior artifacts/search/posterior.json \
   --output artifacts/training.jsonl
 ~~~
 
-Policy labels are never copied from the heuristic behavior player. A decision is
-emitted only when it has a public-belief search target. Deeper search can relabel an
-existing content-addressed fixture and takes precedence over the bounded live search:
+Policy labels are never copied from the heuristic behavior player, and loose search
+annotations are not accepted as training authority. The output preserves the settled
+information-set root values, the exact posterior, teacher checkpoint digest, Showdown
+revision, depth, authorized/consumed compute, and evaluator-call count.
 
-~~~bash
-uv run azelficoast training build artifacts/decisions.jsonl \
-  --search-annotation artifacts/deeper-public-belief.json \
-  --output artifacts/training.jsonl
-~~~
-
-The output keeps the search-selected action as a one-hot policy target and preserves
-searched root values when available. Heuristic behavior is provenance only. Dataset
-assignment is hashed from the battle identity, so every decision from one battle is
-forced into the same train, validation, or test split.
+Splitting is battle-grouped. If the same content-addressed fixture occurs in multiple
+battles, those battles are joined into one split group so an identical information
+state cannot appear on opposite sides of the train/validation/test boundary.
 
 ## Evidence model
 
