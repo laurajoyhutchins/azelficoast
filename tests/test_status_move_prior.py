@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from azelficoast.status_move_prior import compare_item_samples
+from azelficoast.belief.status_move_prior import compare_item_samples
 
 
 def _sample(*, offset: int, matched: int, weights: dict[str, float]) -> dict[str, object]:

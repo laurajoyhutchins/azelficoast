@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.belief_evaluator import BeliefPrediction
-from azelficoast.selective_belief import PolicyMarginSearchGate, SelectiveBeliefError
+from azelficoast.belief.evaluator import BeliefPrediction
+from azelficoast.search.selective import PolicyMarginSearchGate, SelectiveBeliefError
 
 
 def _prediction(margin: float, *, actions: tuple[str, ...] = ("a", "b")) -> BeliefPrediction:

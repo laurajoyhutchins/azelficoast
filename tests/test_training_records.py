@@ -6,8 +6,8 @@ import pytest
 
 from azelficoast.corpus import build_fixtures
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.matched_comparison import freeze_packet
-from azelficoast.training_records import TrainingRecordError, build_training_records
+from azelficoast.research.matched_comparison import freeze_packet
+from azelficoast.research.training_records import TrainingRecordError, build_training_records
 
 
 def _record(
