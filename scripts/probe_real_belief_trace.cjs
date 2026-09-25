@@ -11,9 +11,23 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, fixturePath] = process.argv.slice(2);
+const argv = process.argv.slice(2);
+const showdownRoot = argv[0];
+const fixturePath = argv[1];
+let benchPriorPath = null;
+for (let i = 2; i < argv.length; i++) {
+  if (argv[i] === "--bench-prior") {
+    benchPriorPath = argv[++i];
+    if (!benchPriorPath) fail("--bench-prior requires a JSON path");
+  } else {
+    fail("unknown argument: " + argv[i]);
+  }
+}
 if (!showdownRoot || !fixturePath) {
-  fail("usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON");
+  fail(
+    "usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON " +
+    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON]"
+  );
 }
 
 const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
@@ -50,6 +64,7 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.tera_type",
   "opponent.active.exact_hp",
 ];
+const BENCH_FACTOR_FIELD = "opponent.bench.species";
 
 const actualCommit = execFileSync(
   "git",
@@ -74,6 +89,63 @@ const fixture = source.fixture || {
   control_decisions: source.control_decisions || [],
 };
 if (!fixture || fixture.fixture_id !== source.fixture_id) fail("fixture identity mismatch");
+
+function publicOpponentSpecies() {
+  return [...new Set(
+    Object.values(fixture.state.opponent_team || {})
+      .map(view => toID(view && view.species))
+      .filter(Boolean)
+  )].sort();
+}
+
+function loadBenchPrior() {
+  if (!benchPriorPath) return null;
+  const document = JSON.parse(fs.readFileSync(benchPriorPath, "utf8"));
+  if (
+    document.schema !== "azelficoast.conditional-team-prior-evaluation" ||
+    document.schema_version !== 1
+  ) {
+    fail("unexpected conditional team prior schema");
+  }
+  if (document.showdown_commit !== SHOWDOWN_COMMIT) {
+    fail("conditional team prior is bound to a different Showdown revision");
+  }
+  const real = document.real_staraptor_fixture;
+  if (!real || !Array.isArray(real.species_prior) || !real.species_prior.length) {
+    fail("conditional team prior does not expose full real fixture species_prior");
+  }
+  const expectedKnown = publicOpponentSpecies();
+  const priorKnown = [...real.known_species].map(toID).sort();
+  if (JSON.stringify(priorKnown) !== JSON.stringify(expectedKnown)) {
+    fail(
+      "conditional team prior known species do not match this public fixture: " +
+      JSON.stringify({priorKnown, expectedKnown})
+    );
+  }
+
+  const distribution = real.species_prior.map(row => ({
+    value: toID(row.id),
+    weight: Number(row.probability),
+  }));
+  if (distribution.some(row => !row.value || !(row.weight > 0))) {
+    fail("conditional team prior contains invalid species probabilities");
+  }
+  if (new Set(distribution.map(row => row.value)).size !== distribution.length) {
+    fail("conditional team prior contains duplicate species");
+  }
+  const total = distribution.reduce((sum, row) => sum + row.weight, 0);
+  if (Math.abs(total - 1) > 1e-9) {
+    fail("conditional team prior probabilities sum to " + total);
+  }
+  if (Number(real.support_count) !== distribution.length) {
+    fail("conditional team prior support count does not match species_prior");
+  }
+  return {
+    distribution,
+    evidenceSha256: String(document.evidence_sha256 || ""),
+    selectedLambda: Number(document.selected_lambda),
+  };
+}
 
 const common = require(path.join(showdownRoot, "test", "common.js"));
 const {Battle, extractChannelMessages} = require(path.join(showdownRoot, "dist", "sim", "battle.js"));
@@ -117,6 +189,40 @@ function protocolSides() {
       if (name === ownName) own = message[2];
       if (name === opponentName) opponent = message[2];
     }
+  }
+
+  // Older frozen fixtures can omit player names while still retaining
+  // enough public battle protocol to determine orientation. Resolve only from
+  // observed switch/drag species matching the current public actives.
+  if (!own || !opponent) {
+    const ownSpecies = toID(fixture.state.active && fixture.state.active.species);
+    const opponentSpecies = toID(
+      fixture.state.opponent_active && fixture.state.opponent_active.species
+    );
+    let ownFromSpecies = null;
+    let opponentFromSpecies = null;
+    if (ownSpecies && opponentSpecies && ownSpecies !== opponentSpecies) {
+      for (const batch of fixture.protocol_prefix || []) {
+        for (const message of batch) {
+          if (
+            message[0] !== "" ||
+            !["switch", "drag"].includes(message[1]) ||
+            typeof message[2] !== "string"
+          ) {
+            continue;
+          }
+          const side = message[2].startsWith("p1") ? "p1"
+            : message[2].startsWith("p2") ? "p2"
+            : null;
+          if (!side) continue;
+          const species = toID(String(message[3] || "").split(",", 1)[0]);
+          if (species === ownSpecies) ownFromSpecies = side;
+          if (species === opponentSpecies) opponentFromSpecies = side;
+        }
+      }
+    }
+    if (!own && ownFromSpecies) own = ownFromSpecies;
+    if (!opponent && opponentFromSpecies) opponent = opponentFromSpecies;
   }
 
   if (!own && opponent) own = opponent === "p1" ? "p2" : "p1";
@@ -323,7 +429,10 @@ function opponentBenchSpecies() {
 }
 
 const OWN_ACTIVE_TERA_TYPE = ownActiveTeraType();
-const OPPONENT_BENCH_SPECIES = opponentBenchSpecies();
+const BENCH_PRIOR = loadBenchPrior();
+const OPPONENT_BENCH_SPECIES = BENCH_PRIOR
+  ? BENCH_PRIOR.distribution[0].value
+  : opponentBenchSpecies();
 
 function ownSet(view, {active = false} = {}) {
   const set = {
@@ -354,8 +463,7 @@ function opponentSet(world) {
   };
 }
 
-function opponentBenchSet() {
-  const speciesName = OPPONENT_BENCH_SPECIES;
+function opponentBenchSet(speciesName = OPPONENT_BENCH_SPECIES) {
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   generator.setSeed([0, 0, 0, 0]);
 
@@ -459,10 +567,15 @@ function applyFixtureState(battle, world) {
   }
 }
 
-function buildBattle(world) {
+function buildBattle(world, benchOverride = benchSet) {
   const battle = common.createBattle(
     {preview: false, seed: [1, 2, 3, 4]},
-    [ownTeam, benchSet ? [opponentSet(world), benchSet] : [opponentSet(world)]]
+    [
+      ownTeam,
+      benchOverride
+        ? [opponentSet(world), benchOverride]
+        : [opponentSet(world)],
+    ]
   );
   applyRecordedOwnStats(battle);
   applyFixtureState(battle, world);
@@ -511,10 +624,11 @@ function legalP1Continuations(battle) {
   return [...new Set(choices)].sort();
 }
 
-function opponentChoice(battle) {
+function opponentChoice(battle, hiddenReads = null) {
   const request = battle.p2.activeRequest;
   if (!request || request.wait) return "";
   if (request.forceSwitch) {
+    if (hiddenReads && BENCH_PRIOR) hiddenReads.add(BENCH_FACTOR_FIELD);
     const target = battle.p2.pokemon.find(pokemon => pokemon.hp && !pokemon.active);
     return target ? `switch ${target.position + 1}` : "";
   }
@@ -591,13 +705,17 @@ function utility(battle) {
 }
 
 function continuationValues(rootSnapshot) {
+  const hiddenReads = new Set();
   const probe = Battle.fromJSON(rootSnapshot);
   probe.restart(() => {});
   const choices = legalP1Continuations(probe);
   if (!choices.length) {
     const value = utility(probe);
     probe.destroy();
-    return {terminal_utility: value};
+    return {
+      terminal_utility: value,
+      hidden_reads: [],
+    };
   }
   probe.destroy();
 
@@ -609,14 +727,17 @@ function continuationValues(rootSnapshot) {
         rootSnapshot,
         seed(i, 10_000 + sha256(choice).charCodeAt(0))
       );
-      const foe = opponentChoice(battle);
+      const foe = opponentChoice(battle, hiddenReads);
       battle.makeChoices(choice, foe);
       sum += utility(battle);
       battle.destroy();
     }
     values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
   }
-  return {continuations: values};
+  return {
+    continuations: values,
+    hidden_reads: [...hiddenReads].sort(),
+  };
 }
 
 function declaredReads(_action) {
@@ -624,6 +745,128 @@ function declaredReads(_action) {
   // Declare the whole hidden adapter boundary conservatively; the analyzer then
   // derives the empirically required subset from exact mechanics outcomes.
   return [...DEPENDENCY_CANDIDATES];
+}
+
+function factoredBenchAudit(worlds, legalActions, transitions) {
+  if (!BENCH_PRIOR) return null;
+
+  const rootSurvivalByAction = Object.fromEntries(
+    legalActions.map(action => [
+      action,
+      transitions
+        .filter(transition => transition.action === action)
+        .every(transition =>
+          transition.outcomes.every(outcome => {
+            const active = outcome.successor && outcome.successor.p2_active;
+            return Boolean(active && !active.fainted && active.hp !== 0);
+          })
+        ),
+    ])
+  );
+
+  const continuationReadByAction = Object.fromEntries(
+    legalActions.map(action => [
+      action,
+      transitions
+        .filter(transition => transition.action === action)
+        .some(transition =>
+          transition.outcomes.some(outcome =>
+            Array.isArray(outcome.hidden_reads) &&
+            outcome.hidden_reads.includes(BENCH_FACTOR_FIELD)
+          )
+        ),
+    ])
+  );
+
+  const auditWorlds = [];
+  const seenVariants = new Set();
+  for (const world of worlds) {
+    const key = JSON.stringify(stable(world.variant));
+    if (seenVariants.has(key)) continue;
+    seenVariants.add(key);
+    auditWorlds.push(world);
+  }
+
+  function immediateSignature(world, action, benchSpecies) {
+    const battle = buildBattle(world, opponentBenchSet(benchSpecies));
+    battle.prng.setSeed(
+      seed(0, 50_000 + legalActions.indexOf(action)).join(",")
+    );
+    const logStart = battle.log.length;
+    battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+    const signature = sha256({
+      observation: observation(battle, logStart),
+      successor: stateSummary(battle, world),
+    });
+    battle.destroy();
+    return signature;
+  }
+
+  const representative = OPPONENT_BENCH_SPECIES;
+  const baselineByAction = Object.fromEntries(
+    legalActions.map(action => [
+      action,
+      auditWorlds.map(world =>
+        immediateSignature(world, action, representative)
+      ),
+    ])
+  );
+
+  const immediateEquivalenceByAction = Object.fromEntries(
+    legalActions.map(action => [action, true])
+  );
+  const firstDivergenceByAction = {};
+
+  for (const row of BENCH_PRIOR.distribution) {
+    for (const action of legalActions) {
+      if (!immediateEquivalenceByAction[action]) continue;
+      const signatures = auditWorlds.map(world =>
+        immediateSignature(world, action, row.value)
+      );
+      const baseline = baselineByAction[action];
+      const divergentIndex = signatures.findIndex(
+        (signature, index) => signature !== baseline[index]
+      );
+      if (divergentIndex >= 0) {
+        immediateEquivalenceByAction[action] = false;
+        firstDivergenceByAction[action] = {
+          species: row.value,
+          active_variant_index: divergentIndex,
+          baseline_hash: baseline[divergentIndex],
+          candidate_hash: signatures[divergentIndex],
+        };
+      }
+    }
+  }
+
+  const unreadActions = legalActions.filter(
+    action =>
+      !continuationReadByAction[action] &&
+      immediateEquivalenceByAction[action]
+  );
+
+  return {
+    field: BENCH_FACTOR_FIELD,
+    distribution: BENCH_PRIOR.distribution,
+    unread_actions: unreadActions,
+    evidence: {
+      kind: "inactive-bench-bounded-horizon",
+      prior_evidence_sha256: BENCH_PRIOR.evidenceSha256,
+      selected_lambda: BENCH_PRIOR.selectedLambda,
+      representative_species: representative,
+      audited_support_count: BENCH_PRIOR.distribution.length,
+      audited_active_variant_count: auditWorlds.length,
+      root_survival_by_action: rootSurvivalByAction,
+      continuation_read_by_action: continuationReadByAction,
+      immediate_equivalence_by_action: immediateEquivalenceByAction,
+      first_divergence_by_action: firstDivergenceByAction,
+      immediate_audit_chance_samples: 1,
+      dynamic_read_chance_samples: CONTINUATION_CHANCE_SAMPLES,
+      root_survival_chance_samples: ROOT_CHANCE_SAMPLES,
+      continuation_rule:
+        "a bench-species read is recorded only when opponentChoice actually selects a forced switch during the bounded continuation",
+    },
+  };
 }
 
 const {matched, variants} = generatorVariants();
@@ -683,6 +926,17 @@ for (const world of worlds) {
   }
 }
 
+const benchFactor = factoredBenchAudit(worlds, legalActions, transitions);
+const factoredHidden = benchFactor
+  ? {
+      [benchFactor.field]: {
+        distribution: benchFactor.distribution,
+        unread_actions: benchFactor.unread_actions,
+        evidence: benchFactor.evidence,
+      },
+    }
+  : {};
+
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
@@ -721,8 +975,16 @@ process.stdout.write(JSON.stringify({
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
     opponent_bench_species: OPPONENT_BENCH_SPECIES,
+    bench_species_mode: BENCH_PRIOR ? "factored-prior" : "concrete",
+    bench_factor_support_count: BENCH_PRIOR
+      ? BENCH_PRIOR.distribution.length
+      : 0,
+    bench_factor_unread_action_count: benchFactor
+      ? benchFactor.unread_actions.length
+      : 0,
     declared_read_mode: "conservative-external-oracle-boundary",
   },
+  factored_hidden: factoredHidden,
   dependency_candidates: DEPENDENCY_CANDIDATES,
   declared_reads: declared,
   worlds: outputWorlds,

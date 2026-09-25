@@ -196,3 +196,127 @@ def test_determinization_cannot_condition_on_unobserved_chance() -> None:
     assert public["world_aware_choices"] == ["a"]
     assert public["strategy_fusion_possible"] is False
 
+
+
+def _add_hidden_read_witnesses(
+    document: dict[str, object],
+    *reads: str,
+) -> None:
+    transitions = document["transitions"]
+    assert isinstance(transitions, list)
+    for transition in transitions:
+        assert isinstance(transition, dict)
+        outcomes = transition["outcomes"]
+        assert isinstance(outcomes, list)
+        for outcome in outcomes:
+            assert isinstance(outcome, dict)
+            outcome["hidden_reads"] = list(reads)
+
+
+def test_unread_factored_hidden_field_stays_out_of_cartesian_worlds() -> None:
+    document = _oracle()
+    _add_hidden_read_witnesses(document)
+    document["factored_hidden"] = {
+        "opponent.bench.species": {
+            "distribution": [
+                {"value": "alpha", "weight": 0.6},
+                {"value": "beta", "weight": 0.4},
+            ],
+            "unread_actions": ["wait", "reveal"],
+            "evidence": {
+                "kind": "bounded-read-audit",
+                "audited_support_count": 2,
+            },
+        }
+    }
+
+    result = analyze_oracle(document)
+
+    assert result["world_count"] == 4
+    assert result["materialized_world_count"] == 4
+    assert result["latent_world_count"] == 8
+    assert result["factoring_ratio"] == 2
+    assert result["factored_hidden"]["opponent.bench.species"]["support_count"] == 2
+    assert all(
+        row["dependency_signature"]["marginalized_hidden_factors"]
+        == ["opponent.bench.species"]
+        for row in result["actions"]
+    )
+
+
+def test_factored_hidden_field_fails_closed_when_any_action_reads_it() -> None:
+    document = _oracle()
+    _add_hidden_read_witnesses(document)
+    document["factored_hidden"] = {
+        "opponent.bench.species": {
+            "distribution": [
+                {"value": "alpha", "weight": 0.6},
+                {"value": "beta", "weight": 0.4},
+            ],
+            "unread_actions": ["wait"],
+            "evidence": {"kind": "bounded-read-audit"},
+        }
+    }
+
+    with pytest.raises(BeliefTraceError, match="materialize that factor"):
+        analyze_oracle(document)
+
+
+def test_factored_hidden_distribution_must_be_normalized() -> None:
+    document = _oracle()
+    _add_hidden_read_witnesses(document)
+    document["factored_hidden"] = {
+        "opponent.bench.species": {
+            "distribution": [
+                {"value": "alpha", "weight": 0.7},
+                {"value": "beta", "weight": 0.4},
+            ],
+            "unread_actions": ["wait", "reveal"],
+        }
+    }
+
+    with pytest.raises(BeliefTraceError, match="weights sum to"):
+        analyze_oracle(document)
+
+
+def test_factored_hidden_field_requires_per_outcome_read_witnesses() -> None:
+    document = _oracle()
+    document["factored_hidden"] = {
+        "opponent.bench.species": {
+            "distribution": [
+                {"value": "alpha", "weight": 0.6},
+                {"value": "beta", "weight": 0.4},
+            ],
+            "unread_actions": ["wait", "reveal"],
+        }
+    }
+
+    with pytest.raises(BeliefTraceError, match="hidden_reads witness"):
+        analyze_oracle(document)
+
+
+def test_factored_hidden_field_rejects_contradictory_read_witness() -> None:
+    document = _oracle()
+    _add_hidden_read_witnesses(document)
+    transitions = document["transitions"]
+    assert isinstance(transitions, list)
+    first = transitions[0]
+    assert isinstance(first, dict)
+    outcomes = first["outcomes"]
+    assert isinstance(outcomes, list)
+    first_outcome = outcomes[0]
+    assert isinstance(first_outcome, dict)
+    first_outcome["hidden_reads"] = ["opponent.bench.species"]
+
+    document["factored_hidden"] = {
+        "opponent.bench.species": {
+            "distribution": [
+                {"value": "alpha", "weight": 0.6},
+                {"value": "beta", "weight": 0.4},
+            ],
+            "unread_actions": ["wait", "reveal"],
+        }
+    }
+
+    with pytest.raises(BeliefTraceError, match="was read"):
+        analyze_oracle(document)
