@@ -9,7 +9,6 @@ search-generated policy targets.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 from collections import Counter
 from dataclasses import dataclass
