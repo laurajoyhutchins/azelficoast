@@ -197,13 +197,13 @@ def _validate_program_shape(
         if kernel.get("algorithm") != "representative-dynamic-read-refinement":
             raise MechanicsContractError("unsupported read-refinement kernel algorithm")
         boundary = kernel.get("hidden_boundary")
-        marginalized = kernel.get("marginalized_hidden_fields")
+        nonexecution = kernel.get("nonexecution_semantic_fields")
         execution_candidates = kernel.get("execution_dependency_candidates")
         if (
             not isinstance(boundary, list)
             or not all(isinstance(field, str) and field for field in boundary)
-            or not isinstance(marginalized, list)
-            or not all(isinstance(field, str) and field for field in marginalized)
+            or not isinstance(nonexecution, list)
+            or not all(isinstance(field, str) and field for field in nonexecution)
         ):
             raise MechanicsContractError(
                 "read-refinement kernel hidden boundary is incomplete"
@@ -212,11 +212,11 @@ def _validate_program_shape(
             raise MechanicsContractError(
                 "read-refinement kernel execution candidates differ from transition candidates"
             )
-        if set(candidates).intersection(marginalized):
+        if set(candidates).intersection(nonexecution):
             raise MechanicsContractError(
-                "read-refinement kernel marginalizes an execution dependency candidate"
+                "read-refinement kernel marks an execution dependency candidate as nonexecution"
             )
-        if set(boundary) != set(candidates).union(marginalized):
+        if set(boundary) != set(candidates).union(nonexecution):
             raise MechanicsContractError(
                 "read-refinement kernel boundary does not match execution plus marginalized fields"
             )
