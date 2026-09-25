@@ -161,12 +161,25 @@ Generated output is not treated as verified merely because it was produced. Nega
 | Population study machinery | [src/azelficoast/population_study.py](src/azelficoast/population_study.py) |
 | Frozen research evidence | [experiments/](experiments/) |
 | Historical experiment narrative | [docs/research-notebook.md](docs/research-notebook.md) |
+| Data and evidence provenance | [docs/data-provenance.md](docs/data-provenance.md) |
 
 ## Scope
 
 Azelficoast currently targets Gen 9 Random Battles. Its simulator is deliberately incomplete: only mechanics with explicit Showdown-backed evidence belong to the admitted surface.
 
 The project is not trying to replace Pokémon Showdown as the semantic authority. Showdown is the oracle; Azelficoast is trying to execute the battle-state distinctions relevant to search much more cheaply while preserving those semantics.
+
+## License and third-party material
+
+Azelficoast's original source code is licensed under the [MIT License](LICENSE).
+Third-party software, data, trademarks, battle records, and other materials retain
+their own terms and are not relicensed merely by appearing in or being used by
+this repository. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and
+[docs/data-provenance.md](docs/data-provenance.md).
+
+Azelficoast is an unofficial research project and is not affiliated with or
+endorsed by Nintendo, Game Freak, Creatures, The Pokémon Company, Pokémon
+Showdown, or Smogon.
 
 The longer-term question is simple to state:
 
