@@ -88,7 +88,7 @@ def test_probe_source_reconstructs_general_posterior_from_either_showdown_side()
             {"kind": "uniform-legal-moves"},
             {"kind": "repeat-observed-move", "move": "U-turn"},
         ],
-        "voluntary_switches": False,
+        "voluntary_switches": True,
     }
 
 
@@ -127,7 +127,7 @@ def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None
             {"kind": "max-damage"},
             {"kind": "uniform-legal-moves"},
         ],
-        "voluntary_switches": False,
+        "voluntary_switches": True,
     }
 
 
@@ -156,7 +156,7 @@ def test_probe_source_allows_status_move_as_bounded_response() -> None:
             {"kind": "uniform-legal-moves"},
             {"kind": "repeat-observed-move", "move": "Bulk Up"},
         ],
-        "voluntary_switches": False,
+        "voluntary_switches": True,
     }
     assert "plausible_items" not in source
 
@@ -787,7 +787,7 @@ def test_live_low_margin_route_uses_strategy_mixture_without_move_history() -> N
             {"kind": "max-damage"},
             {"kind": "uniform-legal-moves"},
         ],
-        "voluntary_switches": False,
+        "voluntary_switches": True,
     }
 
 
