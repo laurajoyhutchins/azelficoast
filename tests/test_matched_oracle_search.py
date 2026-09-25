@@ -87,7 +87,7 @@ def _posterior(oracle: dict[str, object]) -> dict[str, object]:
 def _plan(*, limit: int = 4) -> dict[str, object]:
     return {
         "schema": "azelficoast.matched-search-comparison-plan",
-        "schema_version": 1,
+        "schema_version": 2,
         "posterior_treatments": ["generator_faithful"],
         "compute_budget": {
             "unit": "transition_evaluations",
@@ -101,6 +101,14 @@ def _plan(*, limit: int = 4) -> dict[str, object]:
         ],
         "cluster_unit": "battle_tag",
         "showdown_commit": "pinned",
+        "evaluator": {
+            "schema": "azelficoast.belief-policy-value-evaluator",
+            "schema_version": 1,
+            "checkpoint_digest": "sha256:" + "a" * 64,
+            "observability": "public_belief_only",
+            "architecture": "weighted_deep_sets_policy_value",
+            "spec": {"hidden_width": 256},
+        },
         "inference": {
             "bootstrap_replicates": 20,
             "bootstrap_seed": 1729,
