@@ -495,7 +495,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     dependency_block = source.split("const DEPENDENCY_CANDIDATES = [", 1)[1].split(
         "];", 1
     )[0]
-    assert '"opponent.active.moves"' not in dependency_block
+    assert '"opponent.active.moves"' in dependency_block
     assert '"opponent.active.tera_type"' not in dependency_block
 
     assert "mechanics_projection_variant_count" in source
