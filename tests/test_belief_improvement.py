@@ -6,6 +6,7 @@ import json
 import pytest
 
 from azelficoast.belief.evaluator import (
+    BeliefEvaluatorInput,
     BeliefEvaluatorSpec,
     BeliefPrediction,
     init_params,
@@ -16,9 +17,11 @@ from azelficoast.belief.improvement import (
     AdmissionPolicy,
     EvaluationMetrics,
     ImprovementError,
+    _posterior_stress_input,
     _promote,
     decide_admission,
     evaluate_hostile_invariants,
+    evaluate_posterior_robustness,
     improve_checkpoint,
     load_training_dataset,
     promote_deferred_candidate,
@@ -56,6 +59,51 @@ def test_admission_requires_total_improvement_without_component_regression() -> 
     assert admitted["admitted"] is True
     assert value_regression["admitted"] is False
     assert "validation_value_mse_regression" in value_regression["failed_checks"]
+
+
+def test_posterior_stress_reweights_support_without_changing_identity() -> None:
+    inputs = BeliefEvaluatorInput(
+        public_features=(1.0,),
+        world_features=((1.0,), (2.0,), (3.0,)),
+        world_weights=(0.6, 0.3, 0.1),
+        action_features=((1.0,),),
+        legal_actions=("attack",),
+    )
+
+    flattened = _posterior_stress_input(inputs, treatment="flattened")
+    sharpened = _posterior_stress_input(inputs, treatment="sharpened")
+
+    assert flattened.world_features == inputs.world_features
+    assert flattened.legal_actions == inputs.legal_actions
+    assert flattened.world_weights == pytest.approx((1 / 3, 1 / 3, 1 / 3))
+    assert sharpened.world_weights == pytest.approx(
+        (0.36 / 0.46, 0.09 / 0.46, 0.01 / 0.46)
+    )
+
+
+def test_posterior_robustness_rejects_treatment_specific_regression() -> None:
+    incumbent = {
+        "treatments": {
+            "flattened": {"total_loss": 0.8},
+            "sharpened": {"total_loss": 0.7},
+        }
+    }
+    candidate = {
+        "treatments": {
+            "flattened": {"total_loss": 0.75},
+            "sharpened": {"total_loss": 0.72},
+        }
+    }
+
+    result = evaluate_posterior_robustness(
+        incumbent,
+        candidate,
+        policy=AdmissionPolicy(max_validation_posterior_stress_regression=0.0),
+    )
+
+    assert result["passed"] is False
+    assert result["worst_treatment"] == "sharpened"
+    assert result["worst_regression"] == pytest.approx(0.02)
 
 
 def _record(record_id: str, split: str) -> dict[str, object]:
@@ -184,6 +232,7 @@ def test_admitted_candidate_pointer_is_loadable_and_digest_bound(tmp_path) -> No
             min_validation_total_improvement=0.0,
             max_validation_value_mse_regression=10.0,
             max_validation_policy_cross_entropy_regression=10.0,
+            max_validation_posterior_stress_regression=10.0,
         ),
     )
 
@@ -280,6 +329,7 @@ def test_deferred_candidate_cannot_mutate_authority_before_battle_gate(tmp_path)
             min_validation_total_improvement=0.0,
             max_validation_value_mse_regression=10.0,
             max_validation_policy_cross_entropy_regression=10.0,
+            max_validation_posterior_stress_regression=10.0,
         ),
         promote=False,
     )

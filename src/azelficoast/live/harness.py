@@ -359,6 +359,11 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_nonnegative_float,
         default=0.0,
     )
+    training_bootstrap_public.add_argument(
+        "--max-validation-posterior-stress-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
 
     training_improve = training_commands.add_parser(
         "improve",
@@ -407,6 +412,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     training_improve.add_argument(
         "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_improve.add_argument(
+        "--max-validation-posterior-stress-regression",
         type=_nonnegative_float,
         default=0.0,
     )
@@ -474,6 +484,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     training_cycle.add_argument(
         "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_cycle.add_argument(
+        "--max-validation-posterior-stress-regression",
         type=_nonnegative_float,
         default=0.0,
     )
@@ -580,6 +595,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     training_auto.add_argument(
         "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_auto.add_argument(
+        "--max-validation-posterior-stress-regression",
         type=_nonnegative_float,
         default=0.0,
     )
@@ -1156,6 +1176,9 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
                 max_validation_policy_cross_entropy_regression=(
                     args.max_validation_policy_regression
                 ),
+                max_validation_posterior_stress_regression=(
+                    args.max_validation_posterior_stress_regression
+                ),
             ),
             defer_promotion=True,
         )
@@ -1288,6 +1311,9 @@ def _run_training(args: argparse.Namespace) -> None:
                 max_validation_policy_cross_entropy_regression=(
                     args.max_validation_policy_regression
                 ),
+                max_validation_posterior_stress_regression=(
+                    args.max_validation_posterior_stress_regression
+                ),
             ),
         )
     elif args.training_command == "improve":
@@ -1306,6 +1332,9 @@ def _run_training(args: argparse.Namespace) -> None:
                 max_validation_value_mse_regression=args.max_validation_value_regression,
                 max_validation_policy_cross_entropy_regression=(
                     args.max_validation_policy_regression
+                ),
+                max_validation_posterior_stress_regression=(
+                    args.max_validation_posterior_stress_regression
                 ),
             ),
         )
@@ -1337,6 +1366,9 @@ def _run_training(args: argparse.Namespace) -> None:
                 max_validation_value_mse_regression=args.max_validation_value_regression,
                 max_validation_policy_cross_entropy_regression=(
                     args.max_validation_policy_regression
+                ),
+                max_validation_posterior_stress_regression=(
+                    args.max_validation_posterior_stress_regression
                 ),
             ),
         )
