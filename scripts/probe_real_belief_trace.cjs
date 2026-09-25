@@ -15,10 +15,16 @@ const argv = process.argv.slice(2);
 const showdownRoot = argv[0];
 const fixturePath = argv[1];
 let benchPriorPath = null;
+let posteriorOnly = false;
+let transitionProgramOnly = false;
 for (let i = 2; i < argv.length; i++) {
   if (argv[i] === "--bench-prior") {
     benchPriorPath = argv[++i];
     if (!benchPriorPath) fail("--bench-prior requires a JSON path");
+  } else if (argv[i] === "--posterior-only") {
+    posteriorOnly = true;
+  } else if (argv[i] === "--transition-program-only") {
+    transitionProgramOnly = true;
   } else {
     fail("unknown argument: " + argv[i]);
   }
@@ -26,8 +32,12 @@ for (let i = 2; i < argv.length; i++) {
 if (!showdownRoot || !fixturePath) {
   fail(
     "usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON " +
-    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON]"
+    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON] " +
+    "[--posterior-only | --transition-program-only]"
   );
+}
+if (posteriorOnly && transitionProgramOnly) {
+  fail("--posterior-only and --transition-program-only are mutually exclusive");
 }
 
 const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
@@ -177,6 +187,15 @@ function stable(value) {
 
 function sha256(value) {
   return crypto.createHash("sha256").update(JSON.stringify(stable(value))).digest("hex");
+}
+
+function sha256PythonCanonical(value) {
+  const encoded = JSON.stringify(stable(value)).replace(
+    /[^\x00-\x7f]/g,
+    character =>
+      "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0")
+  );
+  return crypto.createHash("sha256").update(encoded).digest("hex");
 }
 
 function toID(value) {
@@ -685,6 +704,117 @@ function cloneBattle(snapshot, chanceSeed) {
   return battle;
 }
 
+function instrumentOpponentHiddenReads(battle) {
+  const reads = new Set();
+  const pokemon = battle.p2.active[0];
+  if (!pokemon) {
+    return {
+      reads: () => [],
+      restore: () => {},
+    };
+  }
+
+  const restorers = [];
+  const mark = (...fields) => {
+    for (const field of fields) reads.add(field);
+  };
+
+  function trackDataProperty(object, key, fields) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (
+      !descriptor ||
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      descriptor.configurable === false
+    ) {
+      mark(...fields);
+      return;
+    }
+
+    let value = descriptor.value;
+    Object.defineProperty(object, key, {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get() {
+        mark(...fields);
+        return value;
+      },
+      set(next) {
+        if (descriptor.writable === false) {
+          throw new TypeError("cannot write instrumented read-only property " + key);
+        }
+        value = next;
+      },
+    });
+    restorers.push(() => {
+      Object.defineProperty(object, key, {
+        ...descriptor,
+        value,
+      });
+    });
+  }
+
+  function trackStatObject(key) {
+    const descriptor = Object.getOwnPropertyDescriptor(pokemon, key);
+    if (
+      !descriptor ||
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      descriptor.configurable === false ||
+      !descriptor.value ||
+      typeof descriptor.value !== "object"
+    ) {
+      mark("opponent.active.evs", "opponent.active.ivs");
+      return;
+    }
+    const target = descriptor.value;
+    const proxy = new Proxy(target, {
+      get(object, property, receiver) {
+        if (
+          typeof property === "string" &&
+          ["atk", "def", "spa", "spd", "spe"].includes(property)
+        ) {
+          mark("opponent.active.evs", "opponent.active.ivs");
+        }
+        return Reflect.get(object, property, receiver);
+      },
+      set(object, property, value, receiver) {
+        return Reflect.set(object, property, value, receiver);
+      },
+    });
+    pokemon[key] = proxy;
+    restorers.push(() => {
+      pokemon[key] = target;
+    });
+  }
+
+  trackDataProperty(pokemon, "item", ["opponent.active.item"]);
+  trackDataProperty(pokemon, "ability", ["opponent.active.ability"]);
+  trackDataProperty(pokemon, "hp", ["opponent.active.exact_hp"]);
+  trackDataProperty(
+    pokemon,
+    "maxhp",
+    ["opponent.active.evs", "opponent.active.ivs"]
+  );
+  trackDataProperty(
+    pokemon,
+    "baseMaxhp",
+    ["opponent.active.evs", "opponent.active.ivs"]
+  );
+  trackStatObject("storedStats");
+  trackStatObject("baseStoredStats");
+
+  let restored = false;
+  return {
+    reads() {
+      return [...reads].sort();
+    },
+    restore() {
+      if (restored) return;
+      restored = true;
+      for (const restore of restorers.reverse()) restore();
+    },
+  };
+}
+
 function rootChoice(action) {
   if (!action.startsWith("/choose ")) fail(`unexpected root action ${action}`);
   return action.slice("/choose ".length);
@@ -782,6 +912,10 @@ function stateSummary(battle, world) {
             battle.p2.active[0].hp === Number(world.exactHp)
               ? "<unchanged>"
               : battle.p2.active[0].hp,
+          maxhp:
+            battle.p2.active[0].maxhp === Number(world.opponent_max_hp)
+              ? "<unchanged>"
+              : battle.p2.active[0].maxhp,
         }
       : null,
     weather: battle.field.weather || null,
@@ -904,11 +1038,15 @@ function continuationValues(rootSnapshot) {
   };
 }
 
-function declaredReads(_action) {
-  // Pokémon Showdown is an external oracle rather than an instrumented lowering.
-  // Declare the whole hidden adapter boundary conservatively; the analyzer then
-  // derives the empirically required subset from exact mechanics outcomes.
-  return [...DEPENDENCY_CANDIDATES];
+function declaredReads(action) {
+  const reads = new Set();
+  for (const transition of transitions) {
+    if (transition.action !== action) continue;
+    for (const outcome of transition.outcomes) {
+      for (const field of outcome.transition_reads || []) reads.add(field);
+    }
+  }
+  return [...reads].sort();
 }
 
 function factoredBenchAudit(worlds, legalActions, transitions) {
@@ -1106,6 +1244,350 @@ const worlds = [...worldById.values()];
 if (worlds.length < 2) fail("real trace did not reconstruct multiple hidden worlds");
 
 const legalActions = fixture.state.legal_actions.map(String);
+const outputWorlds = worlds.map(world => ({
+  world_id: world.world_id,
+  weight: world.weight,
+  hidden: world.hidden,
+  provenance: {
+    generator_count: world.generator_count,
+    generator_rounds: GENERATOR_ROUNDS,
+    generator_variant_count: world.generator_variant_count,
+    marginalized_variant_digest: sha256(
+      world.marginalized_remainders
+        .map(entry => stable(entry))
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    ),
+    opponent_max_hp: world.opponent_max_hp,
+    hp_prior: "uniform-within-public-percentage-bucket",
+  },
+}));
+
+if (posteriorOnly) {
+  process.stdout.write(JSON.stringify({
+    schema: "azelficoast.live-belief-posterior",
+    schema_version: 1,
+    source_fixture_id: fixture.fixture_id,
+    showdown_commit: actualCommit,
+    conditioned_on_public_history: true,
+    realized_hidden_state_revealed: false,
+    reconstruction: {
+      generator_rounds: GENERATOR_ROUNDS,
+      generator_matches: matched,
+      generator_variant_count: variants.length,
+      execution_variant_count: executionVariants.length,
+      observed_opponent_moves: observedOpponentMoves(),
+      hidden_world_count: outputWorlds.length,
+      own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+      opponent_bench_species: OPPONENT_BENCH_SPECIES,
+    },
+    legal_actions: legalActions,
+    worlds: outputWorlds,
+  }, null, 2) + "\n");
+  process.exit(0);
+}
+function immediateWholeTurn(world, action) {
+  const base = buildBattle(world);
+  const baseSnapshot = JSON.stringify(base);
+  base.destroy();
+
+  const outcomes = [];
+  const reads = new Set();
+  for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
+    const battle = cloneBattle(
+      baseSnapshot,
+      seed(i, 1_000 + legalActions.indexOf(action))
+    );
+    const logStart = battle.log.length;
+    const readTrace = instrumentOpponentHiddenReads(battle);
+    try {
+      battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+    } finally {
+      readTrace.restore();
+    }
+    const transitionReads = readTrace.reads();
+    for (const field of transitionReads) reads.add(field);
+    outcomes.push({
+      probability: 1 / ROOT_CHANCE_SAMPLES,
+      observation: observation(battle, logStart),
+      successor: stateSummary(battle, world),
+      transition_reads: transitionReads,
+    });
+    battle.destroy();
+  }
+  const semantics = outcomes
+    .map(outcome => ({
+      probability: outcome.probability,
+      observation: outcome.observation,
+      successor: outcome.successor,
+    }))
+    .sort((left, right) =>
+      JSON.stringify(stable(left)).localeCompare(JSON.stringify(stable(right)))
+    );
+  return {
+    outcomes,
+    read_fields: [...reads].sort(),
+    semantic_hash: sha256PythonCanonical(semantics),
+  };
+}
+
+function projectionKey(world, fields) {
+  return fields.map(field => JSON.stringify(stable(world.hidden[field])));
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function counterfactualWorld(baseWorld, donorWorld, field) {
+  const world = cloneJson(baseWorld);
+  world.hidden[field] = cloneJson(donorWorld.hidden[field]);
+
+  if (field === "opponent.active.item") {
+    world.variant.item = donorWorld.variant.item;
+  } else if (field === "opponent.active.ability") {
+    world.variant.ability = donorWorld.variant.ability;
+  } else if (field === "opponent.active.evs") {
+    world.variant.evs = cloneJson(donorWorld.variant.evs);
+  } else if (field === "opponent.active.ivs") {
+    world.variant.ivs = cloneJson(donorWorld.variant.ivs);
+  } else if (field === "opponent.active.exact_hp") {
+    world.exactHp = donorWorld.exactHp;
+  } else {
+    fail("cannot intervene on unknown hidden transition field " + field);
+  }
+
+  if (
+    field === "opponent.active.evs" ||
+    field === "opponent.active.ivs"
+  ) {
+    const battle = buildBattle(world);
+    world.opponent_max_hp = battle.p2.active[0].maxhp;
+    battle.destroy();
+    if (world.exactHp > world.opponent_max_hp) {
+      world.exactHp = world.opponent_max_hp;
+      world.hidden["opponent.active.exact_hp"] = world.exactHp;
+    }
+  }
+
+  world.world_id = "counterfactual-" + sha256({
+    base_world_id: baseWorld.world_id,
+    donor_world_id: donorWorld.world_id,
+    field,
+    hidden: world.hidden,
+  });
+  return world;
+}
+
+function executionWorldKey(world, action) {
+  return action + "\u0000" + sha256({
+    hidden: world.hidden,
+    variant: {
+      species: world.variant.species,
+      ability: world.variant.ability,
+      item: world.variant.item,
+      level: world.variant.level,
+      moves: world.variant.moves,
+      evs: world.variant.evs,
+      ivs: world.variant.ivs,
+      teraType: world.variant.teraType,
+    },
+    exact_hp: world.exactHp,
+    opponent_max_hp: world.opponent_max_hp,
+  });
+}
+
+function compileLazyWholeTurnPrograms() {
+  const orderedWorlds = [...worlds].sort((left, right) =>
+    left.world_id.localeCompare(right.world_id)
+  );
+  const executionCache = new Map();
+  const programs = [];
+
+  function executeWorld(world, action, role) {
+    const key = executionWorldKey(world, action);
+    let record = executionCache.get(key);
+    if (!record) {
+      record = {
+        execution: immediateWholeTurn(world, action),
+        roles: new Set(),
+        synthetic: String(world.world_id).startsWith("counterfactual-"),
+      };
+      executionCache.set(key, record);
+    }
+    record.roles.add(role);
+    return record.execution;
+  }
+
+  for (const action of legalActions) {
+    const representative = orderedWorlds[0];
+    const baseline = executeWorld(representative, action, "causal-baseline");
+    const observedFields = new Set(baseline.read_fields);
+    const pendingFields = [...observedFields];
+    const causalFields = new Set();
+    const probes = [];
+
+    for (let cursor = 0; cursor < pendingFields.length; cursor++) {
+      const field = pendingFields[cursor];
+      const donorsByValue = new Map();
+      for (const donor of orderedWorlds) {
+        const valueKey = JSON.stringify(stable(donor.hidden[field]));
+        if (!donorsByValue.has(valueKey)) donorsByValue.set(valueKey, donor);
+      }
+
+      const baselineValue = JSON.stringify(stable(representative.hidden[field]));
+      if (donorsByValue.size <= 1) continue;
+
+      for (const [valueKey, donor] of donorsByValue) {
+        if (valueKey === baselineValue) continue;
+        const counterfactual = counterfactualWorld(representative, donor, field);
+        const execution = executeWorld(counterfactual, action, "causal-probe");
+        for (const discovered of execution.read_fields) {
+          if (!observedFields.has(discovered)) {
+            observedFields.add(discovered);
+            pendingFields.push(discovered);
+          }
+        }
+        const changed = execution.semantic_hash !== baseline.semantic_hash;
+        probes.push({
+          field,
+          donor_world_id: donor.world_id,
+          semantic_changed: changed,
+          baseline_semantic_hash: baseline.semantic_hash,
+          candidate_semantic_hash: execution.semantic_hash,
+        });
+        if (changed) {
+          causalFields.add(field);
+          break;
+        }
+      }
+    }
+
+    const dependencyFields = [...causalFields].sort();
+    const groups = new Map();
+    for (const world of orderedWorlds) {
+      const key = JSON.stringify(projectionKey(world, dependencyFields));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(world);
+    }
+
+    const classes = [];
+    for (const [key, members] of [...groups.entries()].sort(([left], [right]) =>
+      left.localeCompare(right)
+    )) {
+      const representativeWorld = [...members].sort((left, right) =>
+        left.world_id.localeCompare(right.world_id)
+      )[0];
+      const execution = executeWorld(
+        representativeWorld,
+        action,
+        "class-representative"
+      );
+      const memberWorldIds = members.map(world => world.world_id).sort();
+      const classId = "transition-class-" + sha256({
+        action,
+        causal_fields: dependencyFields,
+        key,
+        semantic_hash: execution.semantic_hash,
+      }).slice(0, 24);
+      classes.push({
+        class_id: classId,
+        read_fields: [...observedFields].sort(),
+        causal_fields: dependencyFields,
+        projection_key: projectionKey(representativeWorld, dependencyFields),
+        representative_world_id: representativeWorld.world_id,
+        member_world_ids: memberWorldIds,
+        semantic_hash: execution.semantic_hash,
+        outcomes: execution.outcomes,
+      });
+    }
+
+    const partitionKeyHash = sha256({
+      action,
+      partition_method: "counterfactual-causal-refinement",
+      fields: dependencyFields,
+      classes: classes.map(row => ({
+        class_id: row.class_id,
+        members: row.member_world_ids,
+        semantic_hash: row.semantic_hash,
+      })),
+    });
+    const effectSignature = "sha256:" + sha256({
+      showdown_commit: actualCommit,
+      source_fixture_id: fixture.fixture_id,
+      action,
+      dependency_fields: dependencyFields,
+      partition_key_hash: partitionKeyHash,
+    });
+
+    programs.push({
+      action,
+      effect_signature: effectSignature,
+      dependency_fields: dependencyFields,
+      observed_read_fields: [...observedFields].sort(),
+      partition_method: "counterfactual-causal-refinement",
+      representative_world_count: classes.length,
+      worlds_in: worlds.length,
+      classes_out: classes.length,
+      world_reduction: worlds.length - classes.length,
+      reduction_fraction: 1 - classes.length / worlds.length,
+      partition_key_hash: partitionKeyHash,
+      causal_probe_count: probes.length,
+      causal_probes: probes,
+      classes,
+    });
+  }
+
+  const cacheRows = [...executionCache.values()];
+  const uniqueExecutions = cacheRows.length;
+  const causalProbeExecutions = cacheRows.filter(
+    row => row.roles.has("causal-probe")
+  ).length;
+  const classRepresentativeExecutions = cacheRows.filter(
+    row => row.roles.has("class-representative")
+  ).length;
+  const exhaustiveWorldActionProduct = worlds.length * legalActions.length;
+
+  return {
+    schema: "azelficoast.whole-turn-transition-program-set",
+    schema_version: 1,
+    source_fixture_id: fixture.fixture_id,
+    showdown_commit: actualCommit,
+    world_ids: worlds.map(world => world.world_id).sort(),
+    legal_actions: legalActions,
+    dependency_candidates: DEPENDENCY_CANDIDATES,
+    programs,
+    producer: {
+      strategy: "counterfactual-causal-refinement",
+      root_chance_samples: ROOT_CHANCE_SAMPLES,
+      unique_world_action_executions: uniqueExecutions,
+      causal_probe_executions: causalProbeExecutions,
+      class_representative_executions: classRepresentativeExecutions,
+      showdown_turn_executions: uniqueExecutions * ROOT_CHANCE_SAMPLES,
+      exhaustive_world_action_product: exhaustiveWorldActionProduct,
+      saved_world_action_executions:
+        exhaustiveWorldActionProduct - uniqueExecutions,
+      execution_reduction_fraction:
+        1 - uniqueExecutions / exhaustiveWorldActionProduct,
+    },
+    claim:
+      "Candidate dependency fields are retained only when a one-field " +
+      "counterfactual intervention changes the complete pinned-Showdown turn " +
+      "semantics. Final classes are independently verifiable against the direct oracle.",
+    non_claim:
+      "One-factor interventions do not prove absence of higher-order field " +
+      "interactions or generalization beyond this support. The direct oracle verifier " +
+      "must reject any causally proposed class that merges different turn semantics.",
+  };
+}
+
+if (transitionProgramOnly) {
+  process.stdout.write(
+    JSON.stringify(compileLazyWholeTurnPrograms(), null, 2) + "\n"
+  );
+  process.exit(0);
+}
+
+
 const transitions = [];
 for (const world of worlds) {
   const base = buildBattle(world);
@@ -1120,7 +1602,13 @@ for (const world of worlds) {
         seed(i, 1_000 + legalActions.indexOf(action))
       );
       const logStart = battle.log.length;
-      battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+      const readTrace = instrumentOpponentHiddenReads(battle);
+      try {
+        battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+      } finally {
+        readTrace.restore();
+      }
+      const transitionReads = readTrace.reads();
       const rootObservation = observation(battle, logStart);
       const successor = stateSummary(battle, world);
       const rootSnapshot = JSON.stringify(battle);
@@ -1129,6 +1617,7 @@ for (const world of worlds) {
         probability: 1 / ROOT_CHANCE_SAMPLES,
         observation: rootObservation,
         successor,
+        transition_reads: transitionReads,
         ...continuation,
       });
       battle.destroy();
@@ -1165,24 +1654,6 @@ const marginalizedHidden = {
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-const outputWorlds = worlds.map(world => ({
-  world_id: world.world_id,
-  weight: world.weight,
-  hidden: world.hidden,
-  provenance: {
-    generator_count: world.generator_count,
-    generator_rounds: GENERATOR_ROUNDS,
-    generator_variant_count: world.generator_variant_count,
-    marginalized_variant_digest: sha256(
-      world.marginalized_remainders
-        .map(entry => stable(entry))
-        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-    ),
-    opponent_max_hp: world.opponent_max_hp,
-    hp_prior: "uniform-within-public-percentage-bucket",
-  },
-}));
-
 process.stdout.write(JSON.stringify({
   schema: "azelficoast.real-belief-transition-oracle",
   schema_version: 1,
@@ -1225,7 +1696,7 @@ process.stdout.write(JSON.stringify({
     bench_factor_unread_action_count: benchFactor
       ? benchFactor.unread_actions.length
       : 0,
-    declared_read_mode: "conservative-external-oracle-boundary",
+    declared_read_mode: "instrumented-showdown-hidden-state-boundary",
   },
   factored_hidden: factoredHidden,
   marginalized_hidden: marginalizedHidden,

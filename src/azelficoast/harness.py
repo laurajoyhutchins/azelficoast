@@ -16,12 +16,14 @@ from poke_env.player import Player, RandomPlayer
 from azelficoast.belief_coverage import summarize_traces
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.player import AzelficoastPlayer
+from azelficoast.training_records import build_training_dataset
 
 BATTLE_FORMAT = "gen9randombattle"
 DEFAULT_RESULTS = Path("artifacts/results.jsonl")
 DEFAULT_DECISIONS = Path("artifacts/decisions.jsonl")
 DEFAULT_REPLAYS = Path("artifacts/replays")
 DEFAULT_CORPUS = Path("artifacts/corpus.jsonl")
+DEFAULT_TRAINING = Path("artifacts/training.jsonl")
 
 
 def _positive_int(value: str) -> int:
@@ -35,6 +37,13 @@ def _positive_float(value: str) -> float:
     parsed = float(value)
     if parsed <= 0:
         raise argparse.ArgumentTypeError("must be positive")
+    return parsed
+
+
+def _unit_float(value: str) -> float:
+    parsed = float(value)
+    if not 0.0 <= parsed <= 1.0:
+        raise argparse.ArgumentTypeError("must be within [0, 1]")
     return parsed
 
 
@@ -75,6 +84,28 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_positive_float,
         default=float(os.getenv("AZELFICOAST_BELIEF_TIMEOUT_SECONDS", "20")),
         help="maximum seconds for one live public-belief probe (default: 20)",
+    )
+    parser.add_argument(
+        "--evaluator-checkpoint",
+        type=Path,
+        default=(
+            Path(os.environ["AZELFICOAST_EVALUATOR_CHECKPOINT"])
+            if os.getenv("AZELFICOAST_EVALUATOR_CHECKPOINT")
+            else None
+        ),
+        help=(
+            "verified learned policy/value checkpoint; without this, live behavior "
+            "remains exact public-belief search"
+        ),
+    )
+    parser.add_argument(
+        "--search-policy-margin",
+        type=_unit_float,
+        default=float(os.getenv("AZELFICOAST_SEARCH_POLICY_MARGIN", "1.0")),
+        help=(
+            "run exact search when learned top-two policy margin is at or below this "
+            "threshold; 1.0 is conservative shadow mode (default: 1.0)"
+        ),
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -149,6 +180,41 @@ def _build_parser() -> argparse.ArgumentParser:
         help="optional JSONL file for per-fixture evaluation results",
     )
 
+    training = subparsers.add_parser(
+        "training",
+        help="build leakage-safe policy/value records from real decision traces",
+    )
+    training_commands = training.add_subparsers(
+        dest="training_command",
+        required=True,
+    )
+    training_build = training_commands.add_parser(
+        "build",
+        help="join real decision states with outcome and public-belief search targets",
+    )
+    training_build.add_argument("traces", nargs="+", type=Path)
+    training_build.add_argument("--output", type=Path, default=DEFAULT_TRAINING)
+    training_build.add_argument(
+        "--search-annotation",
+        action="append",
+        type=Path,
+        default=[],
+        help=(
+            "optional deeper public-belief result or search-target document; "
+            "repeat to provide multiple annotation files"
+        ),
+    )
+    training_build.add_argument(
+        "--split-seed",
+        default="azelficoast.training-records",
+    )
+    training_build.add_argument("--train-fraction", type=_unit_float, default=0.8)
+    training_build.add_argument(
+        "--validation-fraction",
+        type=_unit_float,
+        default=0.1,
+    )
+
     coverage = subparsers.add_parser(
         "belief-coverage",
         help="summarize live public-belief routing and static admission coverage",
@@ -188,6 +254,8 @@ def _live_player(
     *,
     showdown_root: Path | None,
     belief_timeout: float,
+    evaluator_checkpoint: Path | None,
+    search_policy_margin: float,
 ) -> AzelficoastPlayer:
     return AzelficoastPlayer(
         account_configuration=AccountConfiguration(username, password),
@@ -198,6 +266,8 @@ def _live_player(
         decision_log=decisions,
         showdown_root=showdown_root,
         belief_timeout_seconds=belief_timeout,
+        evaluator_checkpoint=evaluator_checkpoint,
+        search_policy_margin=search_policy_margin,
     )
 
 
@@ -243,6 +313,8 @@ async def _run_local(
     *,
     showdown_root: Path | None,
     belief_timeout: float,
+    evaluator_checkpoint: Path | None,
+    search_policy_margin: float,
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
@@ -251,6 +323,8 @@ async def _run_local(
         decision_log=decisions,
         showdown_root=showdown_root,
         belief_timeout_seconds=belief_timeout,
+        evaluator_checkpoint=evaluator_checkpoint,
+        search_policy_margin=search_policy_margin,
     )
     opponent = RandomPlayer(
         battle_format=BATTLE_FORMAT,
@@ -270,6 +344,8 @@ async def _run_live(args: argparse.Namespace) -> None:
         args.decisions,
         showdown_root=args.showdown_root,
         belief_timeout=args.belief_timeout,
+        evaluator_checkpoint=args.evaluator_checkpoint,
+        search_policy_margin=args.search_policy_margin,
     )
 
     if args.command == "challenge":
@@ -299,6 +375,8 @@ async def _async_main(args: argparse.Namespace) -> None:
             args.replays,
             showdown_root=args.showdown_root,
             belief_timeout=args.belief_timeout,
+            evaluator_checkpoint=args.evaluator_checkpoint,
+            search_policy_margin=args.search_policy_margin,
         )
     else:
         await _run_live(args)
@@ -314,6 +392,22 @@ def _run_corpus(args: argparse.Namespace) -> None:
     print(json.dumps(summary, sort_keys=True))
 
 
+def _run_training(args: argparse.Namespace) -> None:
+    if args.training_command != "build":
+        raise AssertionError(
+            f"unsupported training command: {args.training_command}"
+        )
+    summary = build_training_dataset(
+        args.traces,
+        args.output,
+        search_annotation_paths=args.search_annotation,
+        split_seed=args.split_seed,
+        train_fraction=args.train_fraction,
+        validation_fraction=args.validation_fraction,
+    )
+    print(json.dumps(summary, sort_keys=True))
+
+
 def _run_belief_coverage(args: argparse.Namespace) -> None:
     print(json.dumps(summarize_traces(args.traces), sort_keys=True))
 
@@ -324,6 +418,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "corpus":
             _run_corpus(args)
+        elif args.command == "training":
+            _run_training(args)
         elif args.command == "belief-coverage":
             _run_belief_coverage(args)
         else:

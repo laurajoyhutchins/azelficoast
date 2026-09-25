@@ -6,12 +6,14 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/real_belief_trace.py"
+      - "src/azelficoast/whole_turn_program.py"
       - "src/azelficoast/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
       - "experiments/real-belief-source-fixture.json"
       - "experiments/real-belief-source-gliscor-urshifu.json"
       - "experiments/real-belief-negative-corpus.json"
       - "tests/test_real_belief_trace.py"
+      - "tests/test_whole_turn_program.py"
       - "tests/test_real_belief_miner.py"
       - ".github/workflows/real-belief-decision-trace.yml"
       - "README.md"
@@ -52,6 +54,44 @@ jobs:
       - name: Generate real hidden-world transition oracle
         run: |
           node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             experiments/real-belief-source-gliscor-urshifu.json             > /tmp/real-belief-transition-oracle.json
+
+      - name: Generate lazy whole-turn transition program
+        run: |
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            experiments/real-belief-source-gliscor-urshifu.json \
+            --transition-program-only \
+            > /tmp/whole-turn-transition-program.json
+
+      - name: Verify lazy program against direct oracle
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from azelficoast.whole_turn_program import verify_whole_turn_program_set
+
+          program = json.loads(
+              Path("/tmp/whole-turn-transition-program.json").read_text()
+          )
+          oracle = json.loads(
+              Path("/tmp/real-belief-transition-oracle.json").read_text()
+          )
+          certificate = verify_whole_turn_program_set(program, oracle)
+          producer = program.get("producer", {})
+          assert producer.get("strategy") == "counterfactual-causal-refinement", producer
+          unique = int(producer.get("unique_world_action_executions", -1))
+          exhaustive = int(producer.get("exhaustive_world_action_product", -1))
+          saved = int(producer.get("saved_world_action_executions", -1))
+          assert 0 < unique < exhaustive, producer
+          assert saved == exhaustive - unique and saved > 0, producer
+          certificate["producer"] = producer
+          Path("/tmp/whole-turn-transition-verification.json").write_text(
+              json.dumps(certificate, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          print(json.dumps(certificate, sort_keys=True))
+          PY
 
       - name: Analyze public information sets
         run: |
@@ -125,6 +165,8 @@ jobs:
           name: real-belief-decision-trace
           path: |
             /tmp/real-belief-transition-oracle.json
+            /tmp/whole-turn-transition-program.json
+            /tmp/whole-turn-transition-verification.json
             /tmp/real-belief-decision-trace.json
             /tmp/real-belief-analysis-status
             /tmp/real-belief-trace-mining.json

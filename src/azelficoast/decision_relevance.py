@@ -18,11 +18,8 @@ import json
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-from azelficoast.real_belief_trace import (
-    SCHEMA as ORACLE_SCHEMA,
-    SCHEMA_VERSION as ORACLE_SCHEMA_VERSION,
-    analyze_oracle,
-)
+from azelficoast.real_belief_trace import analyze_oracle
+from azelficoast.transition_oracle import validate_oracle_core
 
 CERTIFICATE_SCHEMA = "azelficoast.decision-relevance-certificate"
 CERTIFICATE_SCHEMA_VERSION = 1
@@ -100,92 +97,11 @@ def _validated_oracle(
     dict[tuple[str, str], Mapping[str, Any]],
     list[str],
 ]:
-    if (
-        document.get("schema") != ORACLE_SCHEMA
-        or document.get("schema_version") != ORACLE_SCHEMA_VERSION
-    ):
-        raise DecisionRelevanceError("unsupported transition oracle schema")
-
-    raw_worlds = document.get("worlds")
-    raw_actions = document.get("legal_actions")
-    raw_transitions = document.get("transitions")
-    if not isinstance(raw_worlds, list) or not raw_worlds:
-        raise DecisionRelevanceError("oracle must contain at least one hidden world")
-    if not isinstance(raw_actions, list) or not raw_actions:
-        raise DecisionRelevanceError("oracle must contain root legal actions")
-    if not isinstance(raw_transitions, list):
-        raise DecisionRelevanceError("oracle transitions must be a list")
-
-    worlds = [dict(world) for world in raw_worlds]
-    world_ids = [str(world.get("world_id")) for world in worlds]
-    if len(set(world_ids)) != len(world_ids):
-        raise DecisionRelevanceError("world ids must be unique")
-    for world in worlds:
-        if not isinstance(world.get("hidden"), Mapping):
-            raise DecisionRelevanceError("every world must contain hidden state")
-        weight = world.get("weight")
-        if not isinstance(weight, (int, float)) or float(weight) <= 0:
-            raise DecisionRelevanceError("world weights must be positive")
-
-    actions = [str(action) for action in raw_actions]
-    if len(set(actions)) != len(actions):
-        raise DecisionRelevanceError("root actions must be unique")
-
-    transitions: dict[tuple[str, str], Mapping[str, Any]] = {}
-    for transition in raw_transitions:
-        if not isinstance(transition, Mapping):
-            raise DecisionRelevanceError("transition must be an object")
-        world_id = str(transition.get("world_id"))
-        action = str(transition.get("action"))
-        key = (world_id, action)
-        if world_id not in set(world_ids):
-            raise DecisionRelevanceError(
-                f"transition references unknown world {world_id}"
-            )
-        if action not in set(actions):
-            raise DecisionRelevanceError(
-                f"transition references non-root action {action}"
-            )
-        if key in transitions:
-            raise DecisionRelevanceError(
-                f"duplicate transition for {world_id} {action}"
-            )
-        _normalized_outcomes(transition)
-        transitions[key] = transition
-
-    expected = {(world_id, action) for world_id in world_ids for action in actions}
-    missing = expected - set(transitions)
-    if missing:
-        raise DecisionRelevanceError(
-            f"oracle omitted root transitions: {sorted(missing)[:3]!r}"
-        )
-
-    raw_candidates = document.get("dependency_candidates")
-    hidden_fields = sorted(
-        {
-            str(field)
-            for world in worlds
-            for field in world["hidden"]
-        }
+    return validate_oracle_core(
+        document,
+        error_type=DecisionRelevanceError,
+        outcome_empty_message="every transition must contain chance outcomes",
     )
-    if raw_candidates is None:
-        candidates = hidden_fields
-    elif isinstance(raw_candidates, list) and all(
-        isinstance(field, str) for field in raw_candidates
-    ):
-        candidates = list(dict.fromkeys(raw_candidates))
-    else:
-        raise DecisionRelevanceError(
-            "dependency_candidates must be an array of semantic field paths"
-        )
-
-    unknown = [field for field in candidates if field not in hidden_fields]
-    if unknown:
-        raise DecisionRelevanceError(
-            f"dependency candidates reference unknown fields: {unknown!r}"
-        )
-
-    return worlds, actions, transitions, candidates
 
 
 def _world_semantics(
@@ -297,6 +213,12 @@ def decision_relevance_quotient(
         for action in actions:
             transition = copy.deepcopy(transitions[(representative_id, action)])
             transition["world_id"] = class_id
+            # Dynamic read traces are evidence about the original hidden-state
+            # vocabulary. Once this quotient projects fields away, those traces no
+            # longer describe the transformed program and must not be reused.
+            for outcome in transition.get("outcomes", []):
+                if isinstance(outcome, dict):
+                    outcome.pop("transition_reads", None)
             quotient_transitions.append(transition)
 
         certificate_classes.append(

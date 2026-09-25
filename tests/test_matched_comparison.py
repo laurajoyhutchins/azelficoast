@@ -12,7 +12,7 @@ from azelficoast.matched_comparison import (
 def _plan() -> dict[str, object]:
     return {
         "schema": "azelficoast.matched-search-comparison-plan",
-        "schema_version": 1,
+        "schema_version": 2,
         "posterior_treatments": [
             "oracle",
             "generator_faithful",
@@ -31,6 +31,14 @@ def _plan() -> dict[str, object]:
         ],
         "cluster_unit": "battle_tag",
         "showdown_commit": "pinned",
+        "evaluator": {
+            "schema": "azelficoast.belief-policy-value-evaluator",
+            "schema_version": 1,
+            "checkpoint_digest": "sha256:" + "a" * 64,
+            "observability": "public_belief_only",
+            "architecture": "weighted_deep_sets_policy_value",
+            "spec": {"hidden_width": 256},
+        },
         "inference": {
             "bootstrap_replicates": 20,
             "bootstrap_seed": 1729,
@@ -75,6 +83,9 @@ def _receipt(
     return {
         "method": method,
         "input_digest": packet["input_digest"],
+        "evaluator_digest": packet["evaluator_digest"],
+        "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+        "evaluator_calls": 7,
         "compute_budget": packet["compute_budget"],
         "consumed": consumed,
         "chosen_action": chosen_action,
@@ -96,6 +107,8 @@ def test_freeze_packet_gives_both_methods_identical_input_and_budget() -> None:
         "information_set",
     ]
     assert len({row["input_digest"] for row in packet["work"]}) == 1
+    assert len({row["evaluator_digest"] for row in packet["work"]}) == 1
+    assert packet["evaluator"]["observability"] == "public_belief_only"
     assert len(
         {
             (
@@ -151,6 +164,14 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
 
     assert result["matched_input"] is True
     assert result["matched_authorized_compute"] is True
+    assert result["matched_evaluator"] is True
+    assert result["matched_evaluator_checkpoint"] is True
+    assert result["evaluator"] == _plan()["evaluator"]
+    assert result["evaluator_checkpoint_digest"] == _plan()["evaluator"]["checkpoint_digest"]
+    assert result["evaluator_calls"] == {
+        "determinization": 7,
+        "information_set": 7,
+    }
     assert abs(result["max_determinization_value_optimism"] - 0.20) < 1e-12
     assert (
         abs(result["information_set_regret_of_determinization_action"] - 0.05)
@@ -193,3 +214,61 @@ def test_settle_packet_rejects_input_or_budget_drift() -> None:
     over_budget["consumed"] = 4097
     with pytest.raises(MatchedComparisonError, match="exceeded"):
         settle_packet(packet=packet, receipts=[det, over_budget])
+
+
+def test_settle_packet_rejects_evaluator_drift() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+    )
+    info["evaluator_digest"] = "different"
+
+    with pytest.raises(MatchedComparisonError, match="another evaluator"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+
+def test_settle_packet_rejects_checkpoint_or_evaluator_call_drift() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+    )
+
+    bad_checkpoint = dict(info)
+    bad_checkpoint["evaluator_checkpoint_digest"] = "sha256:" + "b" * 64
+    with pytest.raises(MatchedComparisonError, match="another evaluator checkpoint"):
+        settle_packet(packet=packet, receipts=[det, bad_checkpoint])
+
+    bad_calls = dict(info)
+    bad_calls["evaluator_calls"] = -1
+    with pytest.raises(MatchedComparisonError, match="evaluator call count"):
+        settle_packet(packet=packet, receipts=[det, bad_calls])

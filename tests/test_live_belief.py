@@ -3,14 +3,18 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+from azelficoast.belief_evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.corpus import DecisionFixture
 from azelficoast.live_belief import (
     LiveDecisionResult,
+    PinnedShowdownBeliefPolicy,
     build_probe_source,
     live_fixture,
     public_belief_result,
+    selective_belief_result,
 )
 from azelficoast.player import AzelficoastPlayer
+from azelficoast.selective_belief import PolicyMarginSearchGate
 
 
 def _state(
@@ -246,6 +250,88 @@ def _strategy_fusion_oracle() -> dict[str, object]:
     }
 
 
+
+
+class _FakeEvaluator:
+    spec = BeliefEvaluatorSpec(
+        public_width=8,
+        world_width=8,
+        action_width=8,
+        hidden_width=8,
+        world_hidden_width=8,
+    )
+    identity = {
+        "checkpoint_digest": "sha256:" + "a" * 64,
+        "observability": "public_belief_only",
+    }
+
+    def __init__(self, margin: float) -> None:
+        self.margin = margin
+
+    def predict(self, inputs) -> BeliefPrediction:
+        assert inputs.legal_actions == ("risky", "safe")
+        return BeliefPrediction(
+            value=0.25,
+            legal_actions=inputs.legal_actions,
+            probabilities=((1.0 + self.margin) / 2.0, (1.0 - self.margin) / 2.0),
+            selected_action="risky",
+            policy_margin=self.margin,
+            policy_entropy_bits=0.8,
+        )
+
+
+def _selective_fixture() -> DecisionFixture:
+    return DecisionFixture(
+        fixture_id="live",
+        state={"turn": 8, "legal_actions": ["risky", "safe"]},
+        protocol_prefix=(),
+        control_decisions=(),
+    )
+
+
+def test_selective_policy_uses_high_margin_learned_action_without_exact_search() -> None:
+    result = selective_belief_result(
+        fixture=_selective_fixture(),
+        oracle=_strategy_fusion_oracle(),
+        evaluator=_FakeEvaluator(0.80),
+        search_gate=PolicyMarginSearchGate(search_if_margin_at_most=0.20),
+    )
+
+    assert result.action == "risky"
+    assert result.reason == "learned-public-belief"
+    assert result.diagnostics["learned_route"] == "direct-policy"
+
+
+def test_selective_policy_searches_low_margin_position() -> None:
+    result = selective_belief_result(
+        fixture=_selective_fixture(),
+        oracle=_strategy_fusion_oracle(),
+        evaluator=_FakeEvaluator(0.10),
+        search_gate=PolicyMarginSearchGate(search_if_margin_at_most=0.20),
+    )
+
+    assert result.action == "safe"
+    assert result.reason == "bounded-public-belief"
+    assert result.diagnostics["learned_route"] == "exact-public-belief-search"
+
+
+def test_selective_policy_falls_back_to_exact_search_on_evaluator_error() -> None:
+    class BrokenEvaluator(_FakeEvaluator):
+        def predict(self, inputs):
+            raise RuntimeError("bad checkpoint runtime")
+
+    result = selective_belief_result(
+        fixture=_selective_fixture(),
+        oracle=_strategy_fusion_oracle(),
+        evaluator=BrokenEvaluator(0.80),
+        search_gate=PolicyMarginSearchGate(search_if_margin_at_most=0.20),
+    )
+
+    assert result.action == "safe"
+    assert result.reason == "bounded-public-belief"
+    assert result.diagnostics["learned_route"] == "search-after-evaluator-error"
+    assert result.diagnostics["learned_evaluator_error"]["type"] == "RuntimeError"
+
 def test_public_belief_result_selects_shared_information_set_action() -> None:
     result = public_belief_result(_strategy_fusion_oracle(), ["risky", "safe"])
 
@@ -261,6 +347,8 @@ def test_public_belief_result_selects_shared_information_set_action() -> None:
     assert result.diagnostics["decision_world_reduction"] == 2
     assert result.diagnostics["decision_reduction_fraction"] == 0.5
     assert result.diagnostics["belief_branching_required"] is True
+    assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
+    assert result.diagnostics["public_belief_search_horizons"] == 1
 
 
 def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
@@ -338,3 +426,59 @@ def test_player_uses_live_belief_action_when_it_maps_to_valid_order() -> None:
     order = player.choose_move(_battle())
 
     assert order.message == "/choose move protect"
+
+
+
+def test_live_high_margin_route_skips_transition_oracle_probe() -> None:
+    class LiveEvaluator:
+        spec = BeliefEvaluatorSpec(
+            public_width=8,
+            world_width=8,
+            action_width=8,
+            hidden_width=8,
+            world_hidden_width=8,
+        )
+        identity = {
+            "checkpoint_digest": "sha256:" + "b" * 64,
+            "observability": "public_belief_only",
+        }
+
+        def predict(self, inputs) -> BeliefPrediction:
+            return BeliefPrediction(
+                value=0.4,
+                legal_actions=inputs.legal_actions,
+                probabilities=(0.95, 0.05),
+                selected_action=inputs.legal_actions[0],
+                policy_margin=0.90,
+                policy_entropy_bits=0.29,
+            )
+
+    fixture = live_fixture(_state(), _protocol())
+    policy = object.__new__(PinnedShowdownBeliefPolicy)
+    policy._configuration_error = None
+    policy.learned_evaluator = LiveEvaluator()
+    policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
+    policy._probe_posterior = lambda source: {
+        "schema": "azelficoast.live-belief-posterior",
+        "schema_version": 1,
+        "source_fixture_id": fixture.fixture_id,
+        "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "legal_actions": list(fixture.legal_actions),
+        "worlds": [
+            {"world_id": "a", "weight": 0.5, "hidden": {"item": "band"}},
+            {"world_id": "b", "weight": 0.5, "hidden": {"item": "scarf"}},
+        ],
+    }
+
+    def unexpected_full_probe(source):
+        raise AssertionError("high-margin learned route expanded the transition oracle")
+
+    policy._probe = unexpected_full_probe
+
+    result = policy.choose(fixture)
+
+    assert result.action == fixture.legal_actions[0]
+    assert result.reason == "learned-public-belief"
+    assert result.diagnostics["learned_route"] == "direct-policy"
