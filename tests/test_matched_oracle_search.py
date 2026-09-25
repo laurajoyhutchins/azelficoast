@@ -62,7 +62,7 @@ def _oracle() -> dict[str, object]:
         )
     return {
         "schema": "azelficoast.real-belief-transition-oracle",
-        "schema_version": 2,
+        "schema_version": 1,
         "source_fixture_id": "fixture",
         "showdown_commit": "pinned",
         "worlds": worlds,
@@ -87,7 +87,7 @@ def _posterior(oracle: dict[str, object]) -> dict[str, object]:
 def _plan(*, limit: int = 4) -> dict[str, object]:
     return {
         "schema": "azelficoast.matched-search-comparison-plan",
-        "schema_version": 1,
+        "schema_version": 2,
         "posterior_treatments": ["generator_faithful"],
         "compute_budget": {
             "unit": "transition_evaluations",
