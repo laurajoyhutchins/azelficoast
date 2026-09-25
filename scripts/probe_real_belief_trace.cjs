@@ -446,6 +446,13 @@ function normalizedOpponentPolicy() {
 }
 
 const OPPONENT_POLICY = normalizedOpponentPolicy();
+const JOINT_OPPONENT_POSTERIOR =
+  source.joint_opponent_posterior && typeof source.joint_opponent_posterior === "object"
+    ? source.joint_opponent_posterior
+    : null;
+if (JOINT_OPPONENT_POSTERIOR) {
+  DEPENDENCY_CANDIDATES.push("opponent.bench");
+}
 
 function resolveGeneratorSpecies(requested) {
   const dexSpecies = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0])
@@ -721,6 +728,35 @@ function publicOpponentView(speciesName) {
   ) || null;
 }
 
+function opponentTeraHistory() {
+  let activeSpecies = null;
+  let tera = null;
+  for (const batch of fixture.protocol_prefix || []) {
+    for (const message of batch) {
+      if (
+        message[0] !== "" ||
+        typeof message[2] !== "string" ||
+        !message[2].startsWith(requireProtocolOpponentSide())
+      ) {
+        continue;
+      }
+      if (["switch", "drag", "replace"].includes(message[1]) && message[3]) {
+        activeSpecies = toID(String(message[3]).split(",", 1)[0]);
+        continue;
+      }
+      if (message[1] === "-terastallize" && message[3]) {
+        if (!activeSpecies) {
+          fail("opponent Tera history lacks a resolvable public species");
+        }
+        tera = {species: activeSpecies, type: String(message[3])};
+      }
+    }
+  }
+  return tera;
+}
+
+const OPPONENT_TERA_HISTORY = opponentTeraHistory();
+
 function opponentBenchSpecies() {
   if (source.opponent_bench_species) return String(source.opponent_bench_species);
 
@@ -783,9 +819,11 @@ function opponentBenchSpecies() {
 
 const OWN_ACTIVE_TERA_TYPE = ownActiveTeraType();
 const BENCH_PRIOR = loadBenchPrior();
-const OPPONENT_BENCH_SPECIES = BENCH_PRIOR
-  ? BENCH_PRIOR.distribution[0].value
-  : opponentBenchSpecies();
+const OPPONENT_BENCH_SPECIES = JOINT_OPPONENT_POSTERIOR
+  ? null
+  : BENCH_PRIOR
+    ? BENCH_PRIOR.distribution[0].value
+    : opponentBenchSpecies();
 
 function ownSet(view, {active = false} = {}) {
   const set = {
@@ -806,11 +844,12 @@ function opponentSet(world) {
   return {
     species: world.variant.species,
     level: world.variant.level,
+    gender: world.variant.gender || undefined,
     ability: world.variant.ability,
     item: world.variant.item,
     moves: world.variant.moves,
     teraType: world.variant.teraType,
-    nature: "Serious",
+    nature: world.variant.nature || "Serious",
     evs: {...world.variant.evs},
     ivs: {...world.variant.ivs},
   };
