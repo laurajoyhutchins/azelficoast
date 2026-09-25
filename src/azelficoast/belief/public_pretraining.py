@@ -75,6 +75,13 @@ class PinnedShowdownPublicPosteriorSource:
     def __init__(self, showdown_root: str | Path, *, timeout_seconds: float = 20.0) -> None:
         self.showdown_root = Path(showdown_root)
         self.timeout_seconds = float(timeout_seconds)
+        self._generator_cache = tempfile.TemporaryDirectory(
+            prefix="azelficoast-public-generator-cache-"
+        )
+        self.generator_cache_root = Path(self._generator_cache.name)
+        self.posterior_probe_count = 0
+        self.generator_cache_hit_count = 0
+        self.generator_cache_miss_count = 0
         try:
             completed = subprocess.run(
                 ["git", "-C", str(self.showdown_root), "rev-parse", "HEAD"],
@@ -102,6 +109,35 @@ class PinnedShowdownPublicPosteriorSource:
             raise PublicPretrainingError(
                 "public-pretraining Showdown checkout is not built"
             )
+
+    def close(self) -> None:
+        self._generator_cache.cleanup()
+
+    def cache_stats(self) -> dict[str, int]:
+        return {
+            "posterior_probe_count": self.posterior_probe_count,
+            "generator_population_cache_hit_count": self.generator_cache_hit_count,
+            "generator_population_cache_miss_count": self.generator_cache_miss_count,
+            "generator_population_count": self.generator_cache_miss_count,
+        }
+
+    def _record_generator_cache_event(self, stderr: str) -> None:
+        prefix = "azelficoast-generator-cache:"
+        events = [line for line in stderr.splitlines() if line.startswith(prefix)]
+        if len(events) != 1:
+            raise PublicPretrainingError(
+                "posterior probe did not report exactly one generator cache event"
+            )
+        event = events[0][len(prefix) :]
+        if event.startswith("hit:"):
+            self.generator_cache_hit_count += 1
+        elif event.startswith("miss:"):
+            self.generator_cache_miss_count += 1
+        else:
+            raise PublicPretrainingError(
+                f"posterior probe reported unknown generator cache event {event!r}"
+            )
+        self.posterior_probe_count += 1
 
     def posterior(
         self, fixture: DecisionFixture
@@ -139,12 +175,15 @@ class PinnedShowdownPublicPosteriorSource:
                         "--posterior-only",
                         "--historical-showdown-commit",
                         self.showdown_commit,
+                        "--generator-cache-dir",
+                        str(self.generator_cache_root),
                     ],
                     check=True,
                     capture_output=True,
                     text=True,
                     timeout=self.timeout_seconds,
                 )
+            self._record_generator_cache_event(completed.stderr)
             posterior = json.loads(completed.stdout)
             if not isinstance(posterior, Mapping):
                 raise PublicPretrainingError("posterior probe returned a non-object")
@@ -376,6 +415,9 @@ def build_public_pretraining_records(
         "posterior_treatment": "generator_faithful",
         "showdown_commit": posterior_source.showdown_commit,
     }
+    cache_stats = getattr(posterior_source, "cache_stats", None)
+    if callable(cache_stats):
+        summary["posterior_execution"] = cache_stats()
     return rows, summary
 
 
@@ -452,14 +494,17 @@ def run_public_pretraining(
         showdown_root,
         timeout_seconds=posterior_timeout_seconds,
     )
-    dataset_summary = build_public_pretraining_dataset(
-        trace_paths,
-        dataset_path,
-        posterior_source=source,
-        split_seed=split_seed,
-        train_fraction=train_fraction,
-        validation_fraction=validation_fraction,
-    )
+    try:
+        dataset_summary = build_public_pretraining_dataset(
+            trace_paths,
+            dataset_path,
+            posterior_source=source,
+            split_seed=split_seed,
+            train_fraction=train_fraction,
+            validation_fraction=validation_fraction,
+        )
+    finally:
+        source.close()
     baseline_path, baseline_digest = _create_untrained_baseline(
         models_dir=Path(models_dir),
         seed=seed,
