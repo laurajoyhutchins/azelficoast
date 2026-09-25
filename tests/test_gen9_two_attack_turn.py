@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-import azelficoast.gen9_damage as gen9_damage
-import azelficoast.gen9_two_attack_turn as gen9_two_attack_turn
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
-from azelficoast.gen9_two_attack_turn import (
+import azelficoast.research.mechanics.gen9_damage as gen9_damage
+import azelficoast.research.mechanics.gen9_two_attack_turn as gen9_two_attack_turn
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
+from azelficoast.research.mechanics.gen9_two_attack_turn import (
     P1_ACTION_PROTECT,
     TwoAttackTurnContext,
     compile_two_attack_turn_context,
@@ -19,11 +19,11 @@ from azelficoast.gen9_two_attack_turn import (
     two_attack_turn_dependency_key,
     two_attack_turn_dependency_signature,
 )
-from azelficoast.two_attack_turn_belief import (
+from azelficoast.research.mechanics.two_attack_turn_belief import (
     build_two_attack_turn_support,
     compile_two_attack_turn_projection,
 )
-from azelficoast.two_attack_turn_compiler import build_two_attack_turn_library
+from azelficoast.research.mechanics.two_attack_turn_compiler import build_two_attack_turn_library
 
 
 def _damage(

@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_BAND, damage
-from azelficoast.staged_attack import (
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext, ITEM_CHOICE_BAND, damage
+from azelficoast.research.mechanics.staged_attack import (
     staged_attack_dependency_key,
     staged_attack_transition,
     staged_stat,
 )
-from azelficoast.switch_hazard_turn import SwitchHazardContext
-from azelficoast.switch_intimidate_turn import (
+from azelficoast.research.mechanics.switch_hazard_turn import SwitchHazardContext
+from azelficoast.research.mechanics.switch_intimidate_turn import (
     SwitchIntimidateContext,
     SwitchIntimidateError,
     SwitchIntimidateWorld,
@@ -18,7 +18,7 @@ from azelficoast.switch_intimidate_turn import (
     switch_intimidate_dependency_key,
     switch_intimidate_turn,
 )
-from azelficoast.voluntary_switch_turn import VoluntarySwitchContext
+from azelficoast.research.mechanics.voluntary_switch_turn import VoluntarySwitchContext
 
 
 def _damage(*, item: str = "", category: str = "Physical") -> DamageContext:

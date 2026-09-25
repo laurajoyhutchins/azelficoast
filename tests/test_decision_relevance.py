@@ -8,7 +8,7 @@ from azelficoast.core.decision_relevance import (
     DecisionRelevanceError,
     decision_relevance_quotient,
 )
-from azelficoast.real_belief_trace import analyze_oracle, analyze_quotiented_oracle
+from azelficoast.research.verification.real_belief_trace import analyze_oracle, analyze_quotiented_oracle
 
 
 def _strategy_fusion_oracle() -> dict[str, object]:

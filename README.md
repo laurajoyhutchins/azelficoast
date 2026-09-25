@@ -363,16 +363,16 @@ Generated output is not treated as verified merely because it was produced. In p
 | --- | --- |
 | Live player and fallback boundary | [src/azelficoast/live/player.py](src/azelficoast/live/player.py) |
 | Battle harness and trace capture | [src/azelficoast/live/harness.py](src/azelficoast/live/harness.py) |
-| Frozen decision corpora | [src/azelficoast/corpus.py](src/azelficoast/corpus.py) |
+| Frozen decision corpora | [src/azelficoast/live/corpus.py](src/azelficoast/live/corpus.py) |
 | Policy/value training records | [src/azelficoast/research/training_records.py](src/azelficoast/research/training_records.py) |
 | Live hidden-world reconstruction and routing | [src/azelficoast/live/belief.py](src/azelficoast/live/belief.py) |
-| Whole-turn program compiler/verifier | [src/azelficoast/whole_turn_program.py](src/azelficoast/whole_turn_program.py) |
+| Whole-turn program compiler/verifier | [src/azelficoast/core/whole_turn_program.py](src/azelficoast/core/whole_turn_program.py) |
 | Search over verified programs | [src/azelficoast/search/transition_program.py](src/azelficoast/search/transition_program.py) |
 | Matched search receipt executor | [src/azelficoast/research/matched_search.py](src/azelficoast/research/matched_search.py) |
 | Public-belief / fusion analysis | [src/azelficoast/search/fusion.py](src/azelficoast/search/fusion.py) |
-| Natural-state mining | [src/azelficoast/real_belief_miner.py](src/azelficoast/real_belief_miner.py) |
-| Exact Gen 9 damage semantics | [src/azelficoast/gen9_damage.py](src/azelficoast/gen9_damage.py) |
-| Dependency-aware belief execution | [src/azelficoast/class_native_belief.py](src/azelficoast/class_native_belief.py) |
+| Natural-state mining | [src/azelficoast/research/verification/real_belief_miner.py](src/azelficoast/research/verification/real_belief_miner.py) |
+| Exact Gen 9 damage semantics | [src/azelficoast/research/mechanics/gen9_damage.py](src/azelficoast/research/mechanics/gen9_damage.py) |
+| Dependency-aware belief execution | [src/azelficoast/research/mechanics/class_native_belief.py](src/azelficoast/research/mechanics/class_native_belief.py) |
 | Population study machinery | [src/azelficoast/research/population.py](src/azelficoast/research/population.py) |
 | Frozen research evidence | [experiments/](experiments/) |
 | Current search/mechanics architecture | [docs/search-architecture.md](docs/search-architecture.md) |

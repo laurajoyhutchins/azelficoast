@@ -31,7 +31,7 @@ from azelficoast.core.transition import (
     canonical_json,
     sha256_json,
 )
-from azelficoast.whole_turn_program import WholeTurnProgramError, compile_whole_turn_programs
+from azelficoast.core.whole_turn_program import WholeTurnProgramError, compile_whole_turn_programs
 
 
 class MechanicsContractError(ValueError):

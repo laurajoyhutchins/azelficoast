@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from azelficoast.gen9_damage import (
+from azelficoast.research.mechanics.gen9_damage import (
     DamageContext,
     DamageKernelError,
     MOD_ONE_POINT_FIVE,

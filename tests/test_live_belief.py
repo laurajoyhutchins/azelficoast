@@ -4,7 +4,7 @@ import json
 from types import SimpleNamespace
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.corpus import DecisionFixture
+from azelficoast.live.corpus import DecisionFixture
 from azelficoast.live.belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,
@@ -16,7 +16,7 @@ from azelficoast.live.belief import (
 )
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.search.selective import PolicyMarginSearchGate
-from azelficoast.whole_turn_program import compile_whole_turn_programs
+from azelficoast.core.whole_turn_program import compile_whole_turn_programs
 
 
 def _state(

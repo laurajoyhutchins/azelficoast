@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from azelficoast.corpus import DecisionFixture
-from azelficoast.protect_continuations import mine_protect_candidates
+from azelficoast.live.corpus import DecisionFixture
+from azelficoast.research.protect_continuations import mine_protect_candidates
 
 
 def _fixture(*, protect: bool) -> DecisionFixture:
@@ -36,7 +36,7 @@ def test_only_protect_fixtures_reach_hidden_world_miner(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(
-        "azelficoast.protect_continuations.mine_candidates",
+        "azelficoast.research.protect_continuations.mine_candidates",
         fake_mine,
     )
 

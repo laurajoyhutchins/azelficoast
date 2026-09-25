@@ -6,23 +6,23 @@ from pathlib import Path
 
 import pytest
 
-import azelficoast.gen9_attack as gen9_attack
-import azelficoast.gen9_damage as gen9_damage
-import azelficoast.gen9_ordered_attack as gen9_ordered_attack
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext
-from azelficoast.gen9_ordered_attack import (
+import azelficoast.research.mechanics.gen9_attack as gen9_attack
+import azelficoast.research.mechanics.gen9_damage as gen9_damage
+import azelficoast.research.mechanics.gen9_ordered_attack as gen9_ordered_attack
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext
+from azelficoast.research.mechanics.gen9_ordered_attack import (
     OrderedAttackContext,
     compile_ordered_attack_context,
     ordered_attack_dependency_key,
     ordered_attack_dependency_signature,
     ordered_attack_transition,
 )
-from azelficoast.ordered_attack_belief import (
+from azelficoast.research.mechanics.ordered_attack_belief import (
     build_ordered_attack_support,
     compile_ordered_attack_projection,
 )
-from azelficoast.ordered_attack_compiler import build_ordered_attack_library
+from azelficoast.research.mechanics.ordered_attack_compiler import build_ordered_attack_library
 
 
 def _damage(item: str = "") -> DamageContext:

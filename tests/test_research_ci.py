@@ -21,7 +21,7 @@ def test_showdown_setup_selects_only_showdown_consumers() -> None:
 
 
 def test_damage_change_selects_every_dependent_candidate_experiment() -> None:
-    selected = _names(("src/azelficoast/gen9_damage.py",))
+    selected = _names(("src/azelficoast/research/mechanics/gen9_damage.py",))
     assert {
         "attack-transition",
         "gen9-damage",
@@ -36,7 +36,7 @@ def test_unrelated_population_change_spends_no_collapsed_candidate_evidence() ->
 
 
 def test_candidate_matrix_carries_execution_requirements() -> None:
-    selected = experiments_for_paths(("src/azelficoast/jax_simulator.py",))
+    selected = experiments_for_paths(("src/azelficoast/research/mechanics/jax_simulator.py",))
     assert matrix_for(selected) == {
         "include": [
             {

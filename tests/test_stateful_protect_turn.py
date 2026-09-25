@@ -4,13 +4,13 @@ from dataclasses import replace
 
 import pytest
 
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
-from azelficoast.gen9_two_attack_turn import (
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
+from azelficoast.research.mechanics.gen9_two_attack_turn import (
     P1_ACTION_PROTECT,
     TwoAttackTurnContext,
 )
-from azelficoast.stateful_protect_turn import (
+from azelficoast.research.mechanics.stateful_protect_turn import (
     PROTECT_ROLL_DENOMINATOR,
     PROTECT_STALL_COUNTERS,
     StatefulProtectError,

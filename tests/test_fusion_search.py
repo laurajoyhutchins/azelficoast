@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from azelficoast.corpus import DecisionFixture
+from azelficoast.live.corpus import DecisionFixture
 from azelficoast.search.fusion import FusionSearchError, freeze_selection
 
 

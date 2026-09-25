@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from azelficoast.showdown_damage_corpus import (
+from azelficoast.research.verification.showdown_damage_corpus import (
     PINNED_SHOWDOWN_COMMIT,
     ShowdownDamageCorpusError,
     analyze_document,
@@ -24,7 +24,7 @@ def _fixture(
 ) -> dict[str, object]:
     # Values here are generated from the local scalar kernel solely to test corpus
     # structure. Hosted evidence is generated independently by Showdown.
-    from azelficoast.gen9_damage import DamageContext, damage
+    from azelficoast.research.mechanics.gen9_damage import DamageContext, damage
 
     context = DamageContext(
         attacker_level=attacker_level,

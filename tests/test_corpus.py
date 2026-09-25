@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from azelficoast.corpus import (
+from azelficoast.live.corpus import (
     CorpusConflictError,
     FirstLegalPolicy,
     RecordedModePolicy,
@@ -13,7 +13,7 @@ from azelficoast.corpus import (
     load_corpus,
     write_corpus,
 )
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 
 
 def _record(

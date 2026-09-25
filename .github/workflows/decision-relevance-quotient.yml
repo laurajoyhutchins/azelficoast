@@ -12,7 +12,7 @@ on:
       - "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"
       - "scripts/probe_real_belief_trace.cjs"
       - "src/azelficoast/core/decision_relevance.py"
-      - "src/azelficoast/real_belief_trace.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/live/belief.py"
       - "tests/test_decision_relevance.py"
       - "tests/test_live_belief.py"
@@ -59,13 +59,13 @@ jobs:
 
       - name: Analyze exact quotients
         run: |
-          uv run python -m azelficoast.real_belief_trace             /tmp/status-oracle.json --quotient             > /tmp/status-quotient.json
+          uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/status-oracle.json --quotient             > /tmp/status-quotient.json
 
-          uv run python -m azelficoast.real_belief_trace             /tmp/fusion-oracle.json --quotient             > /tmp/fusion-quotient.json
+          uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/fusion-oracle.json --quotient             > /tmp/fusion-quotient.json
 
-          uv run python -m azelficoast.real_belief_trace             /tmp/status-oracle.json             > /tmp/status-full.json
+          uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/status-oracle.json             > /tmp/status-full.json
 
-          uv run python -m azelficoast.real_belief_trace             /tmp/fusion-oracle.json             > /tmp/fusion-full.json
+          uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/fusion-oracle.json             > /tmp/fusion-full.json
 
       - name: Verify exact equivalence and preregistered reductions
         run: |

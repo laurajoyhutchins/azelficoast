@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fractions import Fraction
 
-from azelficoast.pokemon_counterexample import (
+from azelficoast.research.verification.pokemon_counterexample import (
     FURRET_SCARF_PAYOFF,
     FURRET_SPECS_PAYOFF,
     GARDEVOIR_SCARF_SPEED,
