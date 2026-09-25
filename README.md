@@ -317,6 +317,15 @@ Promotion is compare-and-swap fenced to the incumbent digest used for teaching a
 evaluation. A stale concurrent cycle therefore cannot overwrite a newer admitted
 checkpoint.
 
+The exact search teacher no longer assumes that an opponent simply repeats its last
+move. Its bounded opponent prior is an equal mixture of strategy archetypes borrowed
+from established Pokémon bot baselines: simple heuristic play (hazards, setup,
+recovery, then damage), max-damage play, a uniform legal-move floor, and an
+observed-move persistence component when that move belongs to the current active.
+The mixture is deliberately an explicit prior, not a claim that these weights match
+human frequencies. Voluntary switches and opponent Terastallization remain outside
+this bounded opponent model for now.
+
 The outer generation loop can also run unattended against the local Random Battle
 baseline:
 
