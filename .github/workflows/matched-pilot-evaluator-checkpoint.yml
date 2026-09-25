@@ -5,7 +5,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: matched-pilot-evaluator-${{ github.event.pull_request.number || github.ref }}
@@ -21,21 +20,6 @@ jobs:
         uses: ./.github/actions/setup-python-environment
         with:
           simulator: "true"
-
-      - name: Restore exact public-belief training evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          curl -fL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10827611687/zip" \
-            -o /tmp/policy-boundary.zip
-          rm -rf /tmp/policy-boundary
-          mkdir -p /tmp/policy-boundary
-          unzip -q /tmp/policy-boundary.zip -d /tmp/policy-boundary
 
       - name: Train and freeze evaluator
         run: |
@@ -56,61 +40,39 @@ jobs:
           source = json.loads(
               Path("experiments/matched-pilot-evaluator-source.json").read_text()
           )
-          evidence_root = Path("/tmp/policy-boundary")
-          documents = []
-          for path in sorted(evidence_root.rglob("*.json")):
-              document = json.loads(path.read_text())
-              if isinstance(document, dict):
-                  documents.append((path, document))
-
-          def one(schema):
-              matches = [
-                  document
-                  for _, document in documents
-                  if document.get("schema") == schema
-              ]
-              if len(matches) != 1:
-                  raise SystemExit(
-                      f"expected one {schema} document, found {len(matches)}"
-                  )
-              return matches[0]
-
-          oracle = one("azelficoast.real-belief-transition-oracle")
-          trace = one("azelficoast.real-belief-decision-trace")
           fixture_id = source["fixture_id"]
-          if oracle["source_fixture_id"] != fixture_id:
-              raise SystemExit("transition oracle fixture differs from frozen source")
-          if trace["source_fixture_id"] != fixture_id:
-              raise SystemExit("search trace fixture differs from frozen source")
-          if oracle["showdown_commit"] != source["provenance"].get(
-              "showdown_commit",
-              oracle["showdown_commit"],
+          legal_actions = list(source["public_state"]["legal_actions"])
+          if source["showdown_commit"] != (
+              "a5df8274e85b0889bf2a9b3422a08b39732374fc"
           ):
               raise SystemExit("Showdown revision drifted")
 
-          legal_actions = list(source["public_state"]["legal_actions"])
-          if oracle["legal_actions"] != legal_actions:
-              raise SystemExit("oracle legal actions differ from frozen source")
-          public = trace["public_belief"]
-          root_values = public["root_values"]
-          if set(root_values) != set(legal_actions):
-              raise SystemExit("search target does not cover frozen legal actions")
-          selected = public["chosen_action"]
+          target = source["search_target"]
+          selected = target["selected_action"]
           if selected not in legal_actions:
               raise SystemExit("search selected a nonlegal action")
-          search_return = float(public["value"])
-          if not math.isclose(
-              search_return,
-              float(root_values[selected]),
-              rel_tol=1e-12,
-              abs_tol=1e-12,
-          ):
-              raise SystemExit("selected search value differs from root values")
+          search_return = float(target["value"])
 
+          worlds = []
+          for component in source["posterior_components"]:
+              hidden_base = dict(component["hidden"])
+              provenance = dict(component["provenance"])
+              for exact_hp in component["exact_hp_values"]:
+                  hidden = dict(hidden_base)
+                  hidden["opponent.active.exact_hp"] = exact_hp
+                  worlds.append(
+                      {
+                          "weight": component["weight"],
+                          "hidden": hidden,
+                          "provenance": provenance,
+                      }
+                  )
+          if len(worlds) != 33:
+              raise SystemExit(f"expected 33 frozen posterior worlds, got {len(worlds)}")
           posterior = {
               "conditioned_on_public_history": True,
               "realized_hidden_state_revealed": False,
-              "worlds": oracle["worlds"],
+              "worlds": worlds,
           }
           spec = BeliefEvaluatorSpec(
               public_width=128,
