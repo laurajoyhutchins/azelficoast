@@ -1,0 +1,74 @@
+# Reproduction workflow for the fixed nine-trace falsification extension.
+name: policy-boundary-refinement-experiment
+
+on:
+  pull_request:
+    paths:
+      - "scripts/policy_boundary_refinement_experiment.py"
+      - "experiments/policy-boundary-refinement-results.json"
+      - ".github/workflows/policy-boundary-refinement-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  falsification:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download exact public-belief evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for artifact in \
+            10831509823 \
+            10831748483 \
+            10832550259 \
+            10831848674 \
+            10832286063 \
+            10831689741 \
+            10832865336 \
+            10832247914 \
+            10827611687
+          do
+            mkdir -p "/tmp/$artifact"
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${{ github.repository }}/actions/artifacts/$artifact/zip" \
+              > "/tmp/$artifact.zip"
+            unzip -q "/tmp/$artifact.zip" -d "/tmp/$artifact"
+          done
+
+      - name: Run policy-boundary refinement experiment
+        run: |
+          python scripts/policy_boundary_refinement_experiment.py \
+            /tmp/10831509823/decision-trace.json \
+            /tmp/10831748483/decision-trace.json \
+            /tmp/10832550259/decision-trace.json \
+            /tmp/10831848674/tropius-chiyu-trace.json \
+            /tmp/10832286063/candidate-trace.json \
+            /tmp/10831689741/trace.json \
+            /tmp/10832865336/trace.json \
+            /tmp/10832247914/trace.json \
+            /tmp/10827611687/real-belief-decision-trace.json \
+            | tee /tmp/policy-boundary-refinement-results.json
+
+      - name: Verify fixed evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          actual = json.loads(Path("/tmp/policy-boundary-refinement-results.json").read_text())
+          expected = json.loads(Path("experiments/policy-boundary-refinement-results.json").read_text())
+          assert actual == expected, (actual, expected)
+          assert actual["case_count"] == 9
+          assert actual["certification_errors"] == 0
+          assert actual["headline_pass"] is False
+          assert actual["median_fraction"] > actual["acceptance"]["median_fraction_at_most"]
+          assert actual["p90_fraction"] > actual["acceptance"]["p90_fraction_at_most"]
+          PY
