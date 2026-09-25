@@ -808,7 +808,7 @@ def _as_read_kernel(program_set: dict[str, object]) -> dict[str, object]:
         "algorithm": "representative-dynamic-read-refinement",
         "hidden_boundary": candidates,
         "execution_dependency_candidates": candidates,
-        "marginalized_hidden_fields": [],
+        "nonexecution_semantic_fields": [],
     }
     programs = program_set["programs"]
     assert isinstance(programs, list)
