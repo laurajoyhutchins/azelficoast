@@ -84,6 +84,8 @@ def _receipt(
         "method": method,
         "input_digest": packet["input_digest"],
         "evaluator_digest": packet["evaluator_digest"],
+        "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+        "evaluator_calls": 7,
         "compute_budget": packet["compute_budget"],
         "consumed": consumed,
         "chosen_action": chosen_action,
@@ -163,7 +165,13 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
     assert result["matched_input"] is True
     assert result["matched_authorized_compute"] is True
     assert result["matched_evaluator"] is True
+    assert result["matched_evaluator_checkpoint"] is True
     assert result["evaluator"] == _plan()["evaluator"]
+    assert result["evaluator_checkpoint_digest"] == _plan()["evaluator"]["checkpoint_digest"]
+    assert result["evaluator_calls"] == {
+        "determinization": 7,
+        "information_set": 7,
+    }
     assert abs(result["max_determinization_value_optimism"] - 0.20) < 1e-12
     assert (
         abs(result["information_set_regret_of_determinization_action"] - 0.05)
@@ -232,3 +240,35 @@ def test_settle_packet_rejects_evaluator_drift() -> None:
 
     with pytest.raises(MatchedComparisonError, match="another evaluator"):
         settle_packet(packet=packet, receipts=[det, info])
+
+
+def test_settle_packet_rejects_checkpoint_or_evaluator_call_drift() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+    )
+
+    bad_checkpoint = dict(info)
+    bad_checkpoint["evaluator_checkpoint_digest"] = "sha256:" + "b" * 64
+    with pytest.raises(MatchedComparisonError, match="another evaluator checkpoint"):
+        settle_packet(packet=packet, receipts=[det, bad_checkpoint])
+
+    bad_calls = dict(info)
+    bad_calls["evaluator_calls"] = -1
+    with pytest.raises(MatchedComparisonError, match="evaluator call count"):
+        settle_packet(packet=packet, receipts=[det, bad_calls])
