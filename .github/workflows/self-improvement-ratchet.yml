@@ -1,0 +1,117 @@
+name: self-improvement-ratchet
+
+on:
+  push:
+    branches:
+      - experiment/self-improvement-ratchet
+    paths:
+      - "scripts/self_improvement_ratchet_experiment.py"
+      - ".github/workflows/self-improvement-ratchet.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: self-improvement-ratchet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python with simulator
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: "true"
+
+      - name: Setup pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+        with:
+          path: /tmp/pokemon-showdown
+
+      - name: Start local Pokémon Showdown
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/pokemon-showdown
+          cp config/config-example.js config/config.js
+          nohup node pokemon-showdown start --no-security >/tmp/pokemon-showdown.log 2>&1 &
+          echo "$!" >/tmp/pokemon-showdown.pid
+          python - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection(("127.0.0.1", 8000), timeout=1):
+                      raise SystemExit(0)
+              except OSError:
+                  time.sleep(0.25)
+          raise SystemExit("local Pokémon Showdown did not open port 8000")
+          PY
+
+      - name: Run multi-generation ratchet pilot
+        run: |
+          set -euo pipefail
+          uv run python scripts/self_improvement_ratchet_experiment.py \
+            --showdown-root /tmp/pokemon-showdown \
+            --generations 3 \
+            --shadow-battles 8 \
+            --deployment-battles 8 \
+            --extra-training-battles 6 \
+            --max-cycle-attempts 2 \
+            --deployment-threshold 0.20 \
+            --teacher-budget 65536 \
+            --train-fraction 0.50 \
+            --validation-fraction 0.25 \
+            --epochs 3 \
+            --learning-rate 0.001 \
+            --output experiments/self-improvement-ratchet-results.json
+
+      - name: Validate result shape
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("experiments/self-improvement-ratchet-results.json").read_text()
+          )
+          assert result["schema"] == "azelficoast.self-improvement-ratchet-experiment"
+          assert result["schema_version"] == 1
+          assert len(result["generations"]) == 3
+          assert result["experiment_digest"].startswith("sha256:")
+          for generation in result["generations"]:
+              assert generation["heldout"]["battle_count"] >= 2
+              assert generation["deployment_battle_strength"]["battle_count"] == 8
+          print(json.dumps(result["trends"], sort_keys=True))
+          PY
+
+      - name: Commit measured result
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add experiments/self-improvement-ratchet-results.json
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "Record self-improvement ratchet pilot"
+          git push origin HEAD:experiment/self-improvement-ratchet
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: self-improvement-ratchet
+          path: |
+            experiments/self-improvement-ratchet-results.json
+            /tmp/azelficoast-self-improvement-ratchet/self-improvement
+            /tmp/azelficoast-self-improvement-ratchet/battles/*/stdout.log
+            /tmp/azelficoast-self-improvement-ratchet/battles/*/stderr.log
+            /tmp/pokemon-showdown.log
+          if-no-files-found: warn
