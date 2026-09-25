@@ -17,10 +17,11 @@ const [
   isLeadText,
   seedOffsetText,
   publicLevelText,
+  publicAbilityText,
 ] = process.argv.slice(2);
 if (!showdownRoot || !species || !observedMovesCsv) {
   fail(
-    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET] [PUBLIC_LEVEL]"
+    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET] [PUBLIC_LEVEL] [PUBLIC_ABILITY]"
   );
 }
 
@@ -54,6 +55,8 @@ if (
 ) {
   fail("PUBLIC_LEVEL must be a positive integer");
 }
+
+const publicAbility = toID(publicAbilityText || "");
 
 const observedMoves = new Set(
   observedMovesCsv
@@ -113,6 +116,9 @@ for (let index = 0; index < rounds; index++) {
     continue;
   }
   if (publicLevel !== null && Number(set.level) !== publicLevel) {
+    continue;
+  }
+  if (publicAbility && toID(set.ability) !== publicAbility) {
     continue;
   }
   const moves = [...set.moves].sort();
@@ -175,6 +181,7 @@ process.stdout.write(
         isLead,
         isDoubles: false,
         publicLevel,
+        publicAbility: publicAbility || null,
       },
       rounds,
       matched,
