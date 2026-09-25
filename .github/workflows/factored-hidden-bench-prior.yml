@@ -8,7 +8,7 @@ on:
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
-      - "src/azelficoast/real_belief_trace.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
       - "scripts/probe_real_belief_trace.cjs"
       - "scripts/evaluate_conditional_team_prior.cjs"
       - "tests/test_real_belief_trace.py"
@@ -136,7 +136,7 @@ jobs:
 
       - name: Analyze factored public belief
         run: |
-          uv run python -m azelficoast.real_belief_trace \
+          uv run python -m azelficoast.research.verification.real_belief_trace \
             /tmp/factored-bench-oracle.json \
             | tee /tmp/factored-bench-trace.json
 

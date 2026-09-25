@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from azelficoast import public_replays
-from azelficoast.public_replays import (
+from azelficoast.research import public_replays
+from azelficoast.research.public_replays import (
     PublicReplay,
     PublicReplayError,
     _recorded_action,

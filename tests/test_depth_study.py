@@ -5,7 +5,7 @@ import copy
 import pytest
 
 from azelficoast.research.depth import DepthStudyError, summarize_pair
-from azelficoast.real_belief_trace import analyze_oracle
+from azelficoast.research.verification.real_belief_trace import analyze_oracle
 
 
 def _deep_oracle() -> dict[str, object]:

@@ -6,7 +6,7 @@ from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.core.mechanics import VerifiedTransitionProgramSet
 from azelficoast.research.contracts import MechanicsIdentity, parse_belief_artifact
 from azelficoast.research.typed_search import search_transition_program
-from azelficoast.whole_turn_program import compile_whole_turn_programs
+from azelficoast.core.whole_turn_program import compile_whole_turn_programs
 
 
 class _PublicContinuationEvaluator:

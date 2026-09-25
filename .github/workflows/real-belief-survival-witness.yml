@@ -9,8 +9,8 @@ on:
       - ".github/actions/setup-showdown/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
-      - "src/azelficoast/real_belief_trace.py"
-      - "src/azelficoast/real_belief_miner.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
+      - "src/azelficoast/research/verification/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
       - ".github/workflows/real-belief-survival-witness.yml"
   workflow_dispatch:
@@ -66,11 +66,11 @@ jobs:
 
       - name: Analyze public information sets
         run: |
-          uv run python -m azelficoast.real_belief_trace \
+          uv run python -m azelficoast.research.verification.real_belief_trace \
             /tmp/tropius-chiyu-oracle.json \
             | tee /tmp/tropius-chiyu-trace.json
 
-          uv run python -m azelficoast.real_belief_miner \
+          uv run python -m azelficoast.research.verification.real_belief_miner \
             /tmp/tropius-chiyu-oracle.json \
             | tee /tmp/tropius-chiyu-mining.json
 

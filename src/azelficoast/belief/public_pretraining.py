@@ -26,7 +26,7 @@ from azelficoast.belief.improvement import (
     ImprovementError,
     improve_checkpoint,
 )
-from azelficoast.corpus import DecisionFixture, build_fixtures
+from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
 from azelficoast.research.matched_comparison import _sha256 as matched_digest
 from azelficoast.research.training_records import (
@@ -40,7 +40,7 @@ from azelficoast.research.training_records import (
     _terminal_outcomes,
     write_training_records,
 )
-from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
+from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 PUBLIC_PRETRAINING_BUILD_SCHEMA = "azelficoast.public-pretraining-build"
 PUBLIC_PRETRAINING_BUILD_SCHEMA_VERSION = 1

@@ -6,15 +6,15 @@ from pathlib import Path
 
 import pytest
 
-import azelficoast.gen9_attack as gen9_attack
-import azelficoast.gen9_damage as gen9_damage
-from azelficoast.gen9_attack import (
+import azelficoast.research.mechanics.gen9_attack as gen9_attack
+import azelficoast.research.mechanics.gen9_damage as gen9_damage
+from azelficoast.research.mechanics.gen9_attack import (
     AttackTransitionContext,
     attack_transition,
     compile_attack_context,
 )
-from azelficoast.gen9_damage import DamageContext, compile_numeric_context, damage
-from azelficoast.native_damage_compiler import (
+from azelficoast.research.mechanics.gen9_damage import DamageContext, compile_numeric_context, damage
+from azelficoast.research.mechanics.native_damage_compiler import (
     NativeKernelCompileError,
     build_attack_library,
     build_damage_library,

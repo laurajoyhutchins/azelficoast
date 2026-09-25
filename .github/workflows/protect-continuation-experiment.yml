@@ -6,7 +6,7 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/live/harness.py"
-      - "src/azelficoast/protect_continuations.py"
+      - "src/azelficoast/research/protect_continuations.py"
       - "src/azelficoast/research/natural_disagreements.py"
       - "tests/test_harness.py"
       - "tests/test_protect_continuations.py"
@@ -78,7 +78,7 @@ jobs:
 
       - name: Mine Protect persistence
         run: |
-          uv run python -m azelficoast.protect_continuations \
+          uv run python -m azelficoast.research.protect_continuations \
             /tmp/corpus.jsonl \
             --showdown-root /tmp/pokemon-showdown \
             --rounds 2048 \

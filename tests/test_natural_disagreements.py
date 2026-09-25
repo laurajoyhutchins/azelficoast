@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from azelficoast.corpus import DecisionFixture
+from azelficoast.live.corpus import DecisionFixture
 from azelficoast.research.natural_disagreements import UnsupportedWorldSample, mine_candidates
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from azelficoast.corpus import DecisionFixture
+from azelficoast.live.corpus import DecisionFixture
 from azelficoast.research.population import (
     aggregate_results,
     freeze_population,

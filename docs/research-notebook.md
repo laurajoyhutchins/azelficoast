@@ -74,7 +74,7 @@ Furret's bounded two-turn line is evaluated by enumerating the actual 16 damage 
 Run it directly:
 
 ```bash
-uv run python -m azelficoast.pokemon_counterexample
+uv run python -m azelficoast.research.verification.pokemon_counterexample
 ```
 
 The treatment passes only if determinization chooses `Protect`, public-belief search chooses `Furret`, all mechanical speed/damage falsifiers hold, and both solvers agree again in the known-item controls.
@@ -145,7 +145,7 @@ Hidden worlds can then be grouped by the fields that are actually relevant to a 
 Run the finite treatment:
 
 ```bash
-uv run python -m azelficoast.simulator_experiment
+uv run python -m azelficoast.research.simulator_experiment
 ```
 
 The preregistered slice creates 4,096 hidden worlds. A Protect-like transition must collapse
@@ -189,7 +189,7 @@ semantics. JAX is an opt-in dependency so the ordinary battle/evidence harness s
 
 ```bash
 uv sync --extra simulator
-uv run python -m azelficoast.jax_simulator_experiment
+uv run python -m azelficoast.research.jax_simulator_experiment
 ```
 
 The hosted experiment checks the JAX batch kernels against the scalar reference, then measures
@@ -393,7 +393,7 @@ subset, and emits standalone C99 with 64-bit intermediates and Python-compatible
 
 ```bash
 uv sync --extra simulator
-uv run python -m azelficoast.native_damage_experiment \
+uv run python -m azelficoast.research.native_damage_experiment \
   /tmp/showdown-gen9-damage-fixtures.json
 ```
 

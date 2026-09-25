@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.corpus import DecisionFixture, load_policy
+from azelficoast.live.corpus import DecisionFixture, load_policy
 from azelficoast.search.imperfect_information import (
     GAME_KEY,
     DeterminizationPolicy,

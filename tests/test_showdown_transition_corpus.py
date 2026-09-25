@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from azelficoast.showdown_transition_corpus import (
+from azelficoast.research.verification.showdown_transition_corpus import (
     PINNED_SHOWDOWN_COMMIT,
     ShowdownTransitionCorpusError,
     analyze_document,

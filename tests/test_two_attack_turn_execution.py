@@ -3,23 +3,23 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from azelficoast.adaptive_execution import (
+from azelficoast.research.adaptive_execution import (
     ExecutionCostProfile,
     ExecutionPath,
 )
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
-from azelficoast.gen9_two_attack_turn import (
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
+from azelficoast.research.mechanics.gen9_two_attack_turn import (
     TwoAttackTurnContext,
     two_attack_turn_dependency_signature,
     two_attack_turn_numeric,
 )
-from azelficoast.two_attack_turn_belief import (
+from azelficoast.research.mechanics.two_attack_turn_belief import (
     build_two_attack_turn_support,
     compile_two_attack_turn_projection,
     uniform_two_attack_turn_belief,
 )
-from azelficoast.two_attack_turn_execution import (
+from azelficoast.research.mechanics.two_attack_turn_execution import (
     TwoAttackTurnExecutionError,
     execute_two_attack_turn_belief,
 )

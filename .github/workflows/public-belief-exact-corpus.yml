@@ -8,12 +8,12 @@ on:
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
-      - "src/azelficoast/real_belief_trace.py"
-      - "src/azelficoast/real_belief_miner.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
+      - "src/azelficoast/research/verification/real_belief_miner.py"
       - "src/azelficoast/core/decision_relevance.py"
       - "src/azelficoast/core/program.py"
       - "src/azelficoast/core/transition.py"
-      - "src/azelficoast/whole_turn_program.py"
+      - "src/azelficoast/core/whole_turn_program.py"
       - "scripts/probe_real_belief_trace.cjs"
       - "tests/hostile/test_transition_program_hostile.py"
       - ".github/workflows/public-belief-exact-corpus.yml"
@@ -236,11 +236,11 @@ jobs:
       - name: Analyze information set
         if: steps.extract.outputs.supported == 'true'
         run: |
-          uv run python -m azelficoast.real_belief_trace \
+          uv run python -m azelficoast.research.verification.real_belief_trace \
             /tmp/candidate-oracle.json \
             | tee /tmp/candidate-trace.json
 
-          uv run python -m azelficoast.real_belief_miner \
+          uv run python -m azelficoast.research.verification.real_belief_miner \
             /tmp/candidate-oracle.json \
             | tee /tmp/candidate-mining.json
 

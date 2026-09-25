@@ -11,8 +11,8 @@ from azelficoast.belief.public_pretraining import (
     build_public_pretraining_records,
     run_public_pretraining,
 )
-from azelficoast.corpus import DecisionFixture
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.live.corpus import DecisionFixture
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 
 
 class FakePosteriorSource:
