@@ -170,6 +170,12 @@ def test_training_battles_are_balanced_across_opponent_population() -> None:
     assert _balanced_battle_allocation(7, 4) == (2, 2, 2, 1)
 
 
+def test_training_battle_remainders_rotate_across_generations() -> None:
+    assert _balanced_battle_allocation(2, 4, rotation=0) == (1, 1, 0, 0)
+    assert _balanced_battle_allocation(2, 4, rotation=2) == (0, 0, 1, 1)
+    assert _balanced_battle_allocation(5, 4, rotation=3) == (1, 1, 1, 2)
+
+
 def test_training_auto_replenishes_public_curriculum_by_default() -> None:
     args = _build_parser().parse_args(
         [
