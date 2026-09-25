@@ -31,6 +31,7 @@ const ORDER_CASES = [
   {id: "p2-fast", p1Move: "Moonblast", p1Speed: 100, p2Speed: 200},
   {id: "speed-tie", p1Move: "Moonblast", p1Speed: 200, p2Speed: 200},
   {id: "p1-priority", p1Move: "Quick Attack", p1Speed: 100, p2Speed: 300},
+  {id: "protect", p1Move: "Protect", p1Speed: 100, p2Speed: 300},
 ];
 const IVS = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
 
@@ -43,7 +44,7 @@ function p1Set() {
     nature: "Serious",
     evs: {hp: 0, atk: 252, def: 0, spa: 252, spd: 0, spe: 0},
     ivs: IVS,
-    moves: ["Moonblast", "Quick Attack"],
+    moves: ["Moonblast", "Quick Attack", "Protect"],
   };
 }
 
@@ -165,6 +166,7 @@ function runFixture({
 
   const p1Move = battle.dex.getActiveMove(orderCase.p1Move);
   const p2Move = battle.dex.getActiveMove("Aura Sphere");
+  const p1Protect = p1Move.id === "protect";
   setPP(p1, p1Move.id, 5);
   setPP(p2, p2Move.id, 5);
 
@@ -204,6 +206,12 @@ function runFixture({
     requests.push({from});
     if (from === 24) return 23;
     if (from === 16) {
+      if (p1Protect) {
+        battle.prng.random = originalRandom;
+        battle.prng.shuffle = originalShuffle;
+        battle.destroy();
+        fail("first-use Protect treatment unexpectedly requested damage RNG");
+      }
       if (!damageQueue.length) {
         battle.prng.random = originalRandom;
         battle.prng.shuffle = originalShuffle;
@@ -216,6 +224,15 @@ function runFixture({
       const value = hundredCall === 0 ? 0 : secondaryRoll;
       hundredCall++;
       return value;
+    }
+    if (p1Protect) {
+      const controlledRandom = battle.prng.random;
+      battle.prng.random = originalRandom;
+      try {
+        return originalRandom.call(battle.prng, from);
+      } finally {
+        battle.prng.random = controlledRandom;
+      }
     }
     battle.prng.random = originalRandom;
     battle.prng.shuffle = originalShuffle;
@@ -291,6 +308,7 @@ function runFixture({
     p2_priority: p2Priority,
     p1_accuracy: p1Move.accuracy === true ? 100 : p1Move.accuracy,
     p2_accuracy: p2Move.accuracy === true ? 100 : p2Move.accuracy,
+    p1_action_kind: p1Protect ? "protect" : "attack",
     p1_secondary_chance:
       p1Move.secondaries?.[0]?.chance || p1Move.secondary?.chance || 0,
     p2_item: p2Item || "None",

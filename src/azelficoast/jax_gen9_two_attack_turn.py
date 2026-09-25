@@ -1,4 +1,4 @@
-"""JAX lowering for the bounded two-attack turn."""
+"""JAX lowering for the bounded two-action turn."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from azelficoast.gen9_two_attack_turn import (
     PACK_P1_PP_BASE,
     PACK_P2_PP_BASE,
     PACK_STAGE_BASE,
+    P1_ACTION_KIND_COLUMN,
+    P1_ACTION_PROTECT,
     P1_PRIORITY_COLUMN,
     P1_SPA_DROP_CHANCE_COLUMN,
     P1_SPEED_COLUMN,
@@ -144,6 +146,7 @@ def two_attack_turn_batch(
     p2_damage_rolls: jax.Array,
 ) -> jax.Array:
     p1_first = _p1_first(params, order_tie_rolls)
+    p1_protect = params[:, P1_ACTION_KIND_COLUMN] == P1_ACTION_PROTECT
 
     initial_p1_hp = params[:, ATTACKER_HP]
     initial_p2_hp = params[:, DEFENDER_HP]
@@ -169,10 +172,11 @@ def two_attack_turn_batch(
 
     p2_after_p1 = jnp.maximum(
         jnp.int32(0),
-        initial_p2_hp - jnp.where(p1_hit, p1_damage, 0),
+        initial_p2_hp - jnp.where(p1_hit & ~p1_protect, p1_damage, 0),
     )
     secondary_applies_p1_first = (
         p1_hit
+        & ~p1_protect
         & (p2_after_p1 > 0)
         & (p1_secondary_rolls < params[:, P1_SPA_DROP_CHANCE_COLUMN])
         & (initial_stage > -6)
@@ -192,7 +196,11 @@ def two_attack_turn_batch(
     p1_after_p2_second = jnp.maximum(
         jnp.int32(0),
         initial_p1_hp
-        - jnp.where(p2_exec_after_p1 & p2_hit, p2_damage_after_secondary, 0),
+        - jnp.where(
+            p2_exec_after_p1 & p2_hit & ~p1_protect,
+            p2_damage_after_secondary,
+            0,
+        ),
     )
 
     p1_after_p2_first = jnp.maximum(
@@ -202,11 +210,13 @@ def two_attack_turn_batch(
     p1_exec_after_p2 = p1_after_p2_first > 0
     p2_after_p1_second = jnp.maximum(
         jnp.int32(0),
-        initial_p2_hp - jnp.where(p1_exec_after_p2 & p1_hit, p1_damage, 0),
+        initial_p2_hp
+        - jnp.where(p1_exec_after_p2 & p1_hit & ~p1_protect, p1_damage, 0),
     )
     secondary_applies_p2_first = (
         p1_exec_after_p2
         & p1_hit
+        & ~p1_protect
         & (p2_after_p1_second > 0)
         & (p1_secondary_rolls < params[:, P1_SPA_DROP_CHANCE_COLUMN])
         & (initial_stage > -6)

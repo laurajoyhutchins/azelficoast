@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+from dataclasses import replace
 import shutil
 from pathlib import Path
 
@@ -11,6 +12,7 @@ import azelficoast.gen9_two_attack_turn as gen9_two_attack_turn
 from azelficoast.gen9_attack import AttackTransitionContext
 from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
 from azelficoast.gen9_two_attack_turn import (
+    P1_ACTION_PROTECT,
     TwoAttackTurnContext,
     compile_two_attack_turn_context,
     two_attack_turn,
@@ -61,6 +63,7 @@ def _context(
     p1_priority: int = 0,
     p2_priority: int = 0,
     p2_item: str = ITEM_CHOICE_SPECS,
+    p1_protect: bool = False,
 ) -> TwoAttackTurnContext:
     return TwoAttackTurnContext(
         p1_attack=AttackTransitionContext(
@@ -79,12 +82,13 @@ def _context(
             defender_hp=p1_hp,
             move_pp=5,
         ),
-        p1_priority=p1_priority,
+        p1_priority=4 if p1_protect else p1_priority,
         p2_priority=p2_priority,
         p1_speed=p1_speed,
         p2_speed=p2_speed,
         p1_spa_drop_chance=30,
         p2_spa_stage=0,
+        p1_action_kind=P1_ACTION_PROTECT if p1_protect else 0,
     )
 
 
@@ -137,6 +141,64 @@ def test_spa_drop_changes_later_damage_but_not_already_resolved_damage() -> None
     assert dropped_after.p2_spa_stage == -1
     assert not_dropped_after.p2_spa_stage == 0
     assert dropped_after.p1_hp == not_dropped_after.p1_hp
+
+
+def test_first_use_protect_blocks_damage_and_consumes_both_pp() -> None:
+    protected = _run(
+        _context(
+            p1_hp=1,
+            p1_speed=100,
+            p2_speed=300,
+            p2_item=ITEM_CHOICE_SPECS,
+            p1_protect=True,
+        ),
+        p2_damage=15,
+    )
+
+    assert protected.p1_hp == 1
+    assert protected.p2_hp == 300
+    assert protected.p1_pp == 4
+    assert protected.p2_pp == 4
+    assert protected.p1_acted is True
+    assert protected.p2_acted is True
+
+
+def test_protect_dependency_key_omits_blocked_attack_item_and_damage_rng() -> None:
+    plain = _context(p2_item="", p1_protect=True)
+    specs = _context(p2_item=ITEM_CHOICE_SPECS, p1_protect=True)
+
+    plain_key = two_attack_turn_dependency_key(
+        plain,
+        order_tie_roll=0,
+        p1_accuracy_roll=0,
+        p1_damage_roll=0,
+        p1_secondary_roll=0,
+        p2_accuracy_roll=0,
+        p2_damage_roll=0,
+    )
+    specs_key = two_attack_turn_dependency_key(
+        specs,
+        order_tie_roll=1,
+        p1_accuracy_roll=99,
+        p1_damage_roll=15,
+        p1_secondary_roll=99,
+        p2_accuracy_roll=99,
+        p2_damage_roll=15,
+    )
+
+    assert plain_key == specs_key
+
+    different_stage = replace(specs, p2_spa_stage=-1)
+    stage_key = two_attack_turn_dependency_key(
+        different_stage,
+        order_tie_roll=1,
+        p1_accuracy_roll=99,
+        p1_damage_roll=15,
+        p1_secondary_roll=99,
+        p2_accuracy_roll=99,
+        p2_damage_roll=15,
+    )
+    assert stage_key != specs_key
 
 
 def test_priority_and_final_tie_outcome_change_causal_order() -> None:
