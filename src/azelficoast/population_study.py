@@ -181,9 +181,39 @@ def freeze_population(
         )
 
     candidates = candidates_document.get("candidates")
+    excluded = candidates_document.get("excluded_fixtures")
     cases = mechanics_document.get("cases")
-    if not isinstance(candidates, list) or not isinstance(cases, list):
-        raise PopulationStudyError("discovery evidence lacks candidates or mechanics cases")
+    if (
+        not isinstance(candidates, list)
+        or not isinstance(excluded, list)
+        or not isinstance(cases, list)
+    ):
+        raise PopulationStudyError(
+            "discovery evidence lacks candidates, exclusions, or mechanics cases"
+        )
+    if len(candidates) + len(excluded) != source_count:
+        raise PopulationStudyError(
+            "candidate/exclusion ledger does not cover the source population"
+        )
+    candidate_ids = {
+        str(row.get("fixture_id"))
+        for row in candidates
+        if isinstance(row, Mapping)
+    }
+    excluded_ids = {
+        str(row.get("fixture_id"))
+        for row in excluded
+        if isinstance(row, Mapping)
+    }
+    if (
+        len(candidate_ids) != len(candidates)
+        or len(excluded_ids) != len(excluded)
+        or candidate_ids & excluded_ids
+        or candidate_ids | excluded_ids != {fixture.fixture_id for fixture in fixtures}
+    ):
+        raise PopulationStudyError(
+            "candidate/exclusion ledger is incomplete, duplicated, or overlapping"
+        )
 
     fixture_by_id = {fixture.fixture_id: fixture for fixture in fixtures}
     case_by_id = {
@@ -312,9 +342,7 @@ def freeze_population(
             }
         )
 
-    outside = source_count - len(candidates)
-    if outside < 0:
-        raise PopulationStudyError("candidate count exceeds source decision-state count")
+    outside = len(excluded)
 
     return {
         "schema": COHORT_SCHEMA,
@@ -326,6 +354,23 @@ def freeze_population(
         "source_decision_state_count": source_count,
         "bounded_candidate_count": len(candidates),
         "source_outside_bounded_model_count": outside,
+        "source_exclusion_reason_counts": dict(
+            sorted(
+                {
+                    reason: sum(
+                        1
+                        for row in excluded
+                        if isinstance(row, Mapping) and row.get("reason") == reason
+                    )
+                    for reason in {
+                        str(row.get("reason"))
+                        for row in excluded
+                        if isinstance(row, Mapping)
+                    }
+                }.items()
+            )
+        ),
+        "source_exclusions": [dict(row) for row in excluded],
         "eligible_count": len(eligible),
         "ineligible_reason_counts": dict(sorted(ineligible_reason_counts.items())),
         "max_exact_states": cap,
