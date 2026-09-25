@@ -99,6 +99,7 @@ jobs:
               "acceptance_rate=", c["acceptance_rate"],
               "ess=", c["effective_sample_size"],
           )
+          print("public_evidence=", json.dumps(d["public_evidence"], sort_keys=True))
           PY
           test "$sampler_status" -eq 0 -o "$sampler_status" -eq 3
 
