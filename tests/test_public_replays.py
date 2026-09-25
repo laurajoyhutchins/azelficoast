@@ -89,7 +89,11 @@ def test_freeze_public_replay_is_content_addressed_and_immutable(tmp_path: Path)
             "id": "gen9randombattle-1",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": ">start {}",
+            "inputlog": (
+                ">version "
+                + public_replays.PINNED_SHOWDOWN_COMMIT
+                + "\n>start {}"
+            ),
         },
         rating=1500,
         uploadtime=1,
@@ -152,7 +156,11 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
             "id": "gen9randombattle-1",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": ">start {}",
+            "inputlog": (
+                ">version "
+                + public_replays.PINNED_SHOWDOWN_COMMIT
+                + "\n>start {}"
+            ),
         },
         rating=1500,
         uploadtime=1,
