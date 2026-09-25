@@ -325,11 +325,16 @@ recovery, then damage), a deliberately disruptive dirty-tricks archetype
 a uniform legal-move floor, and an observed-move persistence component when that
 move belongs to the current active.
 The mixture is deliberately an explicit prior, not a claim that these weights match
-human frequencies. Voluntary switches and opponent Terastallization remain outside
-this bounded opponent model for now.
+human frequencies. The bounded model can now voluntarily switch to a surviving,
+publicly established full-health bench Pokemon when the matchup is sufficiently poor;
+damaged bench Pokemon remain excluded until their percentage-censored HP is represented
+as a posterior rather than guessed. Damage strategies may also spend Tera when the
+reconstructed active can legally Terastallize
+and the heuristic sees an offensive or defensive reason. Pinned Showdown still owns
+the resulting mechanics, and the model never invents an unrevealed switch target.
 
 The outer generation loop can also run unattended against the local Random Battle
-baseline:
+opponent league:
 
 ~~~bash
 uv run azelficoast \
@@ -340,6 +345,12 @@ uv run azelficoast \
   --battles-per-generation 24 \
   --max-teacher-fixtures 64
 ~~~
+
+Automatic battle generation treats RandomPlayer as a smoke-test baseline rather than
+a curriculum peer. The opponent league uses max-base-power, simple-heuristics,
+dirty-tricks, the incumbent checkpoint, and recent archived checkpoints. Remainder
+battles rotate across generations so small battle budgets do not repeatedly starve
+the same league members.
 
 Each generation creates fresh Random Battles, accumulates their immutable traces, and
 mines a bounded curriculum from public evidence only. Battle generation defaults to
