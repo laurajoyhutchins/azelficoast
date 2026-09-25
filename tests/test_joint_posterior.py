@@ -7,6 +7,7 @@ import pytest
 from azelficoast.joint_posterior import (
     JointPosteriorError,
     evaluator_posterior,
+    posterior_validity_record,
     validate_joint_posterior,
 )
 
@@ -132,3 +133,29 @@ def test_joint_posterior_rejects_treatment_masquerading_as_generator_faithful() 
 
     with pytest.raises(JointPosteriorError, match="treatment"):
         validate_joint_posterior(document)
+
+
+def test_joint_posterior_validity_record_surfaces_sampling_and_support() -> None:
+    document = _posterior()
+    document["construction"].update(
+        {
+            "attempted_team_count": 20,
+            "accepted_team_count": 10,
+            "unique_particle_count": 2,
+            "acceptance_rate": 0.5,
+            "effective_sample_size": 1.923076923076923,
+            "generation_error_count": 0,
+            "proposal_mode": "generator_rejection",
+            "conditioning_scope": ["revealed species"],
+            "dynamic_battle_evidence_not_yet_likelihood_weighted": ["damage rolls"],
+        }
+    )
+
+    record = posterior_validity_record(document)
+
+    assert record["support_status"] == "sufficient"
+    assert record["support"]["support_size"] == 2
+    assert abs(record["support"]["effective_sample_size"] - 1.923076923076923) < 1e-12
+    assert record["sampling"]["accepted_team_count"] == 10
+    assert record["unmodeled_dynamic_evidence"] == ["damage rolls"]
+    assert "does not establish" in record["claim"]
