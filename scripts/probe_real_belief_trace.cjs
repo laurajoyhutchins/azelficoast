@@ -192,8 +192,13 @@ function generatorVariants() {
   for (let i = 0; i < GENERATOR_ROUNDS; i++) {
     generator.setSeed([i, i, i, i]);
     const set = generator.randomSet(species, {}, false, false);
-    // Level is public Random Battle information. A generator outcome at a
-    // different level is not a plausible hidden world for this decision state.
+    // Forme and level are public Random Battle information. In particular,
+    // getForme() consumes RNG before set construction, so impossible cosmetic
+    // forme draws must be rejected rather than normalized after sampling.
+    if (
+      toID(set.species || requested) !==
+      toID(fixture.state.opponent_active.species)
+    ) continue;
     if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
     const moves = [...set.moves].map(toID).sort();
     if (![...observed].every(move => moves.includes(move))) continue;
@@ -206,7 +211,7 @@ function generatorVariants() {
     // role, so two sets that differ only by role are the same mechanics world
     // and must contribute prior mass to one world rather than mint duplicate IDs.
     const semantic = {
-      species: toID(set.species || requested),
+      species: toID(fixture.state.opponent_active.species),
       ability: set.ability,
       item: set.item,
       level: set.level,
