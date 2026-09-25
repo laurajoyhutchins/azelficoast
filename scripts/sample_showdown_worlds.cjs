@@ -9,11 +9,18 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, species, observedMovesCsv, roundsText, isLeadText, seedOffsetText] =
-  process.argv.slice(2);
+const [
+  showdownRoot,
+  species,
+  observedMovesCsv,
+  roundsText,
+  isLeadText,
+  seedOffsetText,
+  publicLevelText,
+] = process.argv.slice(2);
 if (!showdownRoot || !species || !observedMovesCsv) {
   fail(
-    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET]"
+    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET] [PUBLIC_LEVEL]"
   );
 }
 
@@ -35,6 +42,17 @@ if (
   seedOffset + rounds > 65536
 ) {
   fail("SEED_OFFSET must define a non-wrapping seed window within 0..65535");
+}
+
+const publicLevel =
+  publicLevelText === undefined || publicLevelText === ""
+    ? null
+    : Number(publicLevelText);
+if (
+  publicLevel !== null &&
+  (!Number.isSafeInteger(publicLevel) || publicLevel < 1)
+) {
+  fail("PUBLIC_LEVEL must be a positive integer");
 }
 
 const observedMoves = new Set(
@@ -87,6 +105,9 @@ for (let index = 0; index < rounds; index++) {
   const seed = seedOffset + index;
   generator.setSeed([seed, seed, seed, seed]);
   const set = generator.randomSet(generatorSpecies, {}, isLead, false);
+  if (publicLevel !== null && Number(set.level) !== publicLevel) {
+    continue;
+  }
   const moves = [...set.moves].sort();
 
   if (![...observedMoves].every(move => moves.includes(move))) {
@@ -146,6 +167,7 @@ process.stdout.write(
         teamDetails: {},
         isLead,
         isDoubles: false,
+        publicLevel,
       },
       rounds,
       matched,
