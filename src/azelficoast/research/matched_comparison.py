@@ -49,6 +49,7 @@ POSTERIOR_TREATMENTS = (
 OPPONENT_MODELS = (
     "fixed_observed_response",
     "repeat-last-or-uniform-legal-moves",
+    "strategy-mixture",
     "two_sided_information_sets",
 )
 BUDGET_UNITS = ("transition_evaluations",)
