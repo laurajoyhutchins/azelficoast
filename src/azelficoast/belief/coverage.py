@@ -60,6 +60,8 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
     reason_fixtures: Counter[str] = Counter()
     opponent_species_by_reason: dict[str, Counter[str]] = defaultdict(Counter)
     opponent_move_by_reason: dict[str, Counter[str]] = defaultdict(Counter)
+    exact_search_ready = 0
+    exact_search_blockers: Counter[str] = Counter()
     decision_count = 0
 
     for fixture in fixture_list:
@@ -69,6 +71,13 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
         decision_count += weight
         reason_decisions[category] += weight
         reason_fixtures[category] += 1
+
+        if source is None:
+            exact_search_blockers[f"reconstruction:{reason}"] += weight
+        elif isinstance(source.get("opponent_response_move"), str):
+            exact_search_ready += weight
+        else:
+            exact_search_blockers["opponent-model-unavailable"] += weight
 
         opponent = fixture.state.get("opponent_active")
         species = (
@@ -84,18 +93,6 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
     fallback = decision_count - admitted
     fallback_reasons = Counter(reason_decisions)
     fallback_reasons.pop(ADMITTED, None)
-
-    exact_search_ready = 0
-    exact_search_blockers: Counter[str] = Counter()
-    for fixture in fixture_list:
-        source, reason = build_probe_source(fixture)
-        weight = _decision_weight(fixture)
-        if source is None:
-            exact_search_blockers[f"reconstruction:{reason}"] += weight
-        elif isinstance(source.get("opponent_response_move"), str):
-            exact_search_ready += weight
-        else:
-            exact_search_blockers["opponent-model-unavailable"] += weight
 
     return {
         "decision_count": decision_count,
