@@ -6,8 +6,6 @@ import argparse
 import hashlib
 import itertools
 import json
-import os
-import platform
 import statistics
 import time
 from dataclasses import dataclass
@@ -22,6 +20,7 @@ from azelficoast.adaptive_execution import (
     ExecutionFeatures,
     ExecutionPath,
     choose_execution_path,
+    current_jax_execution_target,
 )
 from azelficoast.class_native_belief import (
     ClassNativeBelief,
@@ -156,28 +155,8 @@ def _load_contexts(path: Path) -> tuple[DamageContext, ...]:
     return contexts
 
 
-def _cpu_model_name() -> str:
-    cpuinfo = Path("/proc/cpuinfo")
-    if cpuinfo.exists():
-        for line in cpuinfo.read_text(encoding="utf-8", errors="replace").splitlines():
-            if line.lower().startswith("model name"):
-                return line.partition(":")[2].strip()
-    return platform.processor() or "unknown"
-
-
 def _execution_target_signature() -> str:
-    devices = jax.devices()
-    payload = {
-        "jax_backend": jax.default_backend(),
-        "device_kinds": sorted(str(device.device_kind) for device in devices),
-        "device_count": len(devices),
-        "machine": platform.machine(),
-        "system": platform.system(),
-        "cpu_count": os.cpu_count(),
-        "cpu_model": _cpu_model_name(),
-    }
-    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+    return current_jax_execution_target()[1]
 
 
 def _effect_signature(contexts: Sequence[DamageContext]) -> str:

@@ -65,6 +65,14 @@ jobs:
           assert result["projection"]["missing_secondary_changes_result"] is True, result
           assert set(result["confirmation"]["candidate"]["chosen_paths"]) == {"direct", "projected"}, result
           assert result["profile"]["effect_signature"] == result["effect_signature"], result
+          quotient = result["preexecution_quotient"]
+          assert quotient["successor_histogram_exact"] is True, result
+          assert quotient["adaptive_histogram_exact"] is True, result
+          assert (
+              quotient["projected_transition_evaluations"]
+              < quotient["direct_transition_evaluations"]
+          ), result
+          assert quotient["effect_signature"] == result["effect_signature"], result
           PY
       - uses: actions/upload-artifact@v4
         with:
