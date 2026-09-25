@@ -27,6 +27,7 @@ concurrency:
 
 jobs:
   freeze-cohort:
+    if: ${{ false }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -174,8 +175,6 @@ jobs:
           if-no-files-found: error
 
   exact:
-    needs: freeze-cohort
-    if: ${{ false }}
     strategy:
       fail-fast: false
       max-parallel: 8
@@ -184,10 +183,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v4
-        with:
-          name: natural-population-selection
-          path: /tmp/selection
+      - name: Recover frozen outcome-blind cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actual_digest="$(gh api \
+            repos/${{ github.repository }}/actions/artifacts/10845773798 \
+            --jq '.digest')"
+          test "$actual_digest" = \
+            "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
+          mkdir -p /tmp/selection
+          gh run download 36092751541 \
+            --name natural-population-selection \
+            --dir /tmp/selection
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(
+              Path("/tmp/selection/population/manifest.json").read_text()
+          )
+          assert manifest["source_decision_state_count"] == 6485, manifest
+          assert manifest["bounded_candidate_count"] == 13, manifest
+          assert manifest["eligible_count"] == 10, manifest
+          assert manifest["selected_count"] == 10, manifest
+          assert manifest["overflow_sampling_applied"] is False, manifest
+          assert manifest["frozen_before_policy_values"] is True, manifest
+          assert manifest["selection_uses_policy_result"] is False, manifest
+          PY
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -253,8 +275,8 @@ jobs:
           if-no-files-found: warn
 
   aggregate:
-    needs: [freeze-cohort, exact]
-    if: always() && needs.freeze-cohort.result == 'success' && needs.exact.result == 'success'
+    needs: exact
+    if: always() && needs.exact.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -265,10 +287,33 @@ jobs:
         run: |
           python -m pip install uv
           uv sync
-      - uses: actions/download-artifact@v4
-        with:
-          name: natural-population-selection
-          path: /tmp/selection
+      - name: Recover frozen outcome-blind cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actual_digest="$(gh api \
+            repos/${{ github.repository }}/actions/artifacts/10845773798 \
+            --jq '.digest')"
+          test "$actual_digest" = \
+            "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
+          mkdir -p /tmp/selection
+          gh run download 36092751541 \
+            --name natural-population-selection \
+            --dir /tmp/selection
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          manifest = json.loads(
+              Path("/tmp/selection/population/manifest.json").read_text()
+          )
+          assert manifest["source_decision_state_count"] == 6485, manifest
+          assert manifest["bounded_candidate_count"] == 13, manifest
+          assert manifest["eligible_count"] == 10, manifest
+          assert manifest["selected_count"] == 10, manifest
+          assert manifest["overflow_sampling_applied"] is False, manifest
+          assert manifest["frozen_before_policy_values"] is True, manifest
+          assert manifest["selection_uses_policy_result"] is False, manifest
+          PY
       - uses: actions/download-artifact@v4
         with:
           pattern: natural-population-exact-*
