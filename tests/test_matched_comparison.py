@@ -322,6 +322,44 @@ def test_settle_packet_rejects_different_counted_consumption() -> None:
         settle_packet(packet=packet, receipts=[det, info])
 
 
+def test_settle_packet_rejects_resource_receipt_disagreeing_with_measured_counts() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+    )
+    resource = {
+        "verified_execution_classes_consumed": 3000,
+        "evaluator_calls": 7,
+        "executor_preparation_wall_ms": 1.0,
+        "search_wall_ms": 2.0,
+        "executor_wall_ms": 3.0,
+        "transition_program_generation_included": False,
+        "transition_program_verification_included": False,
+        "posterior_construction_included": False,
+        "scope_note": "executor-local timings",
+    }
+    det["resource_accounting"] = dict(resource)
+    info["resource_accounting"] = {**resource, "verified_execution_classes_consumed": 3001}
+
+    with pytest.raises(MatchedComparisonError, match="resource accounting disagrees"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+
 def test_settle_packet_rejects_evaluator_drift() -> None:
     packet = freeze_packet(
         plan=_plan(),

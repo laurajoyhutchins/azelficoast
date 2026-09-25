@@ -371,6 +371,7 @@ def settle_packet(
     root_values: dict[str, dict[str, float]] = {}
     consumed: dict[str, int] = {}
     evaluator_calls: dict[str, int] = {}
+    resource_accounting: dict[str, dict[str, Any]] = {}
     transition_program_digests: dict[str, str] = {}
     chosen: dict[str, str] = {}
     oracle_digest: str | None = None
@@ -428,6 +429,8 @@ def settle_packet(
             transition_program_source = receipt.transition_program_source
         elif receipt.transition_program_source != transition_program_source:
             raise MatchedComparisonError("matched methods used different program sources")
+        if receipt.resource_accounting is not None:
+            resource_accounting[method] = receipt.resource_accounting.to_record()
 
         normalized = dict(receipt.root_values)
         if set(normalized) != set(legal_actions):
@@ -495,6 +498,7 @@ def settle_packet(
         "evaluator_calls": evaluator_calls,
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
+        "resource_accounting": resource_accounting,
         "predictors": dict(packet["predictors"]),
         "two_player_information_sets_preserved": (
             packet["opponent_model"] == "two_sided_information_sets"

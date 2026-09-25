@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -201,11 +202,11 @@ def execute_method(
     artifact = transition_program if transition_program is not None else oracle
     assert artifact is not None
 
+    executor_started_ns = time.perf_counter_ns()
     try:
         _validate_packet(packet)
     except MatchedComparisonError as error:
         raise MatchedSearchExecutionError(str(error)) from error
-
     checkpoint_digest = _validated_evaluator(packet, evaluator)
     belief, transport_index, spec, mechanics = _validated_inputs(
         packet=packet,
@@ -217,6 +218,7 @@ def execute_method(
         raise MatchedSearchExecutionError("matched mechanics identity digest is invalid")
     if packet.get("evaluator_digest") != spec.evaluator_identity_digest:
         raise MatchedSearchExecutionError("matched evaluator identity differs from specification")
+    prepared_ns = time.perf_counter_ns()
     budget = packet.get("compute_budget")
     if not isinstance(budget, Mapping) or budget != spec.compute_budget.to_record():
         raise MatchedSearchExecutionError("matched specification compute budget drifted")
@@ -230,6 +232,7 @@ def execute_method(
             f"{method}: requires {required} transitions but budget authorizes {authorized}"
         )
 
+    search_started_ns = time.perf_counter_ns()
     try:
         search = search_transition_program(
             mechanics=mechanics,
@@ -240,6 +243,7 @@ def execute_method(
         )
     except TransitionProgramSearchError as error:
         raise MatchedSearchExecutionError(str(error)) from error
+    search_finished_ns = time.perf_counter_ns()
     if int(search["transition_evaluations"]) != required:
         raise MatchedSearchExecutionError(
             "TransitionProgram search consumed an unexpected execution-class count"
@@ -272,6 +276,23 @@ def execute_method(
         "budget_unit_definition": COMPUTE_BUDGET_UNIT_DEFINITION,
         "chosen_action": search["chosen_action"],
         "root_values": dict(search["root_values"]),
+        "resource_accounting": {
+            "verified_execution_classes_consumed": required,
+            "evaluator_calls": int(search["evaluator_calls"]),
+            "executor_preparation_wall_ms": (prepared_ns - executor_started_ns) / 1_000_000.0,
+            "search_wall_ms": (search_finished_ns - search_started_ns) / 1_000_000.0,
+            "executor_wall_ms": (search_finished_ns - executor_started_ns) / 1_000_000.0,
+            "transition_program_generation_included": (
+                mechanics.source == "compiled-legacy-oracle"
+            ),
+            "transition_program_verification_included": False,
+            "posterior_construction_included": False,
+            "scope_note": (
+                "Wall-clock fields cover this receipt executor only. Posterior construction "
+                "and externally supplied TransitionProgram generation/verification must be "
+                "reported by their producing stages rather than hidden inside the class budget."
+            ),
+        },
     }
     return receipt
 

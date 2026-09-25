@@ -818,6 +818,89 @@ class MatchedExperimentSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ResourceAccounting:
+    """Auditable class-budget, evaluator-call, and wall-clock measurements."""
+
+    verified_execution_classes_consumed: int
+    evaluator_calls: int
+    executor_preparation_wall_ms: float
+    search_wall_ms: float
+    executor_wall_ms: float
+    transition_program_generation_included: bool
+    transition_program_verification_included: bool
+    posterior_construction_included: bool
+    scope_note: str
+
+    @classmethod
+    def from_record(cls, record: Mapping[str, object]) -> ResourceAccounting:
+        count_fields = ("verified_execution_classes_consumed", "evaluator_calls")
+        counts: dict[str, int] = {}
+        for name in count_fields:
+            value = record.get(name)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ResearchContractError(f"resource accounting lacks valid {name}")
+            counts[name] = value
+        timings: dict[str, float] = {}
+        for name in (
+            "executor_preparation_wall_ms",
+            "search_wall_ms",
+            "executor_wall_ms",
+        ):
+            value = record.get(name)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(float(value))
+                or float(value) < 0.0
+            ):
+                raise ResearchContractError(f"resource accounting lacks valid {name}")
+            timings[name] = float(value)
+        flags: dict[str, bool] = {}
+        for name in (
+            "transition_program_generation_included",
+            "transition_program_verification_included",
+            "posterior_construction_included",
+        ):
+            value = record.get(name)
+            if not isinstance(value, bool):
+                raise ResearchContractError(f"resource accounting lacks boolean {name}")
+            flags[name] = value
+        scope_note = record.get("scope_note")
+        if not isinstance(scope_note, str) or not scope_note:
+            raise ResearchContractError("resource accounting lacks its scope note")
+        return cls(
+            verified_execution_classes_consumed=counts[
+                "verified_execution_classes_consumed"
+            ],
+            evaluator_calls=counts["evaluator_calls"],
+            executor_preparation_wall_ms=timings["executor_preparation_wall_ms"],
+            search_wall_ms=timings["search_wall_ms"],
+            executor_wall_ms=timings["executor_wall_ms"],
+            transition_program_generation_included=flags[
+                "transition_program_generation_included"
+            ],
+            transition_program_verification_included=flags[
+                "transition_program_verification_included"
+            ],
+            posterior_construction_included=flags["posterior_construction_included"],
+            scope_note=scope_note,
+        )
+
+    def to_record(self) -> dict[str, object]:
+        return {
+            "verified_execution_classes_consumed": self.verified_execution_classes_consumed,
+            "evaluator_calls": self.evaluator_calls,
+            "executor_preparation_wall_ms": self.executor_preparation_wall_ms,
+            "search_wall_ms": self.search_wall_ms,
+            "executor_wall_ms": self.executor_wall_ms,
+            "transition_program_generation_included": self.transition_program_generation_included,
+            "transition_program_verification_included": self.transition_program_verification_included,
+            "posterior_construction_included": self.posterior_construction_included,
+            "scope_note": self.scope_note,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class ComputeReceipt:
     """Measured outcome from one treatment arm under a frozen matched spec."""
 
@@ -844,6 +927,7 @@ class ComputeReceipt:
     evaluator_calls: int
     chosen_action: str
     root_values: tuple[tuple[str, float], ...]
+    resource_accounting: ResourceAccounting | None
 
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> ComputeReceipt:
@@ -918,6 +1002,19 @@ class ComputeReceipt:
             if not math.isfinite(number):
                 raise ResearchContractError("receipt root values must be finite")
             root_values.append((action, number))
+        raw_resources = record.get("resource_accounting")
+        if raw_resources is not None and not isinstance(raw_resources, Mapping):
+            raise ResearchContractError("receipt resource_accounting must be an object")
+        resources = (
+            ResourceAccounting.from_record(raw_resources)
+            if isinstance(raw_resources, Mapping)
+            else None
+        )
+        if resources is not None and (
+            resources.verified_execution_classes_consumed != consumed
+            or resources.evaluator_calls != evaluator_calls
+        ):
+            raise ResearchContractError("receipt resource accounting disagrees with measured counts")
         return cls(
             method=values["method"],
             packet_digest=values["packet_digest"],
@@ -942,4 +1039,5 @@ class ComputeReceipt:
             evaluator_calls=evaluator_calls,
             chosen_action=values["chosen_action"],
             root_values=tuple(sorted(root_values)),
+            resource_accounting=resources,
         )

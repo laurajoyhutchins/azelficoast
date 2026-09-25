@@ -25,6 +25,10 @@ exact transition behavior, revision identity, and dependency/refinement evidence
 The direction is one-way: search values cannot revise mechanics evidence or
 posterior support, and settled results cannot alter public evidence, treatment
 definitions, or frozen cohort selection.
+Realized-world scoring in `posterior_validity.py` is post-decision diagnostics
+only; realized-world fields are never accepted by the decision-time belief or
+search contract. Router ablations are analysis outputs, not a source of new
+thresholds or treatment assignments in this refactor.
 
 ## Matched comparison
 
@@ -43,6 +47,9 @@ transition budget. Transport IDs are used only to join mechanics records and
 never enter evaluator features. The cohort selector remains outcome-blind and
 retains the existing admission reasons, hash sampling, and CLI. Its extraction
 into `population_cohort.py` does not change cohort policy.
+Receipts also retain typed resource accounting for evaluator calls and executor,
+preparation, and search wall-clock times; these measurements do not redefine the
+counted class budget.
 
 ## Evidence compatibility
 

@@ -234,6 +234,14 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
         "determinization": 4,
         "information_set": 3,
     }
+    assert det["resource_accounting"]["verified_execution_classes_consumed"] == 3
+    assert det["resource_accounting"]["evaluator_calls"] == 4
+    assert det["resource_accounting"]["transition_program_generation_included"] is False
+    assert det["resource_accounting"]["transition_program_verification_included"] is False
+    assert det["resource_accounting"]["posterior_construction_included"] is False
+    assert det["resource_accounting"]["search_wall_ms"] >= 0.0
+    assert settled["resource_accounting"]["determinization"] == det["resource_accounting"]
+    assert settled["resource_accounting"]["information_set"] == info["resource_accounting"]
     assert settled["policy_disagreement"] is True
 
 
