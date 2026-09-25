@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from azelficoast.belief.evaluator import (
     BeliefEvaluatorError,
-    BeliefEvaluatorInput,
     _require_jax,
     loss,
 )
+
+
+class TrainingInput(Protocol):
+    legal_actions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class TrainingExample:
     """One supervised target over a frozen public-belief state."""
 
-    inputs: BeliefEvaluatorInput
+    inputs: TrainingInput
     value_target: float
     policy_target: tuple[float, ...]
 
@@ -59,6 +63,7 @@ def train_step(
     beta1: float = 0.9,
     beta2: float = 0.999,
     epsilon: float = 1e-8,
+    loss_function: Callable[..., Any] = loss,
 ) -> tuple[dict[str, Any], AdamState, float]:
     """Apply one deterministic Adam update without Flax or Optax."""
     if not math.isfinite(learning_rate) or learning_rate <= 0.0:
@@ -71,7 +76,7 @@ def train_step(
     jax, jnp = _require_jax()
 
     def objective(candidate: Mapping[str, Any]) -> Any:
-        return loss(
+        return loss_function(
             candidate,
             example.inputs,
             value_target=example.value_target,
@@ -109,6 +114,7 @@ def train_examples(
     epochs: int,
     learning_rate: float = 3e-4,
     policy_weight: float = 1.0,
+    loss_function: Callable[..., Any] = loss,
 ) -> tuple[dict[str, Any], list[float]]:
     """Train in a deterministic caller-supplied example order."""
     if not isinstance(epochs, int) or isinstance(epochs, bool) or epochs <= 0:
@@ -127,6 +133,7 @@ def train_examples(
                 example,
                 learning_rate=learning_rate,
                 policy_weight=policy_weight,
+                loss_function=loss_function,
             )
             losses.append(objective)
     return current, losses
