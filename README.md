@@ -377,6 +377,37 @@ This remains a bounded rung. The opponent move does not yet alter state, and pro
 immunities, multihit sequencing, contact hooks, status secondaries, and mutually interacting
 attacks remain outside the claim.
 
+## Two-attack turn
+
+The compiled simulator now executes a bounded singles turn containing two real damaging actions
+rather than an attack against a no-op opponent. Priority, Speed, and the final speed-tie outcome
+select the first actor. Each queued move consumes PP only if it actually executes.
+
+The treatment uses Moonblast versus Aura Sphere to make causal ordering observable. If Moonblast
+acts first and its 30% SpA drop lands, Aura Sphere's later damage is calculated from the reduced
+SpA stage. If Aura Sphere has already resolved, the later drop changes only the resulting stage and
+cannot retroactively change that damage. If either first action faints the queued second actor, the
+second action is cancelled and its PP remains untouched.
+
+One dependency signature covers the entire turn. It binds the previously validated attack and
+ordered-attack contracts, then adds the dynamic dependency on the SpA stage at p2 execution. The
+hosted treatment carries independent hostile projections that omit the final tie outcome or the
+secondary/stage dependency; each must merge states that produce a different aggregate result.
+
+Pinned Showdown evidence covers 1,248 controlled full turns spanning faster and slower actors,
+priority, both final tie outcomes, both KO-cancellation directions, Choice Specs versus no item,
+damage-roll extremes, and the Moonblast secondary boundary. Python, generated C, and JAX must
+match the exact packed post-state, including both HP values, both PP values, p2's SpA stage, and
+which queued actions actually executed.
+
+For the class-native treatment, 3,968 canonical states collapse to 128 execution classes. A
+separate disjoint confirmation grid calibrates the adaptive direct-versus-class-native dispatcher
+on the entire two-action transition, not on an isolated damage primitive.
+
+This remains intentionally bounded. Switching, protection, immunities, redirection, multihit
+sequencing, contact hooks, status effects, and residual/end-turn processing remain outside the
+claim.
+
 ## Adaptive simulator dispatch
 
 The dispatcher models the two execution paths according to the work they actually perform rather
@@ -387,6 +418,7 @@ direct =
     fixed launch cost
   + logical worlds × per-world work
   + optional logical worlds² × bounded saturation term
+  + or optional max(0, worlds - knee) × post-knee saturation work
 
 projected =
     fixed projection/transfer cost
@@ -400,16 +432,27 @@ approximation for backend saturation/cache behavior. Profiles refuse to extrapol
 largest logical population or class counts used during calibration.
 
 Calibration alternates direct and projected measurements to reduce runner drift and weights fits
-by observed timing noise. Leave-one-out model selection compares four structural shapes: linear
-versus bounded-quadratic direct work, each with or without an independent canonical-class term.
+by observed timing noise. Leave-one-out model selection compares linear, bounded-quadratic, and
+hinge-saturation direct work, each with or without an independent canonical-class term.
 Selection first maximizes leave-one-out crossover-choice accuracy. If several models tie on the
 decision the dispatcher actually makes, the simplest shape wins; latency MAE only breaks ties
 between equally simple shapes. This prevents a saturation term from earning complexity merely by
 fitting large, decision-irrelevant latency magnitudes far from the crossover.
 
+When calibration contains repeated measurements with the exact same canonical-class and
+execution-class counts, and those measurements form one monotone direct-to-projected crossover,
+the profile also records the observed crossover bracket. Dispatch uses the bracket midpoint only
+for that exact class shape. This prevents far-above-crossover cache saturation from dragging a
+local decision boundary away from the directly observed bracket, while multi-dimensional
+workloads continue to use the structural cost surface.
+
+Low-world whole-attack calibration may contain fewer logical worlds than the full canonical
+support. Those treatments activate a deterministic evenly spaced subset of support classes rather
+than truncating a prefix, so the small-population evidence still spans the support geometry.
+
 An uncertainty guard derived from leave-one-out error is reported with each decision, but it is
 diagnostic only. Both execution paths are semantically exact, so uncertainty about performance
-does not override the path predicted to be faster.
+does not override the selected structural or crossover-fenced path.
 
 The hosted experiment retains the original linear absolute-curve model as a control and evaluates
 both on a denser, disjoint crossover-heavy grid. Promotion requires at least 5% lower held-out

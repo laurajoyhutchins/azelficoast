@@ -1,0 +1,150 @@
+"""Native compiler surface for the bounded two-attack turn."""
+
+from __future__ import annotations
+
+import platform
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Iterable
+
+from azelficoast.native_damage_compiler import (
+    KERNEL_FUNCTIONS,
+    NativeBuild,
+    NativeKernelCompileError,
+    _Emitter,
+    _selected_functions,
+)
+
+TWO_ATTACK_TURN_FUNCTIONS = (
+    "_turn_stage_stat_numeric",
+    "_turn_damage_numeric",
+    "_turn_p1_first_numeric",
+    "two_attack_turn_numeric",
+)
+
+
+def _link_flags() -> tuple[str, ...]:
+    if platform.system() == "Darwin":
+        return ("-dynamiclib",)
+    if platform.system() == "Windows":
+        raise NativeKernelCompileError("the research compiler currently supports Unix C toolchains")
+    return ("-shared", "-fPIC")
+
+
+def emit_two_attack_turn_c(
+    damage_source: str,
+    turn_source: str,
+    *,
+    context_width: int = 52,
+) -> str:
+    if context_width <= 0:
+        raise NativeKernelCompileError("context width must be positive")
+
+    names = set(KERNEL_FUNCTIONS + TWO_ATTACK_TURN_FUNCTIONS)
+    emitter = _Emitter(names)
+    functions = (
+        *_selected_functions(damage_source, KERNEL_FUNCTIONS),
+        *_selected_functions(turn_source, TWO_ATTACK_TURN_FUNCTIONS),
+    )
+    body = "".join(emitter.function(function) for function in functions)
+
+    return f"""#include <stdint.h>
+#include <stddef.h>
+
+static int64_t az_floor_div(int64_t a, int64_t b) {{
+    int64_t q = a / b;
+    int64_t r = a % b;
+    if (r != 0 && ((r > 0) != (b > 0))) {{
+        q -= 1;
+    }}
+    return q;
+}}
+
+{body}
+int32_t az_two_attack_turn_one(
+    const int32_t *params,
+    int32_t order_tie_roll,
+    int32_t p1_accuracy_roll,
+    int32_t p1_damage_roll,
+    int32_t p1_secondary_roll,
+    int32_t p2_accuracy_roll,
+    int32_t p2_damage_roll
+) {{
+    return (int32_t)two_attack_turn_numeric(
+        params,
+        order_tie_roll,
+        p1_accuracy_roll,
+        p1_damage_roll,
+        p1_secondary_roll,
+        p2_accuracy_roll,
+        p2_damage_roll
+    );
+}}
+
+void az_two_attack_turn_batch(
+    const int32_t *params,
+    const int32_t *order_tie_rolls,
+    const int32_t *p1_accuracy_rolls,
+    const int32_t *p1_damage_rolls,
+    const int32_t *p1_secondary_rolls,
+    const int32_t *p2_accuracy_rolls,
+    const int32_t *p2_damage_rolls,
+    int32_t *out,
+    int64_t count
+) {{
+    for (int64_t index = 0; index < count; ++index) {{
+        out[index] = (int32_t)two_attack_turn_numeric(
+            params + index * {context_width},
+            order_tie_rolls[index],
+            p1_accuracy_rolls[index],
+            p1_damage_rolls[index],
+            p1_secondary_rolls[index],
+            p2_accuracy_rolls[index],
+            p2_damage_rolls[index]
+        );
+    }}
+}}
+"""
+
+
+def build_two_attack_turn_library(
+    damage_source_path: str | Path,
+    turn_source_path: str | Path,
+    output_path: str | Path,
+    *,
+    context_width: int = 52,
+    cc: str = "cc",
+    extra_cflags: Iterable[str] = (),
+) -> NativeBuild:
+    damage_source_path = Path(damage_source_path)
+    turn_source_path = Path(turn_source_path)
+    output_path = Path(output_path)
+    c_source = emit_two_attack_turn_c(
+        damage_source_path.read_text(encoding="utf-8"),
+        turn_source_path.read_text(encoding="utf-8"),
+        context_width=context_width,
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="azelficoast-native-") as temp_dir:
+        c_path = Path(temp_dir) / "two_attack_turn_kernel.c"
+        c_path.write_text(c_source, encoding="utf-8")
+        command = [
+            cc,
+            "-std=c99",
+            "-O3",
+            *extra_cflags,
+            *_link_flags(),
+            str(c_path),
+            "-o",
+            str(output_path),
+        ]
+        completed = subprocess.run(command, capture_output=True, text=True, check=False)
+        if completed.returncode != 0:
+            raise NativeKernelCompileError(
+                "C compiler failed:\n"
+                + completed.stderr
+                + ("\n" + completed.stdout if completed.stdout else "")
+            )
+    return NativeBuild(library=output_path, c_source=c_source)
