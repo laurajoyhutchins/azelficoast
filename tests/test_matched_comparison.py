@@ -81,6 +81,9 @@ def _receipt(
     consumed: int = 3000,
 ) -> dict[str, object]:
     return {
+        "schema": "azelficoast.matched-search-receipt",
+        "schema_version": 2,
+        "packet_digest": packet["packet_digest"],
         "method": method,
         "input_digest": packet["input_digest"],
         "evaluator_digest": packet["evaluator_digest"],
@@ -163,6 +166,12 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
     )
 
     assert result["matched_input"] is True
+    assert result["packet_digest"] == packet["packet_digest"]
+    assert result["input_digest"] == packet["input_digest"]
+    assert result["state_digest"] == packet["state_digest"]
+    assert result["posterior_digest"] == packet["posterior_digest"]
+    assert result["showdown_commit"] == packet["showdown_commit"]
+    assert result["legal_actions"] == packet["legal_actions"]
     assert result["matched_authorized_compute"] is True
     assert result["matched_evaluator"] is True
     assert result["matched_evaluator_checkpoint"] is True
@@ -204,6 +213,11 @@ def test_settle_packet_rejects_input_or_budget_drift() -> None:
         chosen_action="attack",
         root_values={"protect": 0.5, "attack": 0.55},
     )
+
+    bad_packet = dict(info)
+    bad_packet["packet_digest"] = "other"
+    with pytest.raises(MatchedComparisonError, match="another frozen packet"):
+        settle_packet(packet=packet, receipts=[det, bad_packet])
 
     bad_input = dict(info)
     bad_input["input_digest"] = "other"

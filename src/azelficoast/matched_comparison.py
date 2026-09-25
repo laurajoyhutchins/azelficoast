@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -14,6 +15,8 @@ PACKET_SCHEMA = "azelficoast.matched-search-comparison-packet"
 PACKET_SCHEMA_VERSION = 2
 RESULT_SCHEMA = "azelficoast.matched-search-comparison-result"
 RESULT_SCHEMA_VERSION = 3
+RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
+RECEIPT_SCHEMA_VERSION = 2
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 
@@ -271,6 +274,11 @@ def _validate_packet(packet: Mapping[str, Any]) -> None:
         or packet.get("schema_version") != PACKET_SCHEMA_VERSION
     ):
         raise MatchedComparisonError("unexpected comparison packet schema")
+    packet_digest = packet.get("packet_digest")
+    unsigned_packet = dict(packet)
+    unsigned_packet.pop("packet_digest", None)
+    if not isinstance(packet_digest, str) or _sha256(unsigned_packet) != packet_digest:
+        raise MatchedComparisonError("comparison packet digest is invalid")
     work = packet.get("work")
     if not isinstance(work, list) or len(work) != len(METHODS):
         raise MatchedComparisonError("comparison packet must contain both methods")
@@ -316,6 +324,15 @@ def settle_packet(
 
     for method in METHODS:
         receipt = by_method[method]
+        if (
+            receipt.get("schema") != RECEIPT_SCHEMA
+            or receipt.get("schema_version") != RECEIPT_SCHEMA_VERSION
+        ):
+            raise MatchedComparisonError(f"{method}: unexpected search receipt schema")
+        if receipt.get("packet_digest") != packet["packet_digest"]:
+            raise MatchedComparisonError(
+                f"{method}: receipt belongs to another frozen packet"
+            )
         if receipt.get("input_digest") != packet["input_digest"]:
             raise MatchedComparisonError(f"{method}: receipt used another frozen input")
         if receipt.get("evaluator_digest") != packet["evaluator_digest"]:
@@ -347,6 +364,8 @@ def settle_packet(
                 f"{method}: root values do not cover the frozen legal actions"
             )
         normalized = {str(action): float(value) for action, value in values.items()}
+        if any(not math.isfinite(value) for value in normalized.values()):
+            raise MatchedComparisonError(f"{method}: root values must be finite")
         root_values[method] = normalized
         best_value = max(normalized.values())
         expected_action = min(
@@ -373,9 +392,14 @@ def settle_packet(
         "schema": RESULT_SCHEMA,
         "schema_version": RESULT_SCHEMA_VERSION,
         "packet_digest": packet["packet_digest"],
+        "input_digest": packet["input_digest"],
+        "state_digest": packet["state_digest"],
+        "posterior_digest": packet["posterior_digest"],
         "fixture_id": packet["fixture_id"],
         "battle_tag": packet["battle_tag"],
+        "legal_actions": list(packet["legal_actions"]),
         "posterior_treatment": packet["posterior_treatment"],
+        "showdown_commit": packet["showdown_commit"],
         "opponent_model": packet["opponent_model"],
         "depth": packet["depth"],
         "matched_input": True,

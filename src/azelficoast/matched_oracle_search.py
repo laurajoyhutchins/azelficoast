@@ -19,6 +19,8 @@ from azelficoast.matched_comparison import (
     METHODS,
     PACKET_SCHEMA,
     PACKET_SCHEMA_VERSION,
+    RECEIPT_SCHEMA,
+    RECEIPT_SCHEMA_VERSION,
     _sha256,
 )
 from azelficoast.real_belief_trace import (
@@ -29,10 +31,6 @@ from azelficoast.real_belief_trace import (
     _choose,
     _outcomes,
 )
-
-RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
-RECEIPT_SCHEMA_VERSION = 2
-
 
 class MatchedSearchExecutionError(ValueError):
     """Raised when a frozen matched-search work item cannot execute faithfully."""
