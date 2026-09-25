@@ -268,7 +268,9 @@ remain report-only and are not consulted by either admission gate.
 
 A promoted generation changes only the digest-bound current pointer. A rejected or
 not-ready generation leaves the incumbent in place and the next generation continues to
-collect new battles against that incumbent.
+collect new battles against that incumbent. For a cold start, `training bootstrap-public`
+can supply the first promoted evaluator from public Random Battle replay data; subsequent
+automatic generations return to settled information-set-search teacher targets.
 
 ## Evidence model
 
