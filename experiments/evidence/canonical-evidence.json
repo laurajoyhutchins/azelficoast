@@ -2,7 +2,7 @@
   "bundle": {
     "authority": "Git commit containing this manifest and bundle",
     "path": "experiments/evidence/canonical-evidence.tar.gz",
-    "sha256": "84afaad1872799e538873750fb222b0cb2808ede25e0e57e572efee86d35118f",
+    "sha256": "4d00283c5efba10f36a709aa3d6e29c74aea7b0d773beeed7d7df4e5c444e4bf",
     "required_paths": [
       "discovery/speed-fork-candidates.json",
       "discovery/speed-fork-fixtures.jsonl",
