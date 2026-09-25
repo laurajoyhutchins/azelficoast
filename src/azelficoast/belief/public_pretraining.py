@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,7 @@ from azelficoast.belief.improvement import (
     improve_checkpoint,
 )
 from azelficoast.corpus import DecisionFixture, build_fixtures
-from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
+from azelficoast.live.belief import build_probe_source
 from azelficoast.research.matched_comparison import _sha256 as matched_digest
 from azelficoast.research.training_records import (
     DEFAULT_SPLIT_SEED,
@@ -65,13 +66,18 @@ class PublicPosteriorSource(Protocol):
 
 
 class PinnedShowdownPublicPosteriorSource:
-    """Generate a posterior against the exact revision of the supplied checkout."""
+    """Generate a posterior against the exact revision of the supplied checkout.
+
+    Historical revisions are admitted only through the probe's posterior-only
+    override. Ordinary live, mechanics, and research probes retain the project pin.
+    """
 
     def __init__(self, showdown_root: str | Path, *, timeout_seconds: float = 20.0) -> None:
-        root = Path(showdown_root)
+        self.showdown_root = Path(showdown_root)
+        self.timeout_seconds = float(timeout_seconds)
         try:
             completed = subprocess.run(
-                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                ["git", "-C", str(self.showdown_root), "rev-parse", "HEAD"],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -82,14 +88,19 @@ class PinnedShowdownPublicPosteriorSource:
                 f"cannot read public-pretraining Showdown revision: {error}"
             ) from error
         self.showdown_commit = completed.stdout.strip()
-        self.engine = PinnedShowdownBeliefPolicy(
-            root,
-            timeout_seconds=timeout_seconds,
-            showdown_commit=self.showdown_commit,
-        )
-        if not self.engine.configured:
+        if (
+            len(self.showdown_commit) != 40
+            or any(
+                character not in "0123456789abcdef"
+                for character in self.showdown_commit
+            )
+        ):
             raise PublicPretrainingError(
-                "exact-revision Showdown posterior source is not configured"
+                "public-pretraining Showdown revision must be an exact 40-hex commit"
+            )
+        if not (self.showdown_root / "dist" / "sim" / "battle.js").is_file():
+            raise PublicPretrainingError(
+                "public-pretraining Showdown checkout is not built"
             )
 
     def posterior(
@@ -101,14 +112,47 @@ class PinnedShowdownPublicPosteriorSource:
             protocol_prefix=fixture.protocol_prefix,
             control_decisions=(),
         )
-        source, admission = build_probe_source(
-            probe_fixture,
-            showdown_commit=self.showdown_commit,
-        )
+        source, admission = build_probe_source(probe_fixture)
         if source is None:
             return PosteriorExclusion(admission)
+        source = {**source, "showdown_commit": self.showdown_commit}
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "probe_real_belief_trace.cjs"
+        )
         try:
-            posterior = self.engine._probe_posterior(source)
+            with tempfile.TemporaryDirectory(
+                prefix="azelficoast-public-pretraining-"
+            ) as directory:
+                source_path = Path(directory) / "source.json"
+                source_path.write_text(
+                    json.dumps(source, sort_keys=True),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        "node",
+                        str(script),
+                        str(self.showdown_root),
+                        str(source_path),
+                        "--posterior-only",
+                        "--historical-showdown-commit",
+                        self.showdown_commit,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds,
+                )
+            posterior = json.loads(completed.stdout)
+            if not isinstance(posterior, Mapping):
+                raise PublicPretrainingError("posterior probe returned a non-object")
+            if (
+                posterior.get("schema") != "azelficoast.live-belief-posterior"
+                or posterior.get("schema_version") != 1
+            ):
+                raise PublicPretrainingError("unexpected posterior-only probe schema")
         except (
             OSError,
             subprocess.CalledProcessError,
