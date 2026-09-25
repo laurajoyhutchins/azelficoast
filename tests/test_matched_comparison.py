@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from azelficoast.research.matched_comparison import (
+    COMPUTE_BUDGET_UNIT_DEFINITION,
+    EVALUATOR_CALL_UNIT_DEFINITION,
     MatchedComparisonError,
+    _sha256,
     freeze_packet,
     settle_packet,
 )
@@ -80,14 +83,28 @@ def _receipt(
     root_values: dict[str, float],
     consumed: int = 3000,
 ) -> dict[str, object]:
+    spec = packet["matched_spec"]
+    assert isinstance(spec, dict)
     return {
         "schema": "azelficoast.matched-search-receipt",
-        "schema_version": 3,
+        "schema_version": 4,
         "packet_digest": packet["packet_digest"],
+        "matched_spec_digest": packet["matched_spec_digest"],
         "method": method,
         "input_digest": packet["input_digest"],
+        "posterior_digest": packet["posterior_digest"],
+        "posterior_semantic_digest": packet["posterior_semantic_digest"],
         "evaluator_digest": packet["evaluator_digest"],
         "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+        "mechanics_identity_digest": packet["mechanics_identity_digest"],
+        "mechanics_evidence_digest": "e" * 64,
+        "showdown_commit": packet["showdown_commit"],
+        "chance_treatment": packet["chance_treatment"],
+        "transition_oracle_digest": "f" * 64,
+        "transition_artifact_digest": "f" * 64,
+        "transition_program_source": "verified-transition-program",
+        "budget_unit_definition": COMPUTE_BUDGET_UNIT_DEFINITION,
+        "evaluator_call_unit_definition": EVALUATOR_CALL_UNIT_DEFINITION,
         "evaluator_calls": 7,
         "transition_program_digest": "program-sha256",
         "compute_budget": packet["compute_budget"],
@@ -113,18 +130,58 @@ def test_freeze_packet_gives_both_methods_identical_input_and_budget() -> None:
     assert len({row["input_digest"] for row in packet["work"]}) == 1
     assert len({row["evaluator_digest"] for row in packet["work"]}) == 1
     assert packet["evaluator"]["observability"] == "public_belief_only"
-    assert len(
-        {
-            (
-                row["compute_budget"]["unit"],
-                row["compute_budget"]["authorized"],
-            )
-            for row in packet["work"]
-        }
-    ) == 1
+    assert (
+        len(
+            {
+                (
+                    row["compute_budget"]["unit"],
+                    row["compute_budget"]["authorized"],
+                )
+                for row in packet["work"]
+            }
+        )
+        == 1
+    )
     assert packet["opponent_model"] == "fixed_observed_response"
     assert packet["posterior_support"]["support_size"] == 2
     assert abs(packet["posterior_support"]["effective_sample_size"] - 1.923076923076923) < 1e-12
+
+
+def test_freeze_packet_carries_one_explicit_matched_experiment_spec() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=2,
+    )
+
+    spec = packet["matched_spec"]
+    assert spec["fixture_id"] == "fixture-1"
+    assert spec["battle_tag"] == "battle-1"
+    assert set(spec["legal_actions"]) == {"protect", "attack"}
+    assert spec["mechanics_identity"]["revision"] == "pinned"
+    assert spec["posterior_semantic_digest"] == packet["posterior_semantic_digest"]
+    assert spec["evaluator_identity_digest"] == packet["evaluator_digest"]
+    assert spec["compute_budget"] == packet["compute_budget"]
+    assert spec["chance_treatment"] == "shared_frozen_transition_oracle"
+
+
+def test_packet_state_digest_cannot_drift_from_frozen_public_spec() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    packet["state_digest"] = "different"
+    unsigned = dict(packet)
+    unsigned.pop("packet_digest")
+    packet["packet_digest"] = _sha256(unsigned)
+
+    with pytest.raises(MatchedComparisonError, match="public state differs"):
+        settle_packet(packet=packet, receipts=[])
 
 
 def test_freeze_packet_rejects_realized_hidden_state_as_oracle() -> None:
@@ -163,7 +220,7 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
                 "information_set",
                 chosen_action="attack",
                 root_values={"protect": 0.50, "attack": 0.55},
-                consumed=2800,
+                consumed=3000,
             ),
         ],
     )
@@ -188,14 +245,11 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
         "information_set": 7,
     }
     assert abs(result["max_determinization_value_optimism"] - 0.20) < 1e-12
-    assert (
-        abs(result["information_set_regret_of_determinization_action"] - 0.05)
-        < 1e-12
-    )
+    assert abs(result["information_set_regret_of_determinization_action"] - 0.05) < 1e-12
     assert result["policy_disagreement"] is True
     assert result["compute_consumed"] == {
         "determinization": 3000,
-        "information_set": 2800,
+        "information_set": 3000,
     }
 
 
@@ -236,6 +290,71 @@ def test_settle_packet_rejects_input_or_budget_drift() -> None:
         settle_packet(packet=packet, receipts=[det, over_budget])
 
 
+def test_settle_packet_rejects_different_counted_consumption() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+        consumed=3000,
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+        consumed=3001,
+    )
+
+    with pytest.raises(MatchedComparisonError, match="different counted compute"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+
+def test_settle_packet_rejects_resource_receipt_disagreeing_with_measured_counts() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+    )
+    resource = {
+        "verified_execution_classes_consumed": 3000,
+        "evaluator_calls": 7,
+        "executor_preparation_wall_ms": 1.0,
+        "search_wall_ms": 2.0,
+        "executor_wall_ms": 3.0,
+        "transition_program_generation_included": False,
+        "transition_program_verification_included": False,
+        "posterior_construction_included": False,
+        "scope_note": "executor-local timings",
+    }
+    det["resource_accounting"] = dict(resource)
+    info["resource_accounting"] = {**resource, "verified_execution_classes_consumed": 3001}
+
+    with pytest.raises(MatchedComparisonError, match="resource accounting disagrees"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+
 def test_settle_packet_rejects_evaluator_drift() -> None:
     packet = freeze_packet(
         plan=_plan(),
@@ -259,6 +378,71 @@ def test_settle_packet_rejects_evaluator_drift() -> None:
     info["evaluator_digest"] = "different"
 
     with pytest.raises(MatchedComparisonError, match="another evaluator"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+
+def test_settle_packet_rejects_posterior_mechanics_and_chance_drift() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55},
+    )
+    det["transition_oracle_digest"] = "shared-oracle"
+    info["transition_oracle_digest"] = "different-oracle"
+    det["transition_artifact_digest"] = "shared-oracle"
+    info["transition_artifact_digest"] = "different-oracle"
+
+    with pytest.raises(MatchedComparisonError, match="different frozen mechanics evidence"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+    info["transition_oracle_digest"] = "shared-oracle"
+    info["transition_artifact_digest"] = "shared-oracle"
+    info["posterior_semantic_digest"] = "different-posterior"
+    with pytest.raises(MatchedComparisonError, match="another posterior"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+    info["posterior_semantic_digest"] = packet["posterior_semantic_digest"]
+    info["showdown_commit"] = "other-revision"
+    with pytest.raises(MatchedComparisonError, match="another mechanics revision"):
+        settle_packet(packet=packet, receipts=[det, info])
+
+
+def test_settle_packet_rejects_root_action_set_drift() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+    det = _receipt(
+        packet,
+        "determinization",
+        chosen_action="protect",
+        root_values={"protect": 0.7, "attack": 0.6},
+    )
+    info = _receipt(
+        packet,
+        "information_set",
+        chosen_action="attack",
+        root_values={"protect": 0.5, "attack": 0.55, "switch": 0.2},
+    )
+
+    with pytest.raises(MatchedComparisonError, match="root values do not cover"):
         settle_packet(packet=packet, receipts=[det, info])
 
 
@@ -293,8 +477,12 @@ def test_settle_packet_rejects_checkpoint_or_evaluator_call_drift() -> None:
     with pytest.raises(MatchedComparisonError, match="evaluator call count"):
         settle_packet(packet=packet, receipts=[det, bad_calls])
 
-
     bad_program = dict(info)
     bad_program["transition_program_digest"] = "other-program"
     with pytest.raises(MatchedComparisonError, match="different transition programs"):
         settle_packet(packet=packet, receipts=[det, bad_program])
+
+    bad_unit = dict(info)
+    bad_unit["budget_unit_definition"] = "caller-declared computation"
+    with pytest.raises(MatchedComparisonError, match="unsupported compute-budget unit"):
+        settle_packet(packet=packet, receipts=[det, bad_unit])

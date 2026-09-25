@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -13,15 +12,28 @@ from azelficoast.belief.validity import (
     PosteriorValidityError,
     posterior_diagnostics,
 )
+from azelficoast.research.contracts import (
+    BeliefInput,
+    COMPUTE_BUDGET_UNIT_DEFINITION,
+    COMPUTE_RECEIPT_SCHEMA,
+    COMPUTE_RECEIPT_SCHEMA_VERSION,
+    EVALUATOR_CALL_UNIT_DEFINITION,
+    ComputeBudget,
+    ComputeReceipt,
+    MatchedExperimentSpec,
+    MechanicsIdentity,
+    PublicDecisionInput,
+    ResearchContractError,
+)
 
 PLAN_SCHEMA = "azelficoast.matched-search-comparison-plan"
 PLAN_SCHEMA_VERSION = 2
 PACKET_SCHEMA = "azelficoast.matched-search-comparison-packet"
-PACKET_SCHEMA_VERSION = 2
+PACKET_SCHEMA_VERSION = 3
 RESULT_SCHEMA = "azelficoast.matched-search-comparison-result"
-RESULT_SCHEMA_VERSION = 3
-RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
-RECEIPT_SCHEMA_VERSION = 3
+RESULT_SCHEMA_VERSION = 4
+RECEIPT_SCHEMA = COMPUTE_RECEIPT_SCHEMA
+RECEIPT_SCHEMA_VERSION = COMPUTE_RECEIPT_SCHEMA_VERSION
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 
@@ -58,10 +70,7 @@ def _load_object(path: str | Path) -> dict[str, Any]:
 
 
 def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
-    if (
-        plan.get("schema") != PLAN_SCHEMA
-        or plan.get("schema_version") != PLAN_SCHEMA_VERSION
-    ):
+    if plan.get("schema") != PLAN_SCHEMA or plan.get("schema_version") != PLAN_SCHEMA_VERSION:
         raise MatchedComparisonError("unexpected matched-comparison plan schema")
 
     treatments = plan.get("posterior_treatments")
@@ -82,17 +91,13 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     unit = budget.get("unit")
     limit = budget.get("per_method_limit")
     if unit not in BUDGET_UNITS:
-        raise MatchedComparisonError(
-            f"compute budget unit must be one of {BUDGET_UNITS!r}"
-        )
+        raise MatchedComparisonError(f"compute budget unit must be one of {BUDGET_UNITS!r}")
     if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
         raise MatchedComparisonError("per-method compute limit must be a positive integer")
 
     opponent_model = plan.get("opponent_model")
     if opponent_model not in OPPONENT_MODELS:
-        raise MatchedComparisonError(
-            f"opponent model must be one of {OPPONENT_MODELS!r}"
-        )
+        raise MatchedComparisonError(f"opponent model must be one of {OPPONENT_MODELS!r}")
 
     depths = plan.get("depths")
     if not isinstance(depths, list) or not depths:
@@ -105,9 +110,7 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
 
     predictors = plan.get("confirmatory_predictors")
     if not isinstance(predictors, list) or not 2 <= len(predictors) <= 3:
-        raise MatchedComparisonError(
-            "plan must freeze two or three confirmatory predictors"
-        )
+        raise MatchedComparisonError("plan must freeze two or three confirmatory predictors")
     if len(set(map(str, predictors))) != len(predictors):
         raise MatchedComparisonError("confirmatory predictors must be unique")
 
@@ -137,18 +140,13 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
         isinstance(checkpoint_digest, str)
         and checkpoint_digest.startswith("sha256:")
         and len(checkpoint_digest) == 71
-        and all(
-            character in "0123456789abcdef"
-            for character in checkpoint_digest[7:]
-        )
+        and all(character in "0123456789abcdef" for character in checkpoint_digest[7:])
     ):
         raise MatchedComparisonError(
             "evaluator checkpoint_digest must be sha256:<64 lowercase hex>"
         )
     if evaluator.get("observability") != "public_belief_only":
-        raise MatchedComparisonError(
-            "matched evaluator must be blind to the realized hidden state"
-        )
+        raise MatchedComparisonError("matched evaluator must be blind to the realized hidden state")
     if not isinstance(evaluator.get("architecture"), str) or not evaluator["architecture"]:
         raise MatchedComparisonError("evaluator must identify its architecture")
     if not isinstance(evaluator.get("spec"), Mapping):
@@ -177,24 +175,24 @@ def freeze_packet(
     if int(depth) not in checked_plan["depths"]:
         raise MatchedComparisonError(f"depth {depth} was not preregistered")
 
-    fixture_id = state.get("fixture_id")
-    battle_tag = state.get("battle_tag")
-    public_state = state.get("public_state")
-    legal_actions = state.get("legal_actions")
-    if not isinstance(fixture_id, str) or not fixture_id:
-        raise MatchedComparisonError("state must identify its fixture")
-    if not isinstance(battle_tag, str) or not battle_tag:
-        raise MatchedComparisonError("state must identify its battle")
-    if not isinstance(public_state, Mapping):
-        raise MatchedComparisonError("comparison state must contain public_state only")
-    if (
-        not isinstance(legal_actions, list)
-        or not legal_actions
-        or not all(isinstance(action, str) and action for action in legal_actions)
-    ):
-        raise MatchedComparisonError("state must contain non-empty legal actions")
-    if len(set(legal_actions)) != len(legal_actions):
-        raise MatchedComparisonError("legal actions must be unique")
+    mechanics_identity = MechanicsIdentity.from_showdown_commit(
+        str(checked_plan["showdown_commit"])
+    )
+    try:
+        public = PublicDecisionInput.from_record(
+            state,
+            mechanics_identity=mechanics_identity,
+        )
+        belief = BeliefInput.from_record(posterior)
+    except ResearchContractError as error:
+        raise MatchedComparisonError(str(error)) from error
+
+    fixture_id = public.fixture_id
+    battle_tag = public.battle_tag
+    public_state = public.public_state.to_record()
+    legal_actions = list(public.legal_actions)
+    if belief.treatment != posterior_treatment:
+        raise MatchedComparisonError("posterior artifact treatment does not match packet")
 
     predictors = state.get("predictors")
     if not isinstance(predictors, Mapping):
@@ -202,9 +200,7 @@ def freeze_packet(
     frozen_predictors: dict[str, Any] = {}
     for predictor in checked_plan["confirmatory_predictors"]:
         if predictor not in predictors:
-            raise MatchedComparisonError(
-                f"state lacks confirmatory predictor {predictor!r}"
-            )
+            raise MatchedComparisonError(f"state lacks confirmatory predictor {predictor!r}")
         value = predictors[predictor]
         if not isinstance(value, (bool, int, float)):
             raise MatchedComparisonError(
@@ -227,7 +223,6 @@ def freeze_packet(
         posterior_support = posterior_diagnostics(posterior)
     except PosteriorValidityError as error:
         raise MatchedComparisonError(f"invalid posterior support: {error}") from error
-
     state_digest = _sha256(
         {
             "fixture_id": fixture_id,
@@ -252,6 +247,25 @@ def freeze_packet(
         "unit": checked_plan["compute_budget"]["unit"],
         "authorized": int(checked_plan["compute_budget"]["per_method_limit"]),
     }
+    try:
+        typed_budget = ComputeBudget.from_record(budget)
+    except ResearchContractError as error:
+        raise MatchedComparisonError(str(error)) from error
+    chance_treatment = checked_plan.get(
+        "chance_treatment",
+        "shared_frozen_transition_oracle",
+    )
+    if not isinstance(chance_treatment, str) or not chance_treatment:
+        raise MatchedComparisonError("chance treatment must be a non-empty string")
+    matched_spec = MatchedExperimentSpec.build(
+        public=public,
+        belief=belief,
+        evaluator_identity_digest=evaluator_digest,
+        chance_treatment=chance_treatment,
+        compute_budget=typed_budget,
+        depth=int(depth),
+        opponent_model=str(checked_plan["opponent_model"]),
+    )
 
     packet = {
         "schema": PACKET_SCHEMA,
@@ -265,6 +279,11 @@ def freeze_packet(
         "state_digest": state_digest,
         "posterior_digest": posterior_digest,
         "posterior_support": posterior_support,
+        "posterior_semantic_digest": belief.semantic_digest,
+        "mechanics_identity_digest": mechanics_identity.identity_digest,
+        "chance_treatment": chance_treatment,
+        "matched_spec": matched_spec.to_record(),
+        "matched_spec_digest": matched_spec.digest,
         "evaluator": evaluator,
         "evaluator_digest": evaluator_digest,
         "input_digest": input_digest,
@@ -320,6 +339,39 @@ def _validate_packet(packet: Mapping[str, Any]) -> None:
         if row.get("compute_budget") != expected_budget:
             raise MatchedComparisonError("comparison methods do not share one budget")
 
+    raw_spec = packet.get("matched_spec")
+    if not isinstance(raw_spec, Mapping):
+        raise MatchedComparisonError("comparison packet lacks its matched experiment spec")
+    try:
+        spec = MatchedExperimentSpec.from_record(raw_spec)
+    except ResearchContractError as error:
+        raise MatchedComparisonError(str(error)) from error
+    if packet.get("matched_spec_digest") != spec.digest:
+        raise MatchedComparisonError("comparison packet matched spec digest is invalid")
+    if not spec.public_state_digest.startswith("sha256:") or packet.get(
+        "state_digest"
+    ) != spec.public_state_digest.removeprefix("sha256:"):
+        raise MatchedComparisonError("matched spec public state differs from its packet")
+    raw_actions = packet.get("legal_actions")
+    if not isinstance(raw_actions, list) or set(raw_actions) != set(spec.legal_actions):
+        raise MatchedComparisonError("matched spec action set differs from its packet")
+    if packet.get("fixture_id") != spec.fixture_id or packet.get("battle_tag") != spec.battle_tag:
+        raise MatchedComparisonError("matched spec source identity differs from its packet")
+    if packet.get("posterior_semantic_digest") != spec.posterior_semantic_digest:
+        raise MatchedComparisonError("matched spec posterior differs from its packet")
+    if packet.get("mechanics_identity_digest") != spec.mechanics_identity.identity_digest:
+        raise MatchedComparisonError("matched spec mechanics identity differs from its packet")
+    if packet.get("showdown_commit") != spec.mechanics_identity.revision:
+        raise MatchedComparisonError("matched spec mechanics revision differs from its packet")
+    if packet.get("evaluator_digest") != spec.evaluator_identity_digest:
+        raise MatchedComparisonError("matched spec evaluator differs from its packet")
+    if packet.get("compute_budget") != spec.compute_budget.to_record():
+        raise MatchedComparisonError("matched spec compute budget differs from its packet")
+    if packet.get("chance_treatment") != spec.chance_treatment:
+        raise MatchedComparisonError("matched spec chance treatment differs from its packet")
+    if packet.get("depth") != spec.depth or packet.get("opponent_model") != spec.opponent_model:
+        raise MatchedComparisonError("matched spec search treatment differs from its packet")
+
 
 def settle_packet(
     *,
@@ -327,9 +379,18 @@ def settle_packet(
     receipts: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
     _validate_packet(packet)
+    raw_spec = packet.get("matched_spec")
+    assert isinstance(raw_spec, Mapping)
+    spec = MatchedExperimentSpec.from_record(raw_spec)
     if len(receipts) != len(METHODS):
         raise MatchedComparisonError("exactly two method receipts are required")
-    by_method = {str(receipt.get("method")): receipt for receipt in receipts}
+    parsed_receipts: list[ComputeReceipt] = []
+    for raw_receipt in receipts:
+        try:
+            parsed_receipts.append(ComputeReceipt.from_record(raw_receipt))
+        except ResearchContractError as error:
+            raise MatchedComparisonError(str(error)) from error
+    by_method = {receipt.method: receipt for receipt in parsed_receipts}
     if set(by_method) != set(METHODS) or len(by_method) != len(METHODS):
         raise MatchedComparisonError("receipts must contain each comparison method once")
 
@@ -340,93 +401,73 @@ def settle_packet(
     resource_accounting: dict[str, dict[str, Any]] = {}
     transition_program_digests: dict[str, str] = {}
     chosen: dict[str, str] = {}
+    oracle_digest: str | None = None
+    mechanics_evidence_digest: str | None = None
+    transition_artifact_digest: str | None = None
+    transition_program_source: str | None = None
 
     for method in METHODS:
         receipt = by_method[method]
-        if (
-            receipt.get("schema") != RECEIPT_SCHEMA
-            or receipt.get("schema_version") != RECEIPT_SCHEMA_VERSION
-        ):
-            raise MatchedComparisonError(f"{method}: unexpected search receipt schema")
-        if receipt.get("packet_digest") != packet["packet_digest"]:
-            raise MatchedComparisonError(
-                f"{method}: receipt belongs to another frozen packet"
-            )
-        if receipt.get("input_digest") != packet["input_digest"]:
+        if receipt.packet_digest != packet["packet_digest"]:
+            raise MatchedComparisonError(f"{method}: receipt belongs to another frozen packet")
+        if receipt.matched_spec_digest != packet["matched_spec_digest"]:
+            raise MatchedComparisonError(f"{method}: receipt used another matched spec")
+        if receipt.input_digest != packet["input_digest"]:
             raise MatchedComparisonError(f"{method}: receipt used another frozen input")
-        if receipt.get("evaluator_digest") != packet["evaluator_digest"]:
+        if receipt.posterior_digest != packet["posterior_digest"]:
+            raise MatchedComparisonError(f"{method}: receipt used another posterior artifact")
+        if receipt.posterior_semantic_digest != spec.posterior_semantic_digest:
+            raise MatchedComparisonError(f"{method}: receipt used another posterior")
+        if receipt.evaluator_digest != packet["evaluator_digest"]:
             raise MatchedComparisonError(f"{method}: receipt used another evaluator")
         checkpoint_digest = packet["evaluator"].get("checkpoint_digest")
-        if receipt.get("evaluator_checkpoint_digest") != checkpoint_digest:
-            raise MatchedComparisonError(
-                f"{method}: receipt used another evaluator checkpoint"
-            )
-        calls = receipt.get("evaluator_calls")
-        if not isinstance(calls, int) or isinstance(calls, bool) or calls < 0:
-            raise MatchedComparisonError(
-                f"{method}: evaluator call count must be a non-negative integer"
-            )
-        evaluator_calls[method] = calls
-        program_digest = receipt.get("transition_program_digest")
-        if not isinstance(program_digest, str) or not program_digest:
-            raise MatchedComparisonError(
-                f"{method}: receipt lacks transition-program identity"
-            )
-        transition_program_digests[method] = program_digest
-        budget = receipt.get("compute_budget")
-        if not isinstance(budget, Mapping) or budget != packet["compute_budget"]:
+        if receipt.evaluator_checkpoint_digest != checkpoint_digest:
+            raise MatchedComparisonError(f"{method}: receipt used another evaluator checkpoint")
+        if receipt.mechanics_identity_digest != spec.mechanics_identity.identity_digest:
+            raise MatchedComparisonError(f"{method}: receipt used another mechanics identity")
+        if receipt.showdown_commit != spec.mechanics_identity.revision:
+            raise MatchedComparisonError(f"{method}: receipt used another mechanics revision")
+        if receipt.chance_treatment != spec.chance_treatment:
+            raise MatchedComparisonError(f"{method}: receipt used another chance treatment")
+        if receipt.compute_budget != spec.compute_budget:
             raise MatchedComparisonError(f"{method}: receipt used another authorized budget")
-        used = receipt.get("consumed")
-        if not isinstance(used, int) or isinstance(used, bool) or used < 0:
-            raise MatchedComparisonError(f"{method}: consumed budget must be an integer")
-        if used > int(packet["compute_budget"]["authorized"]):
+        transition_program_digests[method] = receipt.transition_program_digest
+        if receipt.consumed > spec.compute_budget.authorized:
             raise MatchedComparisonError(f"{method}: exceeded the authorized budget")
-        consumed[method] = used
-        raw_resources = receipt.get("resource_accounting")
-        if raw_resources is not None:
-            if not isinstance(raw_resources, Mapping):
-                raise MatchedComparisonError(
-                    f"{method}: resource_accounting must be an object"
-                )
-            if raw_resources.get("verified_execution_classes_consumed") != used:
-                raise MatchedComparisonError(
-                    f"{method}: resource accounting disagrees with consumed class budget"
-                )
-            if raw_resources.get("evaluator_calls") != calls:
-                raise MatchedComparisonError(
-                    f"{method}: resource accounting disagrees with evaluator calls"
-                )
-            for timing_field in (
-                "executor_preparation_wall_ms",
-                "search_wall_ms",
-                "executor_wall_ms",
-            ):
-                timing = raw_resources.get(timing_field)
-                if (
-                    not isinstance(timing, (int, float))
-                    or isinstance(timing, bool)
-                    or not math.isfinite(float(timing))
-                    or float(timing) < 0.0
-                ):
-                    raise MatchedComparisonError(
-                        f"{method}: invalid {timing_field} resource measurement"
-                    )
-            resource_accounting[method] = dict(raw_resources)
+        consumed[method] = receipt.consumed
+        evaluator_calls[method] = receipt.evaluator_calls
+        if oracle_digest is None:
+            oracle_digest = receipt.transition_oracle_digest
+        elif receipt.transition_oracle_digest != oracle_digest:
+            raise MatchedComparisonError(
+                "matched methods report different frozen mechanics evidence"
+            )
+        if mechanics_evidence_digest is None:
+            mechanics_evidence_digest = receipt.mechanics_evidence_digest
+        elif receipt.mechanics_evidence_digest != mechanics_evidence_digest:
+            raise MatchedComparisonError(
+                "matched methods report different dependency/refinement evidence"
+            )
+        if transition_artifact_digest is None:
+            transition_artifact_digest = receipt.transition_artifact_digest
+        elif receipt.transition_artifact_digest != transition_artifact_digest:
+            raise MatchedComparisonError("matched methods consumed different mechanics artifacts")
+        if transition_program_source is None:
+            transition_program_source = receipt.transition_program_source
+        elif receipt.transition_program_source != transition_program_source:
+            raise MatchedComparisonError("matched methods used different program sources")
+        if receipt.resource_accounting is not None:
+            resource_accounting[method] = receipt.resource_accounting.to_record()
 
-        values = receipt.get("root_values")
-        if not isinstance(values, Mapping) or set(map(str, values)) != set(legal_actions):
+        normalized = dict(receipt.root_values)
+        if set(normalized) != set(legal_actions):
             raise MatchedComparisonError(
                 f"{method}: root values do not cover the frozen legal actions"
             )
-        normalized = {str(action): float(value) for action, value in values.items()}
-        if any(not math.isfinite(value) for value in normalized.values()):
-            raise MatchedComparisonError(f"{method}: root values must be finite")
         root_values[method] = normalized
         best_value = max(normalized.values())
-        expected_action = min(
-            action for action, value in normalized.items() if value == best_value
-        )
-        action = receipt.get("chosen_action")
+        expected_action = min(action for action, value in normalized.items() if value == best_value)
+        action = receipt.chosen_action
         if action != expected_action:
             raise MatchedComparisonError(
                 f"{method}: chosen action is inconsistent with its root values"
@@ -437,12 +478,12 @@ def settle_packet(
         raise MatchedComparisonError(
             "comparison methods consumed different transition programs"
         )
+    if len(set(consumed.values())) != 1:
+        raise MatchedComparisonError("matched methods report different counted compute consumption")
 
     det_values = root_values["determinization"]
     info_values = root_values["information_set"]
-    gaps = {
-        action: det_values[action] - info_values[action] for action in legal_actions
-    }
+    gaps = {action: det_values[action] - info_values[action] for action in legal_actions}
     max_gap = max(gaps.values())
     max_gap_action = min(action for action, gap in gaps.items() if gap == max_gap)
     info_best = max(info_values.values())
@@ -456,6 +497,14 @@ def settle_packet(
         "state_digest": packet["state_digest"],
         "posterior_digest": packet["posterior_digest"],
         "posterior_support": dict(packet["posterior_support"]),
+        "posterior_semantic_digest": packet["posterior_semantic_digest"],
+        "matched_spec_digest": packet["matched_spec_digest"],
+        "mechanics_identity_digest": packet["mechanics_identity_digest"],
+        "transition_oracle_digest": oracle_digest,
+        "mechanics_evidence_digest": mechanics_evidence_digest,
+        "transition_artifact_digest": transition_artifact_digest,
+        "transition_program_source": transition_program_source,
+        "chance_treatment": packet["chance_treatment"],
         "fixture_id": packet["fixture_id"],
         "battle_tag": packet["battle_tag"],
         "legal_actions": list(packet["legal_actions"]),
@@ -472,6 +521,8 @@ def settle_packet(
         "evaluator": dict(packet["evaluator"]),
         "evaluator_digest": packet["evaluator_digest"],
         "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+        "budget_unit_definition": COMPUTE_BUDGET_UNIT_DEFINITION,
+        "evaluator_call_unit_definition": EVALUATOR_CALL_UNIT_DEFINITION,
         "evaluator_calls": evaluator_calls,
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
@@ -483,9 +534,7 @@ def settle_packet(
         "max_determinization_value_optimism": max_gap,
         "max_optimism_action": max_gap_action,
         "information_set_regret_of_determinization_action": regret,
-        "policy_disagreement": (
-            chosen["determinization"] != chosen["information_set"]
-        ),
+        "policy_disagreement": (chosen["determinization"] != chosen["information_set"]),
         "chosen_actions": chosen,
         "root_values": root_values,
     }

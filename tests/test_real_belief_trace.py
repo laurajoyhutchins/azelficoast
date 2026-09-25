@@ -126,6 +126,28 @@ def test_missing_declared_dependency_fails_closed() -> None:
         analyze_oracle(document)
 
 
+def test_unread_hidden_field_perturbation_preserves_transition_refinement() -> None:
+    original = _oracle()
+    perturbed = copy.deepcopy(original)
+    worlds = perturbed["worlds"]
+    assert isinstance(worlds, list)
+    for index, world in enumerate(worlds):
+        hidden = world["hidden"]
+        hidden["noise"] = 100 + index
+
+    baseline = analyze_oracle(original)
+    changed = analyze_oracle(perturbed)
+    assert changed["determinization"] == baseline["determinization"]
+    assert changed["public_belief"] == baseline["public_belief"]
+    baseline_signatures = {
+        row["action"]: row["dependency_signature"] for row in baseline["actions"]
+    }
+    changed_signatures = {
+        row["action"]: row["dependency_signature"] for row in changed["actions"]
+    }
+    assert changed_signatures == baseline_signatures
+
+
 def test_incomplete_transition_matrix_fails_closed() -> None:
     document = copy.deepcopy(_oracle())
     transitions = document["transitions"]

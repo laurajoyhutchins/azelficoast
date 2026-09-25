@@ -20,8 +20,17 @@ from azelficoast.search.decision_relevance import (
     analyze_quotiented_oracle,
 )
 from azelficoast.real_belief_trace import BeliefTraceError
+from azelficoast.core.mechanics import (
+    MechanicsContractError,
+    VerifiedTransitionProgramSet,
+)
+from azelficoast.research.contracts import (
+    MechanicsIdentity,
+    ResearchContractError,
+    parse_belief_artifact,
+)
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
-from azelficoast.search.transition_program import (
+from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )
@@ -465,13 +474,27 @@ def transition_program_belief_result(
         )
 
     try:
+        belief, transport_index = parse_belief_artifact(posterior)
+        mechanics = VerifiedTransitionProgramSet.from_artifact(
+            artifact=transition_program,
+            identity=MechanicsIdentity.from_showdown_commit(PINNED_SHOWDOWN_COMMIT),
+            fixture_id=fixture.fixture_id,
+            legal_actions=tuple(fixture.legal_actions),
+            belief=belief,
+            transport_index=transport_index,
+        )
         search = search_transition_program(
-            program_set=transition_program,
-            posterior=posterior,
+            mechanics=mechanics,
+            belief=belief,
+            transport_index=transport_index,
             method="information_set",
             evaluator=evaluator,
         )
-    except TransitionProgramSearchError as error:
+    except (
+        TransitionProgramSearchError,
+        MechanicsContractError,
+        ResearchContractError,
+    ) as error:
         return LiveDecisionResult(
             action=None,
             status="fallback",
@@ -813,4 +836,3 @@ class PinnedShowdownBeliefPolicy:
                 **program_failure,
             },
         )
-
