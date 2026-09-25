@@ -311,6 +311,7 @@ def settle_packet(
     legal_actions = list(packet["legal_actions"])
     root_values: dict[str, dict[str, float]] = {}
     consumed: dict[str, int] = {}
+    evaluator_calls: dict[str, int] = {}
     chosen: dict[str, str] = {}
 
     for method in METHODS:
