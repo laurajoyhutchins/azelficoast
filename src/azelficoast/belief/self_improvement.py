@@ -13,6 +13,12 @@ from typing import Any, Mapping, Protocol, Sequence
 from azelficoast.belief.competence import build_competence_ledger, curriculum_priority
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.improvement import AdmissionPolicy, ImprovementError, improve_checkpoint
+from azelficoast.belief.posterior_truth import (
+    PosteriorTruthError,
+    load_posterior_truth,
+    score_control_posterior_truth,
+    summarize_posterior_truth,
+)
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
 from azelficoast.research.matched_comparison import (
@@ -29,9 +35,9 @@ from azelficoast.research.training_records import (
 from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
-TEACHER_MANIFEST_SCHEMA_VERSION = 2
+TEACHER_MANIFEST_SCHEMA_VERSION = 3
 CYCLE_RECEIPT_SCHEMA = "azelficoast.self-improvement-cycle"
-CYCLE_RECEIPT_SCHEMA_VERSION = 2
+CYCLE_RECEIPT_SCHEMA_VERSION = 3
 
 
 class TeacherEvidenceError(ValueError):
@@ -68,6 +74,7 @@ class TeacherEvidence:
     posterior_paths: tuple[Path, ...]
     admitted_decision_count: int
     excluded_decision_count: int
+    posterior_truth_summary: Mapping[str, Any]
 
 
 def _canonical(value: Any) -> str:
@@ -427,10 +434,17 @@ def generate_teacher_evidence(
     output_root: str | Path,
     compute_budget: int = 4096,
     max_teacher_fixtures: int | None = None,
+    posterior_truth_paths: Sequence[str | Path] = (),
 ) -> TeacherEvidence:
     """Generate settled search teacher artifacts from completed real traces."""
 
     traces = _normalized_trace_paths(trace_paths)
+    truth_paths = tuple(Path(path) for path in posterior_truth_paths)
+    try:
+        posterior_truth = load_posterior_truth(truth_paths)
+    except PosteriorTruthError as error:
+        raise TeacherEvidenceError(str(error)) from error
+    truth_digests = sorted({_file_digest(path) for path in truth_paths})
     all_fixtures = build_fixtures(traces)
     fixtures, selection = _mine_informative_fixtures(
         all_fixtures,
@@ -452,6 +466,7 @@ def generate_teacher_evidence(
             "showdown_commit": source.showdown_commit,
             "compute_budget": compute_budget,
             "selection": selection,
+            "posterior_truth_digests": truth_digests,
         }
     )
     root = Path(output_root) / run_digest.removeprefix("sha256:")
@@ -463,6 +478,7 @@ def generate_teacher_evidence(
     posterior_paths_by_digest: dict[str, Path] = {}
     admitted_rows: list[dict[str, Any]] = []
     excluded_rows: list[dict[str, Any]] = []
+    posterior_truth_rows: list[dict[str, Any]] = []
 
     for fixture in fixtures:
         result = source.artifacts(fixture)
@@ -504,6 +520,26 @@ def generate_teacher_evidence(
                 or not battle_tag
             ):
                 raise TeacherEvidenceError("fixture control lacks battle identity")
+            truth_score = score_control_posterior_truth(
+                control,
+                posterior,
+                truth=posterior_truth,
+            )
+            if truth_score is not None:
+                posterior_truth_rows.append(truth_score)
+                if not truth_score["realized_state_in_support"]:
+                    excluded_rows.append(
+                        {
+                            "fixture_id": fixture.fixture_id,
+                            "decision_count": 1,
+                            "run_id": run_id,
+                            "battle_tag": battle_tag,
+                            "reason": "posterior-realized-state-omitted",
+                            "posterior_truth": truth_score,
+                        }
+                    )
+                    continue
+
             state = {
                 "fixture_id": fixture.fixture_id,
                 "run_id": run_id,
@@ -560,6 +596,11 @@ def generate_teacher_evidence(
                     "program_digest": program_digest,
                     "packet": str(packet_path.relative_to(root)),
                     "settled": str(settled_path.relative_to(root)),
+                    **(
+                        {"posterior_truth": truth_score}
+                        if truth_score is not None
+                        else {}
+                    ),
                 }
             )
 
@@ -568,11 +609,14 @@ def generate_teacher_evidence(
         for row in excluded_rows
         for _ in range(int(row["decision_count"]))
     )
+    posterior_truth_summary = summarize_posterior_truth(posterior_truth_rows)
     manifest_unsigned = {
         "schema": TEACHER_MANIFEST_SCHEMA,
         "schema_version": TEACHER_MANIFEST_SCHEMA_VERSION,
         "run_digest": run_digest,
         "trace_digests": trace_digests,
+        "posterior_truth_digests": truth_digests,
+        "posterior_truth": posterior_truth_summary,
         "showdown_commit": source.showdown_commit,
         "evaluator": dict(evaluator_identity),
         "plan": plan,
@@ -602,6 +646,7 @@ def generate_teacher_evidence(
         ),
         admitted_decision_count=len(admitted_rows),
         excluded_decision_count=sum(int(row["decision_count"]) for row in excluded_rows),
+        posterior_truth_summary=posterior_truth_summary,
     )
 
 
@@ -626,6 +671,7 @@ def run_self_improvement_cycle(
     value_target_source: str = "public_belief_search_return",
     admission_policy: AdmissionPolicy = AdmissionPolicy(),
     defer_promotion: bool = False,
+    posterior_truth_paths: Sequence[str | Path] = (),
 ) -> dict[str, Any]:
     """Run trace -> teacher -> dataset -> candidate -> admission, optionally deferring promotion."""
 
@@ -641,6 +687,7 @@ def run_self_improvement_cycle(
         output_root=Path(workspace) / "teachers",
         compute_budget=teacher_compute_budget,
         max_teacher_fixtures=max_teacher_fixtures,
+        posterior_truth_paths=posterior_truth_paths,
     )
     cycle_inputs = {
         "teacher_manifest_digest": teacher.manifest_digest,
@@ -655,9 +702,27 @@ def run_self_improvement_cycle(
         "value_target_source": value_target_source,
         "admission_policy": admission_policy.as_record(),
         "defer_promotion": defer_promotion,
+        "posterior_truth": dict(teacher.posterior_truth_summary),
     }
     cycle_id = _digest(cycle_inputs)
     cycle_dir = Path(workspace) / "cycles" / cycle_id.removeprefix("sha256:")
+
+    if (
+        teacher.posterior_truth_summary.get("status") == "evaluated"
+        and teacher.posterior_truth_summary.get("gate_passed") is not True
+    ):
+        receipt = {
+            "schema": CYCLE_RECEIPT_SCHEMA,
+            "schema_version": CYCLE_RECEIPT_SCHEMA_VERSION,
+            "cycle_id": cycle_id,
+            "status": "not-ready",
+            "reason": "posterior-truth-gate-failed",
+            "inputs": cycle_inputs,
+            "teacher_manifest": str(teacher.manifest_path),
+            "posterior_truth": dict(teacher.posterior_truth_summary),
+        }
+        _write_immutable_json(cycle_dir / "receipt.json", receipt)
+        return receipt
 
     if not teacher.packet_paths:
         receipt = {
