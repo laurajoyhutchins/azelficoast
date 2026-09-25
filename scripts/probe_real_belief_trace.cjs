@@ -78,8 +78,6 @@ const CHANCE_SEED_FAMILY = environmentInteger(
   "AZELFICOAST_CHANCE_SEED_FAMILY",
   0
 );
-const MARGINALIZED_VARIANT_FIELD = "opponent.active.generator_variant_remainder";
-
 const DEPENDENCY_CANDIDATES = [
   "opponent.active.item",
   "opponent.active.ability",
@@ -391,7 +389,7 @@ function generatorVariants() {
   };
 }
 
-function executionClasses(variants) {
+function mechanicsProjectionClasses(variants) {
   const classes = new Map();
   for (const entry of variants) {
     const execution = {
@@ -863,7 +861,6 @@ function opponentChoice(battle, hiddenReads = null) {
     const moves = request.active[0].moves || [];
     const locked = lastOpponentMove();
     if (moves.some(move => move.id === locked && !move.disabled)) return `move ${locked}`;
-    if (hiddenReads) hiddenReads.add(MARGINALIZED_VARIANT_FIELD);
     fail(
       `bounded opponent response ${locked} became unavailable; hidden move fallback would be required`
     );
@@ -1172,7 +1169,7 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
 }
 
 const {matched, itemCounts, variants} = generatorVariants();
-const executionVariants = executionClasses(variants);
+const mechanicsProjectionVariants = mechanicsProjectionClasses(variants);
 if (
   source.expected_generator_rounds != null &&
   Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
@@ -1192,52 +1189,31 @@ if (source.expected_item_counts != null) {
 }
 
 const worldById = new Map();
-for (const entry of executionVariants) {
+for (const entry of variants) {
   const {maxhp, support} = hpSupportForVariant(entry.set);
   for (const exactHp of support) {
     const hidden = {
       "opponent.active.item": entry.set.item,
       "opponent.active.ability": entry.set.ability,
+      "opponent.active.moves": entry.set.moves,
+      "opponent.active.tera_type": entry.set.teraType,
       "opponent.active.evs": entry.set.evs,
       "opponent.active.ivs": entry.set.ivs,
       "opponent.active.exact_hp": exactHp,
     };
     const worldId = sha256(hidden);
-    const weight = (entry.count / matched) / support.length;
-    const candidate = {
+    if (worldById.has(worldId)) {
+      fail(`duplicate semantic hidden-world identity: ${worldId}`);
+    }
+    worldById.set(worldId, {
       world_id: worldId,
-      weight,
+      weight: (entry.count / matched) / support.length,
       hidden,
       variant: entry.set,
       exactHp,
       opponent_max_hp: maxhp,
       generator_count: entry.count,
-      generator_variant_count: entry.generator_variant_count,
-      marginalized_remainders: entry.marginalized_remainders,
-    };
-    const existing = worldById.get(worldId);
-    if (!existing) {
-      worldById.set(worldId, candidate);
-      continue;
-    }
-
-    const existingMechanics = stable({
-      variant: existing.variant,
-      exactHp: existing.exactHp,
-      opponent_max_hp: existing.opponent_max_hp,
     });
-    const candidateMechanics = stable({
-      variant: candidate.variant,
-      exactHp: candidate.exactHp,
-      opponent_max_hp: candidate.opponent_max_hp,
-    });
-    if (JSON.stringify(existingMechanics) !== JSON.stringify(candidateMechanics)) {
-      fail(`hidden world identity collision across distinct mechanics: ${worldId}`);
-    }
-    existing.weight += weight;
-    existing.generator_count += entry.count;
-    existing.generator_variant_count += entry.generator_variant_count;
-    existing.marginalized_remainders.push(...entry.marginalized_remainders);
   }
 }
 const worlds = [...worldById.values()];
@@ -1251,12 +1227,7 @@ const outputWorlds = worlds.map(world => ({
   provenance: {
     generator_count: world.generator_count,
     generator_rounds: GENERATOR_ROUNDS,
-    generator_variant_count: world.generator_variant_count,
-    marginalized_variant_digest: sha256(
-      world.marginalized_remainders
-        .map(entry => stable(entry))
-        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-    ),
+    generator_variant_count: 1,
     opponent_max_hp: world.opponent_max_hp,
     hp_prior: "uniform-within-public-percentage-bucket",
   },
@@ -1274,7 +1245,13 @@ if (posteriorOnly) {
       generator_rounds: GENERATOR_ROUNDS,
       generator_matches: matched,
       generator_variant_count: variants.length,
-      execution_variant_count: executionVariants.length,
+      mechanics_projection_variant_count: mechanicsProjectionVariants.length,
+      mechanics_projection_fields: [
+        "opponent.active.moves",
+        "opponent.active.tera_type",
+      ],
+      mechanics_projection_scope:
+        "execution optimization only; semantic posterior support retains every generator variant",
       observed_opponent_moves: observedOpponentMoves(),
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
@@ -1643,20 +1620,6 @@ const factoredHidden = benchFactor
     }
   : {};
 
-const marginalizedHidden = {
-  [MARGINALIZED_VARIANT_FIELD]: {
-    fields: ["opponent.active.moves", "opponent.active.tera_type"],
-    generator_variant_count: variants.length,
-    execution_variant_count: executionVariants.length,
-    all_root_actions: legalActions,
-    proof: {
-      response_policy: `repeat observed ${lastOpponentMove()}`,
-      hidden_fallback: "fail-closed",
-      opponent_terastallized: false,
-    },
-  },
-};
-
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
@@ -1684,13 +1647,13 @@ process.stdout.write(JSON.stringify({
     generator_rounds: GENERATOR_ROUNDS,
     generator_matches: matched,
     generator_variant_count: variants.length,
-    execution_variant_count: executionVariants.length,
-    marginalized_generator_variant_fields: [
+    mechanics_projection_variant_count: mechanicsProjectionVariants.length,
+    mechanics_projection_fields: [
       "opponent.active.moves",
       "opponent.active.tera_type",
     ],
-    marginalized_variant_rule:
-      "sum prior mass across variants sharing species/ability/item/level/EVs/IVs; fail closed if the fixed public response would require any hidden fallback move",
+    mechanics_projection_rule:
+      "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
     observed_opponent_moves: observedOpponentMoves(),
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
@@ -1705,7 +1668,6 @@ process.stdout.write(JSON.stringify({
     declared_read_mode: "instrumented-showdown-hidden-state-boundary",
   },
   factored_hidden: factoredHidden,
-  marginalized_hidden: marginalizedHidden,
   dependency_candidates: DEPENDENCY_CANDIDATES,
   declared_reads: declared,
   worlds: outputWorlds,
