@@ -1426,7 +1426,17 @@ function compileLazyWholeTurnPrograms() {
       }
     }
 
-    const dependencyFields = [...causalFields].sort();
+    // Causal interventions can miss interactions between fields or boundaries
+    // where a one-unit change alters a sampled whole-turn result. Any varying
+    // field observed by Showdown is therefore retained as a conservative
+    // partition key; causalFields remains the narrower intervention evidence.
+    const varyingObservedFields = [...observedFields].filter((field) => {
+      const values = new Set(
+        orderedWorlds.map((world) => JSON.stringify(stable(world.hidden[field])))
+      );
+      return values.size > 1;
+    });
+    const dependencyFields = [...new Set([...causalFields, ...varyingObservedFields])].sort();
     const groups = new Map();
     for (const world of orderedWorlds) {
       const key = JSON.stringify(projectionKey(world, dependencyFields));
@@ -1449,14 +1459,14 @@ function compileLazyWholeTurnPrograms() {
       const memberWorldIds = members.map(world => world.world_id).sort();
       const classId = "transition-class-" + sha256({
         action,
-        causal_fields: dependencyFields,
+        causal_fields: [...causalFields].sort(),
         key,
         semantic_hash: execution.semantic_hash,
       }).slice(0, 24);
       classes.push({
         class_id: classId,
         read_fields: [...observedFields].sort(),
-        causal_fields: dependencyFields,
+        causal_fields: [...causalFields].sort(),
         projection_key: projectionKey(representativeWorld, dependencyFields),
         representative_world_id: representativeWorld.world_id,
         member_world_ids: memberWorldIds,
