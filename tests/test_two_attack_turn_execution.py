@@ -226,7 +226,7 @@ def test_calibrated_dispatcher_executes_the_selected_exact_path() -> None:
         batch_executor=_batch,
         backend="cpu",
         target_signature="sha256:test",
-        profile=_profile(projected_per_class=100.0),
+        profile=_profile(projected_per_class=1_000.0),
     )
 
     assert projected.path is ExecutionPath.PROJECTED
