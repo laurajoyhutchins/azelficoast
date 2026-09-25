@@ -1,0 +1,115 @@
+name: Setup pinned Pokémon Showdown
+description: Restore or build the exact pinned Pokémon Showdown oracle revision.
+
+inputs:
+  sha:
+    description: Exact Pokémon Showdown commit SHA that defines oracle authority.
+    required: false
+    default: a5df8274e85b0889bf2a9b3422a08b39732374fc
+  path:
+    description: Destination path for the restored or built checkout.
+    required: false
+    default: /tmp/pokemon-showdown
+  save-cache:
+    description: Whether this caller may publish a verified cache entry.
+    required: false
+    default: "false"
+
+outputs:
+  cache-hit:
+    description: Whether a verified exact-SHA build was restored from cache.
+    value: ${{ steps.verify.outputs.cache-hit }}
+
+runs:
+  using: composite
+  steps:
+    - name: Identify existing JavaScript runtime
+      id: runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "node-version=$(node --version)" >> "${GITHUB_OUTPUT}"
+        echo "npm-version=$(npm --version)" >> "${GITHUB_OUTPUT}"
+
+    - name: Restore exact Showdown build
+      id: cache
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ inputs.path }}
+        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ inputs.sha }}
+
+    - name: Verify or build exact Showdown revision
+      id: verify
+      shell: bash
+      env:
+        SHOWDOWN_PATH: ${{ inputs.path }}
+        SHOWDOWN_SHA: ${{ inputs.sha }}
+      run: |
+        set -euo pipefail
+
+        cache_valid=false
+        if [[ -d "${SHOWDOWN_PATH}/.git" && -f "${SHOWDOWN_PATH}/.azelficoast-showdown-sha" ]]; then
+          actual_sha="$(git -C "${SHOWDOWN_PATH}" rev-parse HEAD 2>/dev/null || true)"
+          recorded_sha="$(cat "${SHOWDOWN_PATH}/.azelficoast-showdown-sha" 2>/dev/null || true)"
+          if [[ "${actual_sha}" == "${SHOWDOWN_SHA}" && "${recorded_sha}" == "${SHOWDOWN_SHA}" ]]; then
+            if (
+              cd "${SHOWDOWN_PATH}"
+              test -f dist/sim/battle.js
+              test -f dist/sim/teams.js
+              test -f test/common.js
+              sha256sum --check --status .azelficoast-showdown-build.sha256
+            ); then
+              cache_valid=true
+            fi
+          fi
+        fi
+
+        if [[ "${cache_valid}" != true ]]; then
+          rm -rf "${SHOWDOWN_PATH}"
+          git init "${SHOWDOWN_PATH}"
+          git -C "${SHOWDOWN_PATH}" remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C "${SHOWDOWN_PATH}" fetch --depth 1 origin "${SHOWDOWN_SHA}"
+          git -C "${SHOWDOWN_PATH}" checkout --detach FETCH_HEAD
+
+          actual_sha="$(git -C "${SHOWDOWN_PATH}" rev-parse HEAD)"
+          [[ "${actual_sha}" == "${SHOWDOWN_SHA}" ]] || {
+            echo "expected Showdown ${SHOWDOWN_SHA}, got ${actual_sha}" >&2
+            exit 1
+          }
+
+          (
+            cd "${SHOWDOWN_PATH}"
+            npm ci --omit=optional --no-audit --no-fund
+            npm run build
+            test -f dist/sim/battle.js
+            test -f dist/sim/teams.js
+            test -f test/common.js
+            printf '%s\n' "${SHOWDOWN_SHA}" > .azelficoast-showdown-sha
+            sha256sum \
+              dist/sim/battle.js \
+              dist/sim/teams.js \
+              test/common.js \
+              > .azelficoast-showdown-build.sha256
+          )
+        fi
+
+        actual_sha="$(git -C "${SHOWDOWN_PATH}" rev-parse HEAD)"
+        [[ "${actual_sha}" == "${SHOWDOWN_SHA}" ]]
+        [[ "$(cat "${SHOWDOWN_PATH}/.azelficoast-showdown-sha")" == "${SHOWDOWN_SHA}" ]]
+        (
+          cd "${SHOWDOWN_PATH}"
+          sha256sum --check --status .azelficoast-showdown-build.sha256
+        )
+
+        if [[ "${cache_valid}" == true ]]; then
+          echo "cache-hit=true" >> "${GITHUB_OUTPUT}"
+        else
+          echo "cache-hit=false" >> "${GITHUB_OUTPUT}"
+        fi
+
+    - name: Save verified Showdown build
+      if: inputs.save-cache == 'true' && steps.cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ inputs.path }}
+        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ inputs.sha }}
