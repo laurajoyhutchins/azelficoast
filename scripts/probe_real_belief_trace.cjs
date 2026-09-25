@@ -1388,6 +1388,8 @@ function immediateWholeTurn(world, action) {
     );
   return {
     outcomes,
+    opponent_action_branch_count: responses.length,
+    showdown_turn_executions: outcomes.length,
     read_fields: [...reads].sort(),
     semantic_hash: sha256PythonCanonical(semantics),
   };
@@ -1620,6 +1622,14 @@ function compileLazyWholeTurnPrograms() {
   const classRepresentativeExecutions = cacheRows.filter(
     row => row.roles.has("class-representative")
   ).length;
+  const showdownTurnExecutions = cacheRows.reduce(
+    (sum, row) => sum + row.execution.showdown_turn_executions,
+    0
+  );
+  const opponentActionBranches = cacheRows.reduce(
+    (sum, row) => sum + row.execution.opponent_action_branch_count,
+    0
+  );
   const exhaustiveWorldActionProduct = worlds.length * legalActions.length;
 
   return {
@@ -1637,7 +1647,8 @@ function compileLazyWholeTurnPrograms() {
       unique_world_action_executions: uniqueExecutions,
       causal_probe_executions: causalProbeExecutions,
       class_representative_executions: classRepresentativeExecutions,
-      showdown_turn_executions: uniqueExecutions * ROOT_CHANCE_SAMPLES,
+      opponent_action_branches: opponentActionBranches,
+      showdown_turn_executions: showdownTurnExecutions,
       exhaustive_world_action_product: exhaustiveWorldActionProduct,
       saved_world_action_executions:
         exhaustiveWorldActionProduct - uniqueExecutions,
