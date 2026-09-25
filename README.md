@@ -194,10 +194,17 @@ uv run azelficoast \
 The bootstrap command is allowed only when no evaluator has yet been promoted.
 The supplied Showdown checkout is revision-fenced to the trace provenance;
 human decisions from another generator revision are excluded rather than
-reinterpreted. It compares the trained candidate against a deterministic
-untrained baseline on battle-grouped validation data and creates the promotion
-pointer only if the candidate passes the normal admission checks. Human policy
-labels carry `scientific_search_teacher: false`.
+reinterpreted. Within one bootstrap run, the deterministic 2,048-seed Random
+Battle generator population is computed once per exact Showdown revision,
+species, and lead/non-lead role, then reused before fixture-specific move,
+item, ability, level, and HP evidence is applied. The cache is execution-only:
+posterior JSON and its digest do not contain cache state, and the cache is
+discarded after the run.
+
+It compares the trained candidate against a deterministic untrained baseline on
+battle-grouped validation data and creates the promotion pointer only if the
+candidate passes the normal admission checks. Human policy labels carry
+`scientific_search_teacher: false`.
 
 After that first checkpoint exists, the normal self-improvement cycle takes
 over. It does **not** keep copying human moves: policy targets return to settled
