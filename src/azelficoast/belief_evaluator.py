@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
@@ -333,3 +334,216 @@ def loss(
     value_error = (value - jnp.asarray(value_target, dtype=jnp.float32)) ** 2
     policy_error = -jnp.sum(target * log_probs)
     return value_error + float(policy_weight) * policy_error
+
+
+CHECKPOINT_SCHEMA = "azelficoast.belief-policy-value-checkpoint"
+CHECKPOINT_SCHEMA_VERSION = 1
+
+
+@dataclass(frozen=True)
+class BeliefPrediction:
+    """One learned evaluation with diagnostics suitable for search routing."""
+
+    value: float
+    legal_actions: tuple[str, ...]
+    probabilities: tuple[float, ...]
+    selected_action: str
+    policy_margin: float
+    policy_entropy_bits: float
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "value": self.value,
+            "legal_actions": list(self.legal_actions),
+            "probabilities": list(self.probabilities),
+            "selected_action": self.selected_action,
+            "policy_margin": self.policy_margin,
+            "policy_entropy_bits": self.policy_entropy_bits,
+        }
+
+
+def predict(
+    params: Mapping[str, Any],
+    inputs: BeliefEvaluatorInput,
+) -> BeliefPrediction:
+    """Evaluate one belief state and expose calibrated-routing diagnostics."""
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError("numpy is required for evaluator inference") from error
+
+    raw_value, raw_logits = forward(params, inputs)
+    logits = np.asarray(raw_logits, dtype=np.float64)
+    if logits.ndim != 1 or logits.shape[0] != len(inputs.legal_actions):
+        raise BeliefEvaluatorError("policy head returned the wrong action shape")
+    if not np.all(np.isfinite(logits)):
+        raise BeliefEvaluatorError("policy head returned non-finite logits")
+
+    shifted = logits - float(np.max(logits))
+    probabilities_array = np.exp(shifted)
+    probabilities_array /= float(np.sum(probabilities_array))
+    probabilities = tuple(float(value) for value in probabilities_array)
+
+    maximum = max(probabilities)
+    selected_action = min(
+        action
+        for action, probability in zip(inputs.legal_actions, probabilities, strict=True)
+        if abs(probability - maximum) <= 1e-15
+    )
+    ordered = sorted(probabilities, reverse=True)
+    margin = 1.0 if len(ordered) == 1 else ordered[0] - ordered[1]
+    entropy = -sum(
+        probability * math.log2(probability)
+        for probability in probabilities
+        if probability > 0.0
+    )
+    value = float(raw_value)
+    if not math.isfinite(value):
+        raise BeliefEvaluatorError("value head returned a non-finite value")
+
+    return BeliefPrediction(
+        value=value,
+        legal_actions=inputs.legal_actions,
+        probabilities=probabilities,
+        selected_action=selected_action,
+        policy_margin=float(margin),
+        policy_entropy_bits=float(entropy),
+    )
+
+
+def write_checkpoint(
+    directory: str | Path,
+    params: Mapping[str, Any],
+    spec: BeliefEvaluatorSpec,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Write a content-addressed checkpoint and return its verified manifest."""
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError("numpy is required to write evaluator checkpoints") from error
+
+    destination = Path(directory)
+    manifest_path = destination / "manifest.json"
+    params_path = destination / "params.npz"
+    if not overwrite and (manifest_path.exists() or params_path.exists()):
+        raise BeliefEvaluatorError(
+            f"checkpoint destination already contains evaluator files: {destination}"
+        )
+    destination.mkdir(parents=True, exist_ok=True)
+
+    ordered_names = sorted(params)
+    arrays: dict[str, Any] = {}
+    parameter_map: dict[str, str] = {}
+    for index, name in enumerate(ordered_names):
+        key = f"p{index:04d}"
+        value = np.asarray(params[name])
+        if value.dtype.kind not in {"f", "i", "u", "b"}:
+            raise BeliefEvaluatorError(f"unsupported parameter dtype for {name}: {value.dtype}")
+        arrays[key] = value
+        parameter_map[name] = key
+
+    digest = checkpoint_digest(params, spec)
+    identity = evaluator_identity(checkpoint_digest_value=digest, spec=spec)
+    manifest = {
+        "schema": CHECKPOINT_SCHEMA,
+        "schema_version": CHECKPOINT_SCHEMA_VERSION,
+        "evaluator": identity,
+        "parameter_map": parameter_map,
+        "metadata": dict(metadata or {}),
+    }
+    np.savez_compressed(params_path, **arrays)
+    manifest_path.write_text(
+        json.dumps(manifest, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return manifest
+
+
+def load_checkpoint(
+    directory: str | Path,
+) -> tuple[dict[str, Any], BeliefEvaluatorSpec, dict[str, Any]]:
+    """Load a checkpoint only after recomputing and matching its content digest."""
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError("numpy is required to load evaluator checkpoints") from error
+
+    source = Path(directory)
+    try:
+        manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BeliefEvaluatorError(f"cannot read checkpoint manifest: {error}") from error
+    if not isinstance(manifest, Mapping):
+        raise BeliefEvaluatorError("checkpoint manifest must be an object")
+    if (
+        manifest.get("schema") != CHECKPOINT_SCHEMA
+        or manifest.get("schema_version") != CHECKPOINT_SCHEMA_VERSION
+    ):
+        raise BeliefEvaluatorError("unexpected checkpoint schema")
+
+    evaluator = manifest.get("evaluator")
+    parameter_map = manifest.get("parameter_map")
+    if not isinstance(evaluator, Mapping) or not isinstance(parameter_map, Mapping):
+        raise BeliefEvaluatorError("checkpoint manifest is incomplete")
+    raw_spec = evaluator.get("spec")
+    if not isinstance(raw_spec, Mapping):
+        raise BeliefEvaluatorError("checkpoint evaluator spec is missing")
+    try:
+        spec = BeliefEvaluatorSpec(**{str(key): int(value) for key, value in raw_spec.items()})
+    except (TypeError, ValueError) as error:
+        raise BeliefEvaluatorError(f"invalid checkpoint evaluator spec: {error}") from error
+
+    try:
+        archive = np.load(source / "params.npz", allow_pickle=False)
+    except (OSError, ValueError) as error:
+        raise BeliefEvaluatorError(f"cannot read checkpoint parameters: {error}") from error
+    try:
+        params: dict[str, Any] = {}
+        expected_keys = {str(value) for value in parameter_map.values()}
+        if set(archive.files) != expected_keys:
+            raise BeliefEvaluatorError("checkpoint parameter archive differs from manifest")
+        for name, key in parameter_map.items():
+            if not isinstance(name, str) or not isinstance(key, str):
+                raise BeliefEvaluatorError("checkpoint parameter map must contain strings")
+            params[name] = np.asarray(archive[key])
+    finally:
+        archive.close()
+
+    actual = checkpoint_digest(params, spec)
+    if evaluator.get("checkpoint_digest") != actual:
+        raise BeliefEvaluatorError("checkpoint content digest does not match manifest")
+    expected_identity = evaluator_identity(checkpoint_digest_value=actual, spec=spec)
+    if dict(evaluator) != expected_identity:
+        raise BeliefEvaluatorError("checkpoint evaluator identity is inconsistent")
+    return params, spec, dict(manifest)
+
+
+class BeliefEvaluatorRuntime:
+    """Loaded learned evaluator with immutable, content-addressed identity."""
+
+    def __init__(
+        self,
+        params: Mapping[str, Any],
+        spec: BeliefEvaluatorSpec,
+        identity: Mapping[str, Any],
+    ) -> None:
+        actual = checkpoint_digest(params, spec)
+        expected = evaluator_identity(checkpoint_digest_value=actual, spec=spec)
+        if dict(identity) != expected:
+            raise BeliefEvaluatorError("runtime evaluator identity does not match parameters")
+        self.params = dict(params)
+        self.spec = spec
+        self.identity = expected
+
+    @classmethod
+    def from_checkpoint(cls, directory: str | Path) -> "BeliefEvaluatorRuntime":
+        params, spec, manifest = load_checkpoint(directory)
+        evaluator = manifest["evaluator"]
+        assert isinstance(evaluator, Mapping)
+        return cls(params, spec, evaluator)
+
+    def predict(self, inputs: BeliefEvaluatorInput) -> BeliefPrediction:
+        return predict(self.params, inputs)

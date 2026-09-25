@@ -9,12 +9,14 @@ from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.player import SimpleHeuristicsPlayer
 from poke_env.player.battle_order import BattleOrder
 
+from azelficoast.belief_evaluator import BeliefEvaluatorRuntime
 from azelficoast.instrumentation import DecisionTraceWriter, battle_view
 from azelficoast.live_belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,
     live_fixture,
 )
+from azelficoast.selective_belief import PolicyMarginSearchGate
 
 
 class AzelficoastPlayer(SimpleHeuristicsPlayer):
@@ -32,20 +34,39 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         decision_log: str | Path | None = None,
         showdown_root: str | Path | None = None,
         belief_timeout_seconds: float = 20.0,
+        evaluator_checkpoint: str | Path | None = None,
+        search_policy_margin: float = 1.0,
         belief_policy: Any | None = None,
         **kwargs: Any,
     ) -> None:
-        if belief_policy is not None and showdown_root is not None:
-            raise ValueError("provide belief_policy or showdown_root, not both")
+        if belief_policy is not None and (
+            showdown_root is not None or evaluator_checkpoint is not None
+        ):
+            raise ValueError(
+                "provide belief_policy or configured Showdown/evaluator machinery, not both"
+            )
+        if evaluator_checkpoint is not None and showdown_root is None:
+            raise ValueError("evaluator_checkpoint requires showdown_root")
         self._decision_trace = (
             DecisionTraceWriter(decision_log) if decision_log is not None else None
         )
         self._protocol_history: dict[str, list[list[list[str]]]] = {}
         self._belief_policy = belief_policy
         if self._belief_policy is None and showdown_root is not None:
+            learned_evaluator = None
+            search_gate = None
+            if evaluator_checkpoint is not None:
+                learned_evaluator = BeliefEvaluatorRuntime.from_checkpoint(
+                    evaluator_checkpoint
+                )
+                search_gate = PolicyMarginSearchGate(
+                    search_if_margin_at_most=search_policy_margin
+                )
             self._belief_policy = PinnedShowdownBeliefPolicy(
                 showdown_root,
                 timeout_seconds=belief_timeout_seconds,
+                learned_evaluator=learned_evaluator,
+                search_gate=search_gate,
             )
         super().__init__(*args, **kwargs)
 

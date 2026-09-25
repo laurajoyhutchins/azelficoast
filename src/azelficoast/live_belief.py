@@ -13,6 +13,7 @@ from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
+from azelficoast.belief_evaluator import build_evaluator_input
 from azelficoast.corpus import DecisionFixture
 from azelficoast.decision_relevance import (
     DecisionRelevanceError,
@@ -332,6 +333,113 @@ def public_belief_result(
     )
 
 
+def learned_route_result(
+    *,
+    fixture: DecisionFixture,
+    posterior: Mapping[str, Any],
+    evaluator: Any,
+    search_gate: Any,
+) -> LiveDecisionResult:
+    """Decide whether a learned public-belief prediction may bypass exact search."""
+
+    identity = getattr(evaluator, "identity", {})
+    gate_record = (
+        search_gate.as_record()
+        if callable(getattr(search_gate, "as_record", None))
+        else {"kind": type(search_gate).__name__}
+    )
+    common = {
+        "evaluator": dict(identity) if isinstance(identity, Mapping) else {},
+        "search_gate": gate_record,
+    }
+    try:
+        spec = getattr(evaluator, "spec")
+        inputs = build_evaluator_input(
+            public_state=fixture.state,
+            posterior=posterior,
+            legal_actions=fixture.legal_actions,
+            spec=spec,
+        )
+        prediction = evaluator.predict(inputs)
+        if prediction.selected_action not in set(fixture.legal_actions):
+            raise LiveBeliefPolicyError("learned evaluator returned a nonlegal action")
+        should_search = bool(search_gate.should_search(prediction))
+    except Exception as error:
+        return LiveDecisionResult(
+            action=None,
+            status="search",
+            reason="learned-evaluator-error",
+            diagnostics={
+                **common,
+                "learned_route": "search-after-evaluator-error",
+                "learned_evaluator_error": {
+                    "type": type(error).__name__,
+                    "error": str(error)[-1000:],
+                },
+            },
+        )
+
+    routing = {
+        **common,
+        "learned_prediction": prediction.as_record(),
+    }
+    if should_search:
+        return LiveDecisionResult(
+            action=None,
+            status="search",
+            reason="learned-policy-uncertain",
+            diagnostics={
+                **routing,
+                "learned_route": "exact-public-belief-search",
+            },
+        )
+
+    return LiveDecisionResult(
+        action=prediction.selected_action,
+        status="selected",
+        reason="learned-public-belief",
+        diagnostics={
+            **routing,
+            "learned_route": "direct-policy",
+        },
+    )
+
+
+def selective_belief_result(
+    *,
+    fixture: DecisionFixture,
+    oracle: Mapping[str, Any],
+    evaluator: Any,
+    search_gate: Any,
+) -> LiveDecisionResult:
+    """Evaluate routing against an already-built oracle, primarily for offline evidence."""
+
+    worlds = oracle.get("worlds")
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": copy.deepcopy(worlds) if isinstance(worlds, list) else [],
+    }
+    route = learned_route_result(
+        fixture=fixture,
+        posterior=posterior,
+        evaluator=evaluator,
+        search_gate=search_gate,
+    )
+    if route.action is not None:
+        return route
+
+    exact = public_belief_result(oracle, fixture.legal_actions)
+    return LiveDecisionResult(
+        action=exact.action,
+        status=exact.status,
+        reason=exact.reason,
+        diagnostics={
+            **dict(exact.diagnostics),
+            **dict(route.diagnostics),
+        },
+    )
+
 class PinnedShowdownBeliefPolicy:
     """Run the bounded live public-belief policy through pinned Pokemon Showdown."""
 
@@ -342,11 +450,17 @@ class PinnedShowdownBeliefPolicy:
         showdown_root: str | Path,
         *,
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+        learned_evaluator: Any | None = None,
+        search_gate: Any | None = None,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("belief timeout must be positive")
+        if (learned_evaluator is None) != (search_gate is None):
+            raise ValueError("learned_evaluator and search_gate must be provided together")
         self.showdown_root = Path(showdown_root)
         self.timeout_seconds = float(timeout_seconds)
+        self.learned_evaluator = learned_evaluator
+        self.search_gate = search_gate
         self._configuration_error = self._validate_showdown_root()
 
     def _validate_showdown_root(self) -> str | None:
@@ -374,7 +488,12 @@ class PinnedShowdownBeliefPolicy:
     def configured(self) -> bool:
         return self._configuration_error is None
 
-    def _probe(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _probe_document(
+        self,
+        source: Mapping[str, Any],
+        *,
+        posterior_only: bool,
+    ) -> Mapping[str, Any]:
         script = Path(__file__).resolve().parents[2] / "scripts" / "probe_real_belief_trace.cjs"
         with tempfile.TemporaryDirectory(prefix="azelficoast-live-belief-") as temp_dir:
             source_path = Path(temp_dir) / "source.json"
@@ -382,8 +501,11 @@ class PinnedShowdownBeliefPolicy:
                 json.dumps(source, sort_keys=True),
                 encoding="utf-8",
             )
+            command = ["node", str(script), str(self.showdown_root), str(source_path)]
+            if posterior_only:
+                command.append("--posterior-only")
             completed = subprocess.run(
-                ["node", str(script), str(self.showdown_root), str(source_path)],
+                command,
                 check=True,
                 capture_output=True,
                 text=True,
@@ -392,6 +514,18 @@ class PinnedShowdownBeliefPolicy:
         document = json.loads(completed.stdout)
         if not isinstance(document, Mapping):
             raise LiveBeliefPolicyError("probe output is not an object")
+        return document
+
+    def _probe(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
+        return self._probe_document(source, posterior_only=False)
+
+    def _probe_posterior(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
+        document = self._probe_document(source, posterior_only=True)
+        if (
+            document.get("schema") != "azelficoast.live-belief-posterior"
+            or document.get("schema_version") != 1
+        ):
+            raise LiveBeliefPolicyError("unexpected posterior-only probe schema")
         return document
 
     def choose(self, fixture: DecisionFixture) -> LiveDecisionResult:
@@ -411,6 +545,38 @@ class PinnedShowdownBeliefPolicy:
                 reason=admission,
             )
 
+        route: LiveDecisionResult | None = None
+        if self.learned_evaluator is not None:
+            try:
+                posterior = self._probe_posterior(source)
+                if posterior.get("source_fixture_id") != fixture.fixture_id:
+                    raise LiveBeliefPolicyError("posterior fixture identity mismatch")
+                if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
+                    raise LiveBeliefPolicyError("posterior Showdown revision mismatch")
+                if posterior.get("legal_actions") != list(fixture.legal_actions):
+                    raise LiveBeliefPolicyError("posterior legal actions drifted")
+                route = learned_route_result(
+                    fixture=fixture,
+                    posterior=posterior,
+                    evaluator=self.learned_evaluator,
+                    search_gate=self.search_gate,
+                )
+                if route.action is not None:
+                    return route
+            except Exception as error:
+                route = LiveDecisionResult(
+                    action=None,
+                    status="search",
+                    reason="learned-posterior-probe-error",
+                    diagnostics={
+                        "learned_route": "search-after-posterior-probe-error",
+                        "learned_posterior_error": {
+                            "type": type(error).__name__,
+                            "error": str(error)[-1000:],
+                        },
+                    },
+                )
+
         try:
             oracle = self._probe(source)
         except subprocess.TimeoutExpired:
@@ -418,7 +584,10 @@ class PinnedShowdownBeliefPolicy:
                 action=None,
                 status="fallback",
                 reason="belief-search-timeout",
-                diagnostics={"timeout_seconds": self.timeout_seconds},
+                diagnostics={
+                    "timeout_seconds": self.timeout_seconds,
+                    **(dict(route.diagnostics) if route is not None else {}),
+                },
             )
         except (
             OSError,
@@ -433,7 +602,10 @@ class PinnedShowdownBeliefPolicy:
                 action=None,
                 status="fallback",
                 reason="belief-probe-failed",
-                diagnostics={"error": detail[-1000:]},
+                diagnostics={
+                    "error": detail[-1000:],
+                    **(dict(route.diagnostics) if route is not None else {}),
+                },
             )
 
         if oracle.get("source_fixture_id") != fixture.fixture_id:
@@ -451,4 +623,15 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"showdown_commit": oracle.get("showdown_commit")},
             )
 
-        return public_belief_result(oracle, fixture.legal_actions)
+        exact = public_belief_result(oracle, fixture.legal_actions)
+        if route is None:
+            return exact
+        return LiveDecisionResult(
+            action=exact.action,
+            status=exact.status,
+            reason=exact.reason,
+            diagnostics={
+                **dict(exact.diagnostics),
+                **dict(route.diagnostics),
+            },
+        )

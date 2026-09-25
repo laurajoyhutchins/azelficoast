@@ -15,10 +15,13 @@ const argv = process.argv.slice(2);
 const showdownRoot = argv[0];
 const fixturePath = argv[1];
 let benchPriorPath = null;
+let posteriorOnly = false;
 for (let i = 2; i < argv.length; i++) {
   if (argv[i] === "--bench-prior") {
     benchPriorPath = argv[++i];
     if (!benchPriorPath) fail("--bench-prior requires a JSON path");
+  } else if (argv[i] === "--posterior-only") {
+    posteriorOnly = true;
   } else {
     fail("unknown argument: " + argv[i]);
   }
@@ -26,7 +29,7 @@ for (let i = 2; i < argv.length; i++) {
 if (!showdownRoot || !fixturePath) {
   fail(
     "usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON " +
-    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON]"
+    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON] [--posterior-only]"
   );
 }
 
@@ -1106,6 +1109,48 @@ const worlds = [...worldById.values()];
 if (worlds.length < 2) fail("real trace did not reconstruct multiple hidden worlds");
 
 const legalActions = fixture.state.legal_actions.map(String);
+const outputWorlds = worlds.map(world => ({
+  world_id: world.world_id,
+  weight: world.weight,
+  hidden: world.hidden,
+  provenance: {
+    generator_count: world.generator_count,
+    generator_rounds: GENERATOR_ROUNDS,
+    generator_variant_count: world.generator_variant_count,
+    marginalized_variant_digest: sha256(
+      world.marginalized_remainders
+        .map(entry => stable(entry))
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    ),
+    opponent_max_hp: world.opponent_max_hp,
+    hp_prior: "uniform-within-public-percentage-bucket",
+  },
+}));
+
+if (posteriorOnly) {
+  process.stdout.write(JSON.stringify({
+    schema: "azelficoast.live-belief-posterior",
+    schema_version: 1,
+    source_fixture_id: fixture.fixture_id,
+    showdown_commit: actualCommit,
+    conditioned_on_public_history: true,
+    realized_hidden_state_revealed: false,
+    reconstruction: {
+      generator_rounds: GENERATOR_ROUNDS,
+      generator_matches: matched,
+      generator_variant_count: variants.length,
+      execution_variant_count: executionVariants.length,
+      observed_opponent_moves: observedOpponentMoves(),
+      hidden_world_count: outputWorlds.length,
+      own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+      opponent_bench_species: OPPONENT_BENCH_SPECIES,
+    },
+    legal_actions: legalActions,
+    worlds: outputWorlds,
+  }, null, 2) + "\n");
+  process.exit(0);
+}
+
 const transitions = [];
 for (const world of worlds) {
   const base = buildBattle(world);
@@ -1165,24 +1210,6 @@ const marginalizedHidden = {
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-const outputWorlds = worlds.map(world => ({
-  world_id: world.world_id,
-  weight: world.weight,
-  hidden: world.hidden,
-  provenance: {
-    generator_count: world.generator_count,
-    generator_rounds: GENERATOR_ROUNDS,
-    generator_variant_count: world.generator_variant_count,
-    marginalized_variant_digest: sha256(
-      world.marginalized_remainders
-        .map(entry => stable(entry))
-        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-    ),
-    opponent_max_hp: world.opponent_max_hp,
-    hp_prior: "uniform-within-public-percentage-bucket",
-  },
-}));
-
 process.stdout.write(JSON.stringify({
   schema: "azelficoast.real-belief-transition-oracle",
   schema_version: 1,

@@ -11,7 +11,10 @@ from azelficoast.belief_evaluator import (
     evaluator_identity,
     forward,
     init_params,
+    load_checkpoint,
     loss,
+    predict,
+    write_checkpoint,
 )
 
 
@@ -144,3 +147,73 @@ def test_joint_policy_value_loss_is_finite() -> None:
     )
 
     assert math.isfinite(float(objective))
+
+
+
+def test_prediction_exposes_policy_margin_and_deterministic_action() -> None:
+    pytest.importorskip("jax")
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=17)
+    inputs = build_evaluator_input(
+        public_state={"turn": 3},
+        posterior=_posterior(),
+        legal_actions=["attack", "switch"],
+        spec=spec,
+    )
+
+    prediction = predict(params, inputs)
+
+    assert prediction.selected_action in inputs.legal_actions
+    assert 0.0 <= prediction.policy_margin <= 1.0
+    assert abs(sum(prediction.probabilities) - 1.0) < 1e-6
+    assert math.isfinite(prediction.value)
+
+
+def test_checkpoint_roundtrip_recomputes_content_identity(tmp_path) -> None:
+    np = pytest.importorskip("numpy")
+    spec = BeliefEvaluatorSpec(
+        public_width=2,
+        world_width=2,
+        action_width=2,
+        hidden_width=2,
+        world_hidden_width=2,
+    )
+    params = {
+        "example.bias": np.asarray([1.0, -2.0], dtype=np.float32),
+        "example.weight": np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32),
+    }
+
+    manifest = write_checkpoint(tmp_path / "checkpoint", params, spec)
+    loaded, loaded_spec, loaded_manifest = load_checkpoint(tmp_path / "checkpoint")
+
+    assert loaded_spec == spec
+    assert loaded_manifest == manifest
+    assert set(loaded) == set(params)
+    assert loaded_manifest["evaluator"]["checkpoint_digest"].startswith("sha256:")
+    for name in params:
+        assert np.array_equal(loaded[name], params[name])
+
+
+def test_checkpoint_rejects_parameter_tampering(tmp_path) -> None:
+    np = pytest.importorskip("numpy")
+    spec = BeliefEvaluatorSpec(
+        public_width=2,
+        world_width=2,
+        action_width=2,
+        hidden_width=2,
+        world_hidden_width=2,
+    )
+    params = {"p": np.asarray([1.0], dtype=np.float32)}
+    destination = tmp_path / "checkpoint"
+    manifest = write_checkpoint(destination, params, spec)
+    key = manifest["parameter_map"]["p"]
+    np.savez_compressed(destination / "params.npz", **{key: np.asarray([2.0], dtype=np.float32)})
+
+    with pytest.raises(BeliefEvaluatorError, match="content digest"):
+        load_checkpoint(destination)
