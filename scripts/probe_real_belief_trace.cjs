@@ -1334,76 +1334,176 @@ function projectionKey(world, fields) {
   return fields.map(field => JSON.stringify(stable(world.hidden[field])));
 }
 
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
+}
+
+function counterfactualWorld(baseWorld, donorWorld, field) {
+  const world = cloneJson(baseWorld);
+  world.hidden[field] = cloneJson(donorWorld.hidden[field]);
+
+  if (field === "opponent.active.item") {
+    world.variant.item = donorWorld.variant.item;
+  } else if (field === "opponent.active.ability") {
+    world.variant.ability = donorWorld.variant.ability;
+  } else if (field === "opponent.active.evs") {
+    world.variant.evs = cloneJson(donorWorld.variant.evs);
+  } else if (field === "opponent.active.ivs") {
+    world.variant.ivs = cloneJson(donorWorld.variant.ivs);
+  } else if (field === "opponent.active.exact_hp") {
+    world.exactHp = donorWorld.exactHp;
+  } else {
+    fail("cannot intervene on unknown hidden transition field " + field);
+  }
+
+  if (
+    field === "opponent.active.evs" ||
+    field === "opponent.active.ivs"
+  ) {
+    const battle = buildBattle(world);
+    world.opponent_max_hp = battle.p2.active[0].maxhp;
+    battle.destroy();
+    if (world.exactHp > world.opponent_max_hp) {
+      world.exactHp = world.opponent_max_hp;
+      world.hidden["opponent.active.exact_hp"] = world.exactHp;
+    }
+  }
+
+  world.world_id = "counterfactual-" + sha256({
+    base_world_id: baseWorld.world_id,
+    donor_world_id: donorWorld.world_id,
+    field,
+    hidden: world.hidden,
+  });
+  return world;
+}
+
+function executionWorldKey(world, action) {
+  return action + "\u0000" + sha256({
+    hidden: world.hidden,
+    variant: {
+      species: world.variant.species,
+      ability: world.variant.ability,
+      item: world.variant.item,
+      level: world.variant.level,
+      moves: world.variant.moves,
+      evs: world.variant.evs,
+      ivs: world.variant.ivs,
+      teraType: world.variant.teraType,
+    },
+    exact_hp: world.exactHp,
+    opponent_max_hp: world.opponent_max_hp,
+  });
+}
+
 function compileLazyWholeTurnPrograms() {
-  const worldById = new Map(worlds.map(world => [world.world_id, world]));
+  const orderedWorlds = [...worlds].sort((left, right) =>
+    left.world_id.localeCompare(right.world_id)
+  );
   const executionCache = new Map();
   const programs = [];
-  let representativeWorldExecutions = 0;
 
-  function execute(worldId, action) {
-    const key = worldId + "\u0000" + action;
-    if (!executionCache.has(key)) {
-      const world = worldById.get(worldId);
-      if (!world) fail("transition program references unknown world " + worldId);
-      executionCache.set(key, immediateWholeTurn(world, action));
-      representativeWorldExecutions += 1;
+  function executeWorld(world, action, role) {
+    const key = executionWorldKey(world, action);
+    let record = executionCache.get(key);
+    if (!record) {
+      record = {
+        execution: immediateWholeTurn(world, action),
+        roles: new Set(),
+        synthetic: String(world.world_id).startsWith("counterfactual-"),
+      };
+      executionCache.set(key, record);
     }
-    return executionCache.get(key);
+    record.roles.add(role);
+    return record.execution;
   }
 
   for (const action of legalActions) {
-    const pending = [worlds.map(world => world.world_id).sort()];
+    const representative = orderedWorlds[0];
+    const baseline = executeWorld(representative, action, "causal-baseline");
+    const observedFields = new Set(baseline.read_fields);
+    const pendingFields = [...observedFields];
+    const causalFields = new Set();
+    const probes = [];
+
+    for (let cursor = 0; cursor < pendingFields.length; cursor++) {
+      const field = pendingFields[cursor];
+      const donorsByValue = new Map();
+      for (const donor of orderedWorlds) {
+        const valueKey = JSON.stringify(stable(donor.hidden[field]));
+        if (!donorsByValue.has(valueKey)) donorsByValue.set(valueKey, donor);
+      }
+
+      const baselineValue = JSON.stringify(stable(representative.hidden[field]));
+      if (donorsByValue.size <= 1) continue;
+
+      for (const [valueKey, donor] of donorsByValue) {
+        if (valueKey === baselineValue) continue;
+        const counterfactual = counterfactualWorld(representative, donor, field);
+        const execution = executeWorld(counterfactual, action, "causal-probe");
+        for (const discovered of execution.read_fields) {
+          if (!observedFields.has(discovered)) {
+            observedFields.add(discovered);
+            pendingFields.push(discovered);
+          }
+        }
+        const changed = execution.semantic_hash !== baseline.semantic_hash;
+        probes.push({
+          field,
+          donor_world_id: donor.world_id,
+          semantic_changed: changed,
+          baseline_semantic_hash: baseline.semantic_hash,
+          candidate_semantic_hash: execution.semantic_hash,
+        });
+        if (changed) {
+          causalFields.add(field);
+          break;
+        }
+      }
+    }
+
+    const dependencyFields = [...causalFields].sort();
+    const groups = new Map();
+    for (const world of orderedWorlds) {
+      const key = JSON.stringify(projectionKey(world, dependencyFields));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(world);
+    }
+
     const classes = [];
-
-    while (pending.length) {
-      const members = pending.pop();
-      const representativeWorldId = members[0];
-      const execution = execute(representativeWorldId, action);
-      const fields = execution.read_fields;
-      const groups = new Map();
-
-      for (const worldId of members) {
-        const world = worldById.get(worldId);
-        const key = JSON.stringify(projectionKey(world, fields));
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key).push(worldId);
-      }
-
-      if (groups.size > 1) {
-        const split = [...groups.values()]
-          .map(group => group.sort())
-          .sort((left, right) => left[0].localeCompare(right[0]));
-        for (let i = split.length - 1; i >= 0; i--) pending.push(split[i]);
-        continue;
-      }
-
-      const key = projectionKey(worldById.get(representativeWorldId), fields);
+    for (const [key, members] of [...groups.entries()].sort(([left], [right]) =>
+      left.localeCompare(right)
+    )) {
+      const representativeWorld = [...members].sort((left, right) =>
+        left.world_id.localeCompare(right.world_id)
+      )[0];
+      const execution = executeWorld(
+        representativeWorld,
+        action,
+        "class-representative"
+      );
+      const memberWorldIds = members.map(world => world.world_id).sort();
       const classId = "transition-class-" + sha256({
         action,
-        read_fields: fields,
+        causal_fields: dependencyFields,
         key,
         semantic_hash: execution.semantic_hash,
       }).slice(0, 24);
       classes.push({
         class_id: classId,
-        read_fields: fields,
-        projection_key: key,
-        representative_world_id: representativeWorldId,
-        member_world_ids: members,
+        read_fields: [...observedFields].sort(),
+        causal_fields: dependencyFields,
+        projection_key: projectionKey(representativeWorld, dependencyFields),
+        representative_world_id: representativeWorld.world_id,
+        member_world_ids: memberWorldIds,
         semantic_hash: execution.semantic_hash,
         outcomes: execution.outcomes,
       });
     }
 
-    classes.sort((left, right) =>
-      left.representative_world_id.localeCompare(right.representative_world_id)
-    );
-    const dependencyFields = [...new Set(
-      classes.flatMap(row => row.read_fields)
-    )].sort();
     const partitionKeyHash = sha256({
       action,
-      partition_method: "dynamic-read-refinement",
+      partition_method: "counterfactual-causal-refinement",
       fields: dependencyFields,
       classes: classes.map(row => ({
         class_id: row.class_id,
@@ -1423,16 +1523,29 @@ function compileLazyWholeTurnPrograms() {
       action,
       effect_signature: effectSignature,
       dependency_fields: dependencyFields,
-      partition_method: "dynamic-read-refinement",
+      observed_read_fields: [...observedFields].sort(),
+      partition_method: "counterfactual-causal-refinement",
       representative_world_count: classes.length,
       worlds_in: worlds.length,
       classes_out: classes.length,
       world_reduction: worlds.length - classes.length,
       reduction_fraction: 1 - classes.length / worlds.length,
       partition_key_hash: partitionKeyHash,
+      causal_probe_count: probes.length,
+      causal_probes: probes,
       classes,
     });
   }
+
+  const cacheRows = [...executionCache.values()];
+  const uniqueExecutions = cacheRows.length;
+  const causalProbeExecutions = cacheRows.filter(
+    row => row.roles.has("causal-probe")
+  ).length;
+  const classRepresentativeExecutions = cacheRows.filter(
+    row => row.roles.has("class-representative")
+  ).length;
+  const exhaustiveWorldActionProduct = worlds.length * legalActions.length;
 
   return {
     schema: "azelficoast.whole-turn-transition-program-set",
@@ -1444,20 +1557,26 @@ function compileLazyWholeTurnPrograms() {
     dependency_candidates: DEPENDENCY_CANDIDATES,
     programs,
     producer: {
-      strategy: "lazy-representative-read-refinement",
+      strategy: "counterfactual-causal-refinement",
       root_chance_samples: ROOT_CHANCE_SAMPLES,
-      representative_world_executions: representativeWorldExecutions,
-      showdown_turn_executions:
-        representativeWorldExecutions * ROOT_CHANCE_SAMPLES,
-      exhaustive_world_action_product: worlds.length * legalActions.length,
+      unique_world_action_executions: uniqueExecutions,
+      causal_probe_executions: causalProbeExecutions,
+      class_representative_executions: classRepresentativeExecutions,
+      showdown_turn_executions: uniqueExecutions * ROOT_CHANCE_SAMPLES,
+      exhaustive_world_action_product: exhaustiveWorldActionProduct,
+      saved_world_action_executions:
+        exhaustiveWorldActionProduct - uniqueExecutions,
+      execution_reduction_fraction:
+        1 - uniqueExecutions / exhaustiveWorldActionProduct,
     },
     claim:
-      "Each class was derived by executing one representative and refining only " +
-      "on hidden fields read by pinned Showdown on that branch.",
+      "Candidate dependency fields are retained only when a one-field " +
+      "counterfactual intervention changes the complete pinned-Showdown turn " +
+      "semantics. Final classes are independently verifiable against the direct oracle.",
     non_claim:
-      "This lazy artifact relies on the read-instrumentation contract for this " +
-      "Showdown revision. Use the exhaustive oracle path to independently verify " +
-      "instrumentation coverage before treating a new revision as certified.",
+      "One-factor interventions do not prove absence of higher-order field " +
+      "interactions or generalization beyond this support. The direct oracle verifier " +
+      "must reject any causally proposed class that merges different turn semantics.",
   };
 }
 
