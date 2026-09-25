@@ -74,5 +74,14 @@ discarded.
 
 Public-training traces carry that source revision into each human decision.
 Posterior generation must use the same revision or the decision is excluded.
+
+Public pretraining may reuse an execution-local cache of the raw deterministic
+Random Battle generator population. Its cache identity includes the exact
+Showdown commit, format, species, lead/non-lead role, and generator-round count.
+Observed moves, item, ability, level, and HP are applied only after this cached
+population is recovered, so those observations cannot be hidden by a cache hit.
+Cache entries are digest-checked, live only for the pretraining source's
+lifetime, and are not included in posterior evidence or posterior digests.
+
 Azelficoast does not infer missing private requests from the public spectator
 log.

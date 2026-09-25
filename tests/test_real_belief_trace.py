@@ -480,6 +480,28 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert '"--historical-showdown-commit"' in source
     assert 'historicalShowdownCommit && !posteriorOnly' in source
     assert 'historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT' in source
+    assert '"--generator-cache-dir"' in source
+    assert "generatorCacheDir && !posteriorOnly" in source
+
+    cache_block = source.split(
+        "function generatorPopulationMaterial(species)", 1
+    )[1].split("function generatorVariants()", 1)[0]
+    assert "showdown_commit: actualCommit" in cache_block
+    assert 'format: "gen9randombattle"' in cache_block
+    assert "species," in cache_block
+    assert "opponent_is_lead: source.opponent_is_lead === true" in cache_block
+    assert "generator_rounds: GENERATOR_ROUNDS" in cache_block
+    assert "document.variants_sha256 !== sha256(document.variants)" in cache_block
+    assert "sampled !== GENERATOR_ROUNDS" in cache_block
+
+    conditioning_block = source.split("function generatorVariants()", 1)[1].split(
+        "function mechanicsProjectionVariantCount", 1
+    )[0]
+    assert "const population = generatorPopulation(species, requested)" in conditioning_block
+    assert "const observed = new Set(observedOpponentMoves())" in conditioning_block
+    assert "publicAbility && toID(set.ability) !== publicAbility" in conditioning_block
+    assert "plausibleItemIds && !plausibleItemIds.has(toID(set.item))" in conditioning_block
+    assert "[...observed].every(move => moves.includes(move))" in conditioning_block
 
     assert "function mechanicsProjectionVariantCount(variants)" in source
     assert '"opponent.active.item": entry.set.item' in source
@@ -516,4 +538,8 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert "showdown_turn_executions: showdownTurnExecutions" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
     assert "opponent_policy: OPPONENT_POLICY" in source
+    posterior_block = source.split("if (posteriorOnly)", 1)[1].split(
+        "function immediateWholeTurn", 1
+    )[0]
+    assert "generator_cache" not in posterior_block.lower()
     assert "marginalized_hidden" not in source
