@@ -17,6 +17,7 @@ const fixturePath = argv[1];
 let benchPriorPath = null;
 let posteriorOnly = false;
 let transitionProgramOnly = false;
+let historicalShowdownCommit = null;
 for (let i = 2; i < argv.length; i++) {
   if (argv[i] === "--bench-prior") {
     benchPriorPath = argv[++i];
@@ -25,6 +26,11 @@ for (let i = 2; i < argv.length; i++) {
     posteriorOnly = true;
   } else if (argv[i] === "--transition-program-only") {
     transitionProgramOnly = true;
+  } else if (argv[i] === "--historical-showdown-commit") {
+    historicalShowdownCommit = argv[++i];
+    if (!historicalShowdownCommit) {
+      fail("--historical-showdown-commit requires a 40-hex commit");
+    }
   } else {
     fail("unknown argument: " + argv[i]);
   }
@@ -33,13 +39,25 @@ if (!showdownRoot || !fixturePath) {
   fail(
     "usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON " +
     "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON] " +
-    "[--posterior-only | --transition-program-only]"
+    "[--posterior-only | --transition-program-only] " +
+    "[--historical-showdown-commit COMMIT]"
   );
 }
 if (posteriorOnly && transitionProgramOnly) {
   fail("--posterior-only and --transition-program-only are mutually exclusive");
 }
+if (historicalShowdownCommit && !posteriorOnly) {
+  fail("--historical-showdown-commit is allowed only with --posterior-only");
+}
+if (
+  historicalShowdownCommit &&
+  !/^[0-9a-f]{40}$/.test(historicalShowdownCommit)
+) {
+  fail("--historical-showdown-commit must be a 40-hex commit");
+}
 
+const PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
+const SHOWDOWN_COMMIT = historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT;
 const GENERATOR_ROUNDS = 2048;
 
 function environmentInteger(name, fallback, {min = 0} = {}) {
@@ -87,15 +105,6 @@ const DEPENDENCY_CANDIDATES = [
 ];
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
 
-const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
-if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
-  fail("unexpected source fixture schema");
-}
-const SHOWDOWN_COMMIT = String(source.showdown_commit || "");
-if (!/^[0-9a-f]{40}$/.test(SHOWDOWN_COMMIT)) {
-  fail("source fixture must bind an exact 40-hex Showdown revision");
-}
-
 const actualCommit = execFileSync(
   "git",
   ["-C", showdownRoot, "rev-parse", "HEAD"],
@@ -103,6 +112,14 @@ const actualCommit = execFileSync(
 ).trim();
 if (actualCommit !== SHOWDOWN_COMMIT) {
   fail(`expected Showdown ${SHOWDOWN_COMMIT}, got ${actualCommit}`);
+}
+
+const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
+  fail("unexpected source fixture schema");
+}
+if (source.showdown_commit !== SHOWDOWN_COMMIT) {
+  fail("source fixture is bound to a different Showdown revision");
 }
 const fixture = source.fixture || {
   fixture_id: source.fixture_id,
