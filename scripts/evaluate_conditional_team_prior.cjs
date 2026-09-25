@@ -442,6 +442,7 @@ const evidence = {
     known_species: realKnownSpecies,
     support_count: realSupport.length,
     top_20: realPrior.slice(0, 20),
+    species_prior: realPrior,
   },
   caveats: [
     "model-is-a-learned-team-composition-prior-not-an-exact-generator-posterior",
