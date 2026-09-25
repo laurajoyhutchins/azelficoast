@@ -9,11 +9,19 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, species, observedMovesCsv, roundsText, isLeadText, seedOffsetText] =
-  process.argv.slice(2);
+const [
+  showdownRoot,
+  species,
+  observedMovesCsv,
+  roundsText,
+  isLeadText,
+  seedOffsetText,
+  publicLevelText,
+  publicAbilityText,
+] = process.argv.slice(2);
 if (!showdownRoot || !species || !observedMovesCsv) {
   fail(
-    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET]"
+    "usage: sample_showdown_worlds.cjs SHOWDOWN_ROOT SPECIES OBSERVED_MOVES [ROUNDS] [IS_LEAD] [SEED_OFFSET] [PUBLIC_LEVEL] [PUBLIC_ABILITY]"
   );
 }
 
@@ -36,6 +44,19 @@ if (
 ) {
   fail("SEED_OFFSET must define a non-wrapping seed window within 0..65535");
 }
+
+const publicLevel =
+  publicLevelText === undefined || publicLevelText === ""
+    ? null
+    : Number(publicLevelText);
+if (
+  publicLevel !== null &&
+  (!Number.isSafeInteger(publicLevel) || publicLevel < 1)
+) {
+  fail("PUBLIC_LEVEL must be a positive integer");
+}
+
+const publicAbility = toID(publicAbilityText || "");
 
 const observedMoves = new Set(
   observedMovesCsv
@@ -87,6 +108,19 @@ for (let index = 0; index < rounds; index++) {
   const seed = seedOffset + index;
   generator.setSeed([seed, seed, seed, seed]);
   const set = generator.randomSet(generatorSpecies, {}, isLead, false);
+  // Forme is public battle information. The Random Battle generator may
+  // consume RNG to choose a cosmetic/mostly-cosmetic forme before building
+  // the set, so conditioning after collapsing the forme would distort the
+  // posterior over the remaining hidden fields.
+  if (toID(set.species || species) !== toID(species)) {
+    continue;
+  }
+  if (publicLevel !== null && Number(set.level) !== publicLevel) {
+    continue;
+  }
+  if (publicAbility && toID(set.ability) !== publicAbility) {
+    continue;
+  }
   const moves = [...set.moves].sort();
 
   if (![...observedMoves].every(move => moves.includes(move))) {
@@ -102,6 +136,8 @@ for (let index = 0; index < rounds; index++) {
     item,
     level: set.level,
     moves,
+    evs: {...set.evs},
+    ivs: {...set.ivs},
     role: set.role,
     teraType: set.teraType,
   };
@@ -146,6 +182,8 @@ process.stdout.write(
         teamDetails: {},
         isLead,
         isDoubles: false,
+        publicLevel,
+        publicAbility: publicAbility || null,
       },
       rounds,
       matched,

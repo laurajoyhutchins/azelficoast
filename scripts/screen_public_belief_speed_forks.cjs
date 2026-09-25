@@ -9,9 +9,16 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, candidatesPath, fixturesPath] = process.argv.slice(2);
+const [showdownRoot, candidatesPath, fixturesPath, roundsText] = process.argv.slice(2);
 if (!showdownRoot || !candidatesPath || !fixturesPath) {
-  fail("usage: screen_public_belief_speed_forks.cjs SHOWDOWN_ROOT CANDIDATES FIXTURES");
+  fail(
+    "usage: screen_public_belief_speed_forks.cjs SHOWDOWN_ROOT CANDIDATES FIXTURES [ROUNDS]"
+  );
+}
+
+const rounds = roundsText ? Number(roundsText) : 512;
+if (!Number.isSafeInteger(rounds) || rounds < 1 || rounds > 65536) {
+  fail("ROUNDS must be an integer from 1 through 65536");
 }
 
 const common = require(path.join(showdownRoot, "test", "common.js"));
@@ -49,7 +56,7 @@ function generatorSpecies(generator, requested) {
   fail(`no random-battle set for ${requested}`);
 }
 
-function compatibleVariants(candidate, rounds = 512) {
+function compatibleVariants(candidate, fixture, rounds = 512) {
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   const species = generatorSpecies(generator, candidate.generator_species);
   const observed = new Set(candidate.revealed_moves.map(toID));
@@ -59,6 +66,13 @@ function compatibleVariants(candidate, rounds = 512) {
   for (let seed = 0; seed < rounds; seed++) {
     generator.setSeed([seed, seed, seed, seed]);
     const set = generator.randomSet(species, {}, Boolean(candidate.is_lead), false);
+    if (
+      toID(set.species || candidate.opponent_species) !==
+      toID(fixture.state.opponent_active.species)
+    ) continue;
+    if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
+    const publicAbility = toID(fixture.state.opponent_active.ability || "");
+    if (publicAbility && toID(set.ability) !== publicAbility) continue;
     const moves = [...set.moves].map(toID);
     if (![...observed].every(move => moves.includes(move))) continue;
     if (!allowedItems.has(set.item || "")) continue;
@@ -69,6 +83,8 @@ function compatibleVariants(candidate, rounds = 512) {
       item: set.item || "",
       level: set.level,
       moves: [...set.moves],
+      evs: {...set.evs},
+      ivs: {...set.ivs},
       role: set.role || "",
       teraType: set.teraType || null,
     };
@@ -93,8 +109,8 @@ function pokemonSet(snapshot, overrides = {}) {
     item: overrides.item ?? snapshot.item ?? "",
     moves: overrides.moves || snapshot.moves,
     nature: "Serious",
-    evs: EVS,
-    ivs: IVS,
+    evs: overrides.evs || EVS,
+    ivs: overrides.ivs || IVS,
   };
 }
 
@@ -132,6 +148,13 @@ function buildBattle(fixture, variant) {
   opponent.boosts = {...opponentSnapshot.boosts};
   if (opponentSnapshot.status && opponentSnapshot.status !== "FNT") {
     opponent.status = toID(opponentSnapshot.status);
+  }
+
+  for (const condition of Object.keys(state.side_conditions || {})) {
+    battle.p1.addSideCondition(toID(condition), "debug");
+  }
+  for (const condition of Object.keys(state.opponent_side_conditions || {})) {
+    battle.p2.addSideCondition(toID(condition), "debug");
   }
 
   return {battle, own, opponent};
@@ -277,7 +300,7 @@ for (const candidate of candidatesDocument.candidates) {
   const fixture = fixtures.get(candidate.fixture_id);
   if (!fixture) fail(`missing fixture ${candidate.fixture_id}`);
 
-  const variants = compatibleVariants(candidate);
+  const variants = compatibleVariants(candidate, fixture, rounds);
   const worlds = [];
   for (const variant of variants) {
     const incoming = incomingMetrics(fixture, variant, candidate.locked_move);
@@ -347,5 +370,6 @@ process.stdout.write(JSON.stringify({
   showdown_commit: candidatesDocument.candidates[0]?.showdown_commit || null,
   case_count: cases.length,
   strict_execution_fork_count: cases.filter(c => c.strict_execution_fork).length,
+  rounds,
   cases,
 }, null, 2) + "\n");

@@ -359,6 +359,69 @@ def _persistent_fixture(*, immune: bool = True) -> DecisionFixture:
     )
 
 
+
+def test_transformed_opponent_is_excluded_before_hidden_world_sampling(
+    monkeypatch,
+) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    opponent = dict(state["opponent_active"])
+    opponent["transformed"] = True
+    state["opponent_active"] = opponent
+    transformed = DecisionFixture(
+        fixture_id="opponent-transformed",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("transformed opponent must be rejected before sampling")
+        ),
+    )
+
+    result = mine_candidates(
+        [transformed],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["opponent-transformed"] == 1
+
+
+def test_terastallized_opponent_is_excluded_until_exact_state_is_modeled(
+    monkeypatch,
+) -> None:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    opponent = dict(state["opponent_active"])
+    opponent["tera_type"] = "Dark"
+    state["opponent_active"] = opponent
+    tera = DecisionFixture(
+        fixture_id="opponent-tera",
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            AssertionError("Terastallized opponent must be rejected before sampling")
+        ),
+    )
+
+    result = mine_candidates(
+        [tera],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["opponent-terastallized"] == 1
+
+
 def test_mines_immunity_switch_that_preserves_hidden_item_worlds(monkeypatch) -> None:
     monkeypatch.setattr(
         "azelficoast.natural_disagreements._sample_worlds",

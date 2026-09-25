@@ -1,0 +1,165 @@
+{
+  "schema": "azelficoast.natural-population-strategy-fusion-plan",
+  "schema_version": 1,
+  "source_artifact": {
+    "workflow_run_id": 36068967462,
+    "artifact_id": 10836574187,
+    "artifact_name": "live-belief-coverage",
+    "artifact_digest": "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2",
+    "head_sha": "50f035e785f805a15b44cc2d83f4f3d42ce837bf",
+    "battle_count": 256,
+    "decision_state_count": 6485
+  },
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "admissibility": {
+    "generator_rounds": 2048,
+    "persistent_only": true,
+    "requires_positive_active_hp": true,
+    "requires_live_probe_admission": true,
+    "requires_exact_item_support_match": true,
+    "requires_public_level_conditioning": true,
+    "max_exact_states": 128,
+    "overflow_selection": "ascending sha256('population-v1:' + fixture_id)",
+    "mechanics_screen_rounds": 512,
+    "requires_exact_opponent_bench_reconstruction": true,
+    "requires_public_forme_conditioning": true,
+    "requires_exact_lead_context": true,
+    "requires_public_ability_conditioning": true,
+    "requires_opponent_not_terastallized": true,
+    "requires_empty_weather": true,
+    "requires_empty_field_effects": true,
+    "requires_generator_stat_spread_fidelity": true
+  },
+  "exact_treatment": {
+    "root_chance_samples": 16,
+    "continuation_chance_samples": 16,
+    "chance_seed_family": 0,
+    "positive_bias_tolerance": 1e-9
+  },
+  "primary_endpoints": [
+    "max over root actions of determinization value minus public-belief value",
+    "public-belief regret of the determinization-chosen root action",
+    "determinization/public-belief root-policy disagreement"
+  ],
+  "preregistered_predictors": [
+    "turn",
+    "own active HP fraction",
+    "opponent public HP fraction",
+    "hidden-item entropy",
+    "relative move-order separation",
+    "hidden-item KO-roll probability gap",
+    "hidden-item incoming-damage fraction gap",
+    "minimum hidden-item prior mass",
+    "persistent Protect branch presence",
+    "persistent immunity-switch branch presence",
+    "persistent branch count",
+    "legal root-action count"
+  ],
+  "inference": {
+    "cluster_unit": "battle_tag",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 1729,
+    "predictor_analysis": "preregistered univariate Spearman correlations for numeric predictors and mean contrasts for binary predictors, evaluated separately against continuous value bias and continuous corrected regret; policy disagreement remains descriptive"
+  },
+  "scientific_contract": [
+    "admissibility and overflow sampling are frozen before exact policy values are computed",
+    "every source decision receives an explicit funnel outcome or remains outside the bounded hidden-Choice model",
+    "selection cannot use strategy-fusion value, chosen action, policy disagreement, or continuation values",
+    "both search methods consume the identical reconstructed hidden-world oracle for every admitted state",
+    "all exclusions and exact-evaluation failures are retained as evidence rather than silently dropped",
+    "a valid cohort with zero positive bias or zero policy disagreements is a successful falsification",
+    "exact reconstruction must reproduce the discovery-time hidden-item sample counts before policy evaluation",
+    "mechanics screening and exact search must reconstruct the same public statuses and side conditions",
+    "hidden worlds retain generator EV/IV spreads rather than a fixed stat spread"
+  ],
+  "staged_claims": {
+    "current": "natural-state prevalence, value bias, corrected root-action regret, and structural associations under the bounded exact treatment",
+    "later": "paired battle-outcome experiment using policy variants on identical battle seeds after the population study is frozen"
+  },
+  "non_claims": [
+    "The bounded hidden-Choice cohort is not the full distribution of all Random Battle uncertainty.",
+    "The opponent response remains the latest observed fixed-damage move.",
+    "The exact continuation horizon remains one further player decision.",
+    "Material utility is not claimed to equal competitive win probability.",
+    "Structural associations are descriptive predictors, not causal effects."
+  ],
+  "superseded_cohort": {
+    "workflow_run_id": 36089504420,
+    "artifact_id": 10844299570,
+    "artifact_name": "natural-population-selection",
+    "artifact_digest": "sha256:9322548a28a5a7049f7d82fc045ae53686ec49ec114dfc2c74cf104bf2661d4d",
+    "manifest_sha256": "5af2cbd55502e302cf7e8971cdf09fb943dfd7ed3c5d1401730dd21ffd67cb3d",
+    "head_sha": "3f8021ed10d15afeef489c4b184cf47b9066ecc7",
+    "frozen_before_any_exact_policy_value": true,
+    "source_decision_state_count": 6485,
+    "bounded_candidate_count": 15,
+    "eligible_count": 13,
+    "selected_count": 13,
+    "selected_battle_count": 8,
+    "overflow_sampling_applied": false,
+    "invalidated_before_outcome_read": true,
+    "invalidation_reason": "exact adapter requires a known surviving opponent bench species or proof that the public bench is exhausted; one selected source lacked either structural witness"
+  },
+  "treatment_enabled": true,
+  "preregistration_amendment": {
+    "reason": "structural exact-reconstruction preflight omitted from initial admissibility",
+    "trigger": "index 5 failed before oracle construction because opponent bench was publicly unresolved",
+    "outcome_values_inspected_before_amendment": false,
+    "rule": "exclude any otherwise eligible fixture unless the public trace exposes a surviving opponent bench species or proves the public bench exhausted"
+  },
+  "superseded_cohort_after_forme_bug": {
+    "workflow_run_id": 36090229271,
+    "artifact_id": 10845134218,
+    "artifact_name": "natural-population-selection",
+    "artifact_digest": "sha256:f4e5ded9b15392681b4536113169e16d6fa19fd0c94b12e84ef5b8d04a519d31",
+    "manifest_sha256": "cc1bcdc38bb6377685719e48f8dbebae37a3d4baa7227e1cec1f1f7bca4252f2",
+    "head_sha": "6d9e145762bcb59c3ad3c9bf24c1176484ea0fdd",
+    "frozen_before_any_exact_policy_value": true,
+    "source_decision_state_count": 6485,
+    "bounded_candidate_count": 15,
+    "eligible_count": 12,
+    "selected_count": 12,
+    "selected_battle_count": 7,
+    "overflow_sampling_applied": false,
+    "ineligible_reason_counts": {
+      "active-hp-nonpositive": 2,
+      "exact-reconstruction:opponent-bench-unresolved": 1
+    },
+    "invalidated_before_outcome_inspection": true,
+    "invalidation_reason": "exact treatment exposed generated cosmetic-forme worlds inconsistent with the publicly observed opponent forme; successful shard values were not inspected"
+  },
+  "preregistration_amendment_forme": {
+    "reason": "Random Battle getForme() samples public cosmetic/mostly-cosmetic formes before hidden set construction, consuming RNG",
+    "trigger": "Zarude exact reconstruction collided because both Zarude and Zarude-Dada generator draws entered a public-Zarude belief",
+    "outcome_values_inspected_before_amendment": false,
+    "rule": "condition generator samples on the exact publicly observed opponent forme before counting posterior support, mechanics screening, or exact-world construction"
+  },
+  "preregistration_amendment_lead": {
+    "reason": "discovery and mechanics screening condition Random Battle generation on opponent lead status, but exact reconstruction previously hard-coded isLead=false",
+    "outcome_values_inspected_before_amendment": false,
+    "rule": "freeze opponent_is_lead from the candidate's public history and use it in exact hidden-world generation; use the same generator-species resolution as discovery"
+  },
+  "preregistration_amendment_public_state": {
+    "reason": "public opponent ability and already-Terastallized state were not fully represented in hidden-world reconstruction",
+    "outcome_values_inspected_before_amendment": false,
+    "rules": [
+      "condition generator samples on a revealed opponent ability when present",
+      "exclude already-Terastallized opponents from this bounded study until exact type-state reconstruction is supported",
+      "exclude transformed opponents"
+    ]
+  },
+  "frozen_cohort": {
+    "workflow_run_id": 36092751541,
+    "artifact_id": 10845773798,
+    "artifact_name": "natural-population-selection",
+    "artifact_digest": "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6",
+    "head_sha": "506b9ccf9791f403e1170c72ef27bc23c8f6512f",
+    "source_decision_state_count": 6485,
+    "bounded_candidate_count": 13,
+    "eligible_count": 10,
+    "selected_count": 10,
+    "overflow_sampling_applied": false,
+    "frozen_before_policy_values": true,
+    "selection_uses_policy_result": false
+  }
+}

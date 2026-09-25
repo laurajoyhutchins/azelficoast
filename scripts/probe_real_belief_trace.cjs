@@ -62,6 +62,8 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.ability",
   "opponent.active.moves",
   "opponent.active.tera_type",
+  "opponent.active.evs",
+  "opponent.active.ivs",
   "opponent.active.exact_hp",
 ];
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
@@ -287,17 +289,46 @@ function lastOpponentMove() {
   return toID(last);
 }
 
+function resolveGeneratorSpecies(requested) {
+  const dexSpecies = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0])
+    .dex.species.get(requested);
+  const candidates = [
+    dexSpecies.id,
+    typeof dexSpecies.battleOnly === "string" ? toID(dexSpecies.battleOnly) : "",
+    typeof dexSpecies.baseSpecies === "string" ? toID(dexSpecies.baseSpecies) : "",
+  ].filter(Boolean);
+  for (const candidate of [...new Set(candidates)]) {
+    if (randomSets[candidate]) return candidate;
+  }
+  fail(`no randbats set data for ${requested}`);
+}
+
 function generatorVariants() {
   const requested = fixture.state.opponent_active.species;
-  const species = toID(requested);
-  if (!randomSets[species]) fail(`no randbats set data for ${requested}`);
+  const species = resolveGeneratorSpecies(requested);
   const observed = new Set(observedOpponentMoves());
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   const variants = new Map();
+  const itemCounts = new Map();
   let matched = 0;
   for (let i = 0; i < GENERATOR_ROUNDS; i++) {
     generator.setSeed([i, i, i, i]);
-    const set = generator.randomSet(species, {}, false, false);
+    const set = generator.randomSet(
+      species,
+      {},
+      source.opponent_is_lead === true,
+      false
+    );
+    // Forme and level are public Random Battle information. In particular,
+    // getForme() consumes RNG before set construction, so impossible cosmetic
+    // forme draws must be rejected rather than normalized after sampling.
+    if (
+      toID(set.species || requested) !==
+      toID(fixture.state.opponent_active.species)
+    ) continue;
+    if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
+    const publicAbility = toID(fixture.state.opponent_active.ability || "");
+    if (publicAbility && toID(set.ability) !== publicAbility) continue;
     const moves = [...set.moves].map(toID).sort();
     if (![...observed].every(move => moves.includes(move))) continue;
     const plausibleItems = Array.isArray(source.plausible_items)
@@ -305,13 +336,18 @@ function generatorVariants() {
       : null;
     if (plausibleItems && !plausibleItems.has(set.item)) continue;
     matched++;
+    itemCounts.set(set.item, (itemCounts.get(set.item) || 0) + 1);
+    // Collapse generator-only role labels. The exact oracle never consumes
+    // role, so two sets that differ only by role are the same mechanics world
+    // and must contribute prior mass to one world rather than mint duplicate IDs.
     const semantic = {
-      species: set.species || requested,
+      species: toID(fixture.state.opponent_active.species),
       ability: set.ability,
       item: set.item,
       level: set.level,
       moves,
-      role: set.role,
+      evs: {...set.evs},
+      ivs: {...set.ivs},
       teraType: set.teraType,
     };
     const key = JSON.stringify(stable(semantic));
@@ -320,7 +356,13 @@ function generatorVariants() {
     variants.set(key, prior);
   }
   if (!matched) fail("generator sweep produced no Choice worlds compatible with public moves");
-  return {matched, variants: [...variants.values()]};
+  return {
+    matched,
+    itemCounts: Object.fromEntries(
+      [...itemCounts.entries()].sort(([left], [right]) => left.localeCompare(right))
+    ),
+    variants: [...variants.values()],
+  };
 }
 
 function ownActiveTeraType() {
@@ -458,8 +500,8 @@ function opponentSet(world) {
     moves: world.variant.moves,
     teraType: world.variant.teraType,
     nature: "Serious",
-    evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
-    ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
+    evs: {...world.variant.evs},
+    ivs: {...world.variant.ivs},
   };
 }
 
@@ -558,6 +600,9 @@ function applyFixtureState(battle, world) {
   const opponent = battle.p2.active[0];
   opponent.hp = Number(world.exactHp);
   opponent.boosts = {...fixture.state.opponent_active.boosts};
+  const opponentStatus = fixture.state.opponent_active.status;
+  opponent.status =
+    opponentStatus && opponentStatus !== "FNT" ? toID(opponentStatus) : "";
 
   for (const condition of Object.keys(fixture.state.side_conditions || {})) {
     battle.p1.addSideCondition(toID(condition), "debug");
@@ -605,8 +650,15 @@ function legalP1Continuations(battle) {
   if (!request || request.wait) return [];
   const choices = [];
   const requestSwitches = () => {
+    const active = battle.p1.active[0];
+    const revivalBlessing = Boolean(
+      active &&
+      battle.p1.slotConditions[active.position]?.revivalblessing
+    );
     for (const [index, pokemon] of request.side.pokemon.entries()) {
-      if (pokemon.active || String(pokemon.condition).endsWith(" fnt")) continue;
+      if (pokemon.active) continue;
+      const fainted = String(pokemon.condition).endsWith(" fnt");
+      if (revivalBlessing ? !fainted : fainted) continue;
       choices.push(`switch ${index + 1}`);
     }
   };
@@ -869,8 +921,25 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
   };
 }
 
-const {matched, variants} = generatorVariants();
-const worlds = [];
+const {matched, itemCounts, variants} = generatorVariants();
+if (
+  source.expected_generator_rounds != null &&
+  Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
+) {
+  fail(
+    `expected generator rounds ${source.expected_generator_rounds}, probe uses ${GENERATOR_ROUNDS}`
+  );
+}
+if (source.expected_item_counts != null) {
+  const expectedCounts = stable(source.expected_item_counts);
+  const observedCounts = stable(itemCounts);
+  if (JSON.stringify(expectedCounts) !== JSON.stringify(observedCounts)) {
+    fail(
+      `exact hidden-world prior drift: expected ${JSON.stringify(expectedCounts)}, got ${JSON.stringify(observedCounts)}`
+    );
+  }
+}
+const worldById = new Map();
 for (const entry of variants) {
   const {maxhp, support} = hpSupportForVariant(entry.set);
   for (const exactHp of support) {
@@ -879,19 +948,47 @@ for (const entry of variants) {
       "opponent.active.ability": entry.set.ability,
       "opponent.active.moves": entry.set.moves,
       "opponent.active.tera_type": entry.set.teraType,
+      "opponent.active.evs": entry.set.evs,
+      "opponent.active.ivs": entry.set.ivs,
       "opponent.active.exact_hp": exactHp,
     };
-    worlds.push({
-      world_id: sha256(hidden),
-      weight: (entry.count / matched) / support.length,
+    const worldId = sha256(hidden);
+    const weight = (entry.count / matched) / support.length;
+    const candidate = {
+      world_id: worldId,
+      weight,
       hidden,
       variant: entry.set,
       exactHp,
       opponent_max_hp: maxhp,
       generator_count: entry.count,
+    };
+    const existing = worldById.get(worldId);
+    if (!existing) {
+      worldById.set(worldId, candidate);
+      continue;
+    }
+
+    const existingMechanics = stable({
+      variant: existing.variant,
+      exactHp: existing.exactHp,
+      opponent_max_hp: existing.opponent_max_hp,
     });
+    const candidateMechanics = stable({
+      variant: candidate.variant,
+      exactHp: candidate.exactHp,
+      opponent_max_hp: candidate.opponent_max_hp,
+    });
+    if (JSON.stringify(existingMechanics) !== JSON.stringify(candidateMechanics)) {
+      fail(
+        `hidden world identity collision across distinct mechanics: ${worldId}`
+      );
+    }
+    existing.weight += weight;
+    existing.generator_count += entry.count;
   }
 }
+const worlds = [...worldById.values()];
 if (worlds.length < 2) fail("real trace did not reconstruct multiple hidden worlds");
 
 const legalActions = fixture.state.legal_actions.map(String);
