@@ -388,6 +388,7 @@ function normalizedOpponentPolicy() {
       }
       const allowed = new Set([
         "simple-heuristics",
+        "dirty-tricks",
         "max-damage",
         "repeat-observed-move",
         "uniform-legal-moves",
@@ -424,6 +425,7 @@ function normalizedOpponentPolicy() {
 
   const strategies = [
     {kind: "simple-heuristics"},
+    {kind: "dirty-tricks"},
     {kind: "max-damage"},
     {kind: "uniform-legal-moves"},
   ];
@@ -1273,6 +1275,137 @@ function simpleHeuristicsDistribution(battle, legalMoves) {
   }));
 }
 
+const DIRTY_ANTI_SETUP_MOVES = new Set([
+  "clearsmog",
+  "encore",
+  "haze",
+  "roar",
+  "taunt",
+  "topsyturvy",
+  "whirlwind",
+]);
+const DIRTY_DENIAL_MOVES = new Set([
+  "disable",
+  "encore",
+  "knockoff",
+  "switcheroo",
+  "taunt",
+  "torment",
+  "trick",
+]);
+const DIRTY_CHIP_MOVES = new Set([
+  "firespin",
+  "infestation",
+  "leechseed",
+  "magmastorm",
+  "saltcure",
+  "sandtomb",
+  "whirlpool",
+]);
+const DIRTY_STALL_MOVES = new Set([
+  "banefulbunker",
+  "burningbulwark",
+  "detect",
+  "kingsshield",
+  "protect",
+  "silktrap",
+  "substitute",
+]);
+
+function moveCanInflictMajorStatus(move) {
+  if (move.status) return true;
+  if (move.secondary && move.secondary.status) return true;
+  if (Array.isArray(move.secondaries)) {
+    return move.secondaries.some(secondary => secondary && secondary.status);
+  }
+  return false;
+}
+
+function dirtyTricksDistribution(battle, legalMoves) {
+  const attacker = battle.p2.active[0];
+  const defender = battle.p1.active[0];
+  if (!attacker || !defender) {
+    return uniformMoveDistribution(legalMoves, "dirty-tricks-fallback");
+  }
+
+  const moves = legalMoves.map(move => battle.dex.moves.get(move));
+  const choose = (candidates, mode) => {
+    const ids = candidates.map(move => move.id).filter(Boolean).sort();
+    return ids.length ? uniformMoveDistribution(ids, mode) : null;
+  };
+
+  const positiveBoosts = Object.values(defender.boosts || {})
+    .reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0);
+  if (positiveBoosts >= 2) {
+    const antiSetup = choose(
+      moves.filter(move => DIRTY_ANTI_SETUP_MOVES.has(move.id)),
+      "dirty-tricks-anti-setup"
+    );
+    if (antiSetup) return antiSetup;
+  }
+
+  const defenderHpFraction = defender.maxhp > 0 ? defender.hp / defender.maxhp : 1;
+  if (defenderHpFraction <= 0.35) {
+    const priority = moves.filter(
+      move => Number(move.priority) > 0 && moveDamageHeuristic(battle, move.id) > 0
+    );
+    if (priority.length) {
+      return maxDamageDistribution(
+        battle,
+        priority.map(move => move.id)
+      ).map(row => ({...row, mode: "dirty-tricks-priority-cleanup"}));
+    }
+  }
+
+  if (!defender.status) {
+    const status = choose(
+      moves.filter(move => moveCanInflictMajorStatus(move)),
+      "dirty-tricks-status"
+    );
+    if (status) return status;
+  }
+
+  const denial = choose(
+    moves.filter(move => DIRTY_DENIAL_MOVES.has(move.id)),
+    "dirty-tricks-denial"
+  );
+  if (denial) return denial;
+
+  const chip = choose(
+    moves.filter(move => DIRTY_CHIP_MOVES.has(move.id)),
+    "dirty-tricks-chip"
+  );
+  if (chip) return chip;
+
+  const hasResidualPressure = Boolean(
+    defender.status ||
+    defender.volatiles?.leechseed ||
+    defender.volatiles?.saltcure ||
+    defender.volatiles?.partiallytrapped
+  );
+  if (hasResidualPressure) {
+    const stall = choose(
+      moves.filter(move => DIRTY_STALL_MOVES.has(move.id)),
+      "dirty-tricks-stall"
+    );
+    if (stall) return stall;
+  }
+
+  const hazards = choose(
+    moves.filter(move => {
+      const condition = HAZARD_MOVES.get(move.id);
+      return condition && !battle.p1.sideConditions[condition];
+    }),
+    "dirty-tricks-hazard"
+  );
+  if (hazards) return hazards;
+
+  return maxDamageDistribution(battle, legalMoves).map(row => ({
+    ...row,
+    mode: "dirty-tricks-damage",
+  }));
+}
+
 function repeatObservedDistribution(strategy, legalMoves) {
   const move = toID(strategy.move);
   if (!move || !legalMoves.includes(move)) return null;
@@ -1286,6 +1419,9 @@ function repeatObservedDistribution(strategy, legalMoves) {
 function strategyDistribution(battle, legalMoves, strategy) {
   if (strategy.kind === "uniform-legal-moves") {
     return uniformMoveDistribution(legalMoves, "uniform-legal-moves");
+  }
+  if (strategy.kind === "dirty-tricks") {
+    return dirtyTricksDistribution(battle, legalMoves);
   }
   if (strategy.kind === "max-damage") {
     return maxDamageDistribution(battle, legalMoves);
@@ -2211,7 +2347,7 @@ process.stdout.write(JSON.stringify({
     chance_seed_family: CHANCE_SEED_FAMILY,
     opponent_response: (
       OPPONENT_POLICY.kind === "strategy-mixture"
-        ? "equal mixture of simple heuristics, max damage, uniform legal moves, and public move persistence when available"
+        ? "equal mixture of simple heuristics, dirty tricks, max damage, uniform legal moves, and public move persistence when available"
         : "uniform legal moves"
     ),
     opponent_policy: OPPONENT_POLICY,

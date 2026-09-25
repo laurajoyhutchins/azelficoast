@@ -24,8 +24,9 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
 
     A pinned, built Pokémon Showdown checkout provides posterior reconstruction and
     complete-turn mechanics. Exact search uses an explicit bounded opponent strategy
-    mixture: a poke-env-style simple heuristic, max-damage play, a uniform exploration
-    floor, and observed-move persistence when available. The components are mixed
+    mixture: a poke-env-style simple heuristic, a dirty-tricks disruption policy,
+    max-damage play, a uniform exploration floor, and observed-move persistence when
+    available. The components are mixed
     equally rather than pretending one handcrafted rule is a calibrated human model.
     Voluntary opponent switches and opponent Terastallization are not yet modeled by
     that policy. Unsupported

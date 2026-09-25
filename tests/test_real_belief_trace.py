@@ -545,12 +545,20 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert "moveSpecies === currentSpecies" in source
     assert '"strategy-mixture"' in source
     assert '"simple-heuristics"' in source
+    assert '"dirty-tricks"' in source
     assert '"max-damage"' in source
     assert '"repeat-observed-move"' in source
     assert '"uniform-legal-moves"' in source
     assert '"equal-active-strategies"' in source
     assert "function moveDamageHeuristic(" in source
     assert "function simpleHeuristicsDistribution(" in source
+    assert "function dirtyTricksDistribution(" in source
+    assert '"dirty-tricks-anti-setup"' in source
+    assert '"dirty-tricks-priority-cleanup"' in source
+    assert '"dirty-tricks-status"' in source
+    assert '"dirty-tricks-denial"' in source
+    assert '"dirty-tricks-chip"' in source
+    assert '"dirty-tricks-stall"' in source
     assert "function equalStrategyMixture(" in source
     assert '"uniform-forced-switch"' in source
     assert 'hiddenReads.add("opponent.active.moves")' in source
