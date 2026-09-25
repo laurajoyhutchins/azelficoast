@@ -234,6 +234,11 @@ def freeze_selection(
     }
 
     ranked: list[dict[str, Any]] = []
+    ineligible_reason_counts: dict[str, int] = {}
+
+    def ineligible(reason: str) -> None:
+        ineligible_reason_counts[reason] = ineligible_reason_counts.get(reason, 0) + 1
+
     for candidate in candidates:
         if not isinstance(candidate, Mapping):
             raise FusionSearchError("candidate must be an object")
@@ -245,8 +250,15 @@ def freeze_selection(
         if fixture is None or mechanics is None:
             raise FusionSearchError(f"missing evidence for candidate {fixture_id}")
 
+        active = fixture.state.get("active")
+        active_hp = active.get("current_hp") if isinstance(active, Mapping) else None
+        if not isinstance(active_hp, (int, float)) or active_hp <= 0:
+            ineligible("active-hp-nonpositive")
+            continue
+
         source, admission = build_probe_source(fixture)
         if source is None:
+            ineligible(f"live-admission:{admission}")
             continue
         if admission != "admitted":
             raise FusionSearchError("live admission returned source without admitted status")
@@ -348,6 +360,7 @@ def freeze_selection(
         "showdown_commit": plan["showdown_commit"],
         "ranking_uses_policy_result": False,
         "eligible_candidate_count": len(ranked),
+        "ineligible_reason_counts": dict(sorted(ineligible_reason_counts.items())),
         "selected_count": len(selected_rows),
         "top_k": top_k,
         "rank_order": list(discovery["rank_order"]),
