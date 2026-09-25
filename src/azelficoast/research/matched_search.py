@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
-from azelficoast.matched_comparison import (
+from azelficoast.research.matched_comparison import (
     METHODS,
     PACKET_SCHEMA,
     PACKET_SCHEMA_VERSION,
@@ -19,7 +19,7 @@ from azelficoast.matched_comparison import (
     _sha256,
 )
 from azelficoast.transition_oracle import ORACLE_SCHEMA, ORACLE_SCHEMA_VERSION
-from azelficoast.transition_program_search import (
+from azelficoast.search.transition_program import (
     TransitionProgramSearchError,
     search_transition_program,
 )
