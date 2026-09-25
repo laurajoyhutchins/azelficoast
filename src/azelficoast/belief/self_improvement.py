@@ -180,6 +180,28 @@ def _mine_informative_fixtures(
     ):
         raise TeacherEvidenceError("max teacher fixtures must be a positive integer")
 
+    if max_fixtures is None:
+        selected_rows = [
+            {
+                "fixture_id": fixture.fixture_id,
+                "run_id": str(control.get("run_id")),
+                "battle_tag": str(control.get("battle_tag")),
+                "event_index": control.get("event_index"),
+            }
+            for fixture in fixtures
+            for control in fixture.control_decisions
+        ]
+        return list(fixtures), {
+            "kind": "all-public-decisions",
+            "candidate_fixture_count": len(fixtures),
+            "candidate_decision_count": len(selected_rows),
+            "max_fixtures": None,
+            "selected_fixture_count": len(fixtures),
+            "selected_decision_count": len(selected_rows),
+            "one_decision_per_battle": False,
+            "selected": selected_rows,
+        }
+
     candidates: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
     for fixture in fixtures:
         for control in fixture.control_decisions:
