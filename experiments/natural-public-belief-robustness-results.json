@@ -1,0 +1,140 @@
+{
+  "schema": "azelficoast.natural-public-belief-robustness-results",
+  "schema_version": 1,
+  "preregistered_plan": "experiments/natural-public-belief-robustness-plan.json",
+  "source_fixture_id": "e3486d3564d1f2fe2310e86ce2acf2bfbc5ee4840b75308d7421893fafed5812",
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "source_exact_result": {
+    "workflow_run_id": 36055203000,
+    "artifact_id": 10832550259,
+    "artifact_digest": "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443",
+    "root_chance_samples": 8,
+    "continuation_chance_samples": 8,
+    "determinization_action": "/choose move protect",
+    "public_belief_action": "/choose move gigatonhammer",
+    "public_gigatonhammer_margin_over_protect": 0.00023058401380460225
+  },
+  "robustness_run": {
+    "workflow_run_id": 36056110618,
+    "head_sha": "1471d0c708c83a1c853145825ed9103a366d474a",
+    "root_chance_samples": 32,
+    "continuation_chance_samples": 32,
+    "aggregate_artifact": {
+      "id": 10832084109,
+      "digest": "sha256:cded81f03af006e3cd9609ff2ed2ee678728f5e5c7bb8cd319dc830fc7555121"
+    }
+  },
+  "results": [
+    {
+      "seed_family": 0,
+      "artifact": {
+        "id": 10832897023,
+        "digest": "sha256:71f20d590ac2f57adec2803a6679f9911e863702ad8d2be3c557b95de55395aa"
+      },
+      "causal_pattern_present": true,
+      "continuation_conflict_present": true,
+      "immediate_independent": true,
+      "item_conditioned_continuations": {
+        "Choice Band": [
+          "move gigatonhammer"
+        ],
+        "Choice Scarf": [
+          "move protect"
+        ]
+      },
+      "determinization_action": "/choose move protect",
+      "public_belief_action": "/choose move gigatonhammer",
+      "root_policy_flip_present": true,
+      "strategy_fusion_value_advantage": 0.009511590569429629,
+      "public_gigatonhammer_margin_over_protect": 0.0004611680276100927
+    },
+    {
+      "seed_family": 1,
+      "artifact": {
+        "id": 10832797410,
+        "digest": "sha256:803deb8fbef1a4675dc3b2031e160bb67500db978df7ed675e81c63c800123cc"
+      },
+      "causal_pattern_present": true,
+      "continuation_conflict_present": true,
+      "immediate_independent": true,
+      "item_conditioned_continuations": {
+        "Choice Band": [
+          "move gigatonhammer"
+        ],
+        "Choice Scarf": [
+          "move protect"
+        ]
+      },
+      "determinization_action": "/choose move protect",
+      "public_belief_action": "/choose move gigatonhammer",
+      "root_policy_flip_present": true,
+      "strategy_fusion_value_advantage": 0.00951159056942874,
+      "public_gigatonhammer_margin_over_protect": 0.0001152920069031893
+    },
+    {
+      "seed_family": 2,
+      "artifact": {
+        "id": 10833215413,
+        "digest": "sha256:3db3bb76677decbd82531137acecd41bcb9f362c2467c486b6639877a13fe93a"
+      },
+      "causal_pattern_present": true,
+      "continuation_conflict_present": true,
+      "immediate_independent": true,
+      "item_conditioned_continuations": {
+        "Choice Band": [
+          "move gigatonhammer"
+        ],
+        "Choice Scarf": [
+          "move protect"
+        ]
+      },
+      "determinization_action": "/choose move protect",
+      "public_belief_action": "/choose move protect",
+      "root_policy_flip_present": false,
+      "strategy_fusion_value_advantage": 0.008243378493504316,
+      "public_gigatonhammer_margin_over_protect": -0.00017293801035211942
+    },
+    {
+      "seed_family": 3,
+      "artifact": {
+        "id": 10832483546,
+        "digest": "sha256:5a4ed1450f412237e1c09fed788005e543d0436c78853a7786146926a5ffc1db"
+      },
+      "causal_pattern_present": true,
+      "continuation_conflict_present": true,
+      "immediate_independent": true,
+      "item_conditioned_continuations": {
+        "Choice Band": [
+          "move gigatonhammer"
+        ],
+        "Choice Scarf": [
+          "move protect"
+        ]
+      },
+      "determinization_action": "/choose move protect",
+      "public_belief_action": "/choose move protect",
+      "root_policy_flip_present": false,
+      "strategy_fusion_value_advantage": 0.00737868844173839,
+      "public_gigatonhammer_margin_over_protect": -0.0006341060379613239
+    }
+  ],
+  "aggregate": {
+    "valid_treatment_count": 4,
+    "causal_pattern_replications": 4,
+    "positive_strategy_fusion_value_advantage_count": 4,
+    "root_policy_flip_replications": 2,
+    "robustness_supported": false
+  },
+  "interpretation": {
+    "robust_claim": "The hidden-item strategy-fusion bias survives all four higher-sample seed families: Protect remains immediately observation-equivalent across hidden worlds, Band and Scarf worlds require different best continuations, and determinization overvalues Protect relative to information-set-preserving search.",
+    "falsified_claim": "The specific Protect-to-Gigaton-Hammer root-policy flip is not robust at 32x32 chance sampling; it appears in two of four preregistered seed families.",
+    "consequence": "Treat the continuation conflict and positive strategy-fusion value advantage as the durable finding. Treat the exact root action flip as a near-boundary example, not a stable headline result."
+  },
+  "non_claims": [
+    "This does not establish competitive-optimal play.",
+    "The opponent response remains bounded to the observed locked move.",
+    "The continuation horizon remains one further decision.",
+    "Utility remains material-only.",
+    "The empirical Showdown generator support is not a complete analytical posterior."
+  ]
+}
