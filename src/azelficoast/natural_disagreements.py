@@ -622,6 +622,7 @@ def _sample_worlds(
     rounds: int,
     is_lead: bool,
     public_level: int,
+    public_ability: str,
 ) -> dict[str, Any]:
     script = Path(__file__).resolve().parents[2] / "scripts" / "sample_showdown_worlds.cjs"
     try:
@@ -636,6 +637,7 @@ def _sample_worlds(
                 "true" if is_lead else "false",
                 "0",
                 str(public_level),
+                public_ability,
             ],
             check=True,
             capture_output=True,
@@ -697,7 +699,7 @@ def mine_candidates(
     rounds: int = 2048,
     persistent_only: bool = False,
 ) -> dict[str, Any]:
-    cache: dict[tuple[str, tuple[str, ...], bool, int], dict[str, Any]] = {}
+    cache: dict[tuple[str, tuple[str, ...], bool, int, str], dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
     skipped: dict[str, int] = {}
     excluded_fixtures: list[dict[str, str]] = []
@@ -727,6 +729,12 @@ def mine_candidates(
             continue
         if active.get("transformed") is True:
             skip("active-transformed")
+            continue
+        if opponent_active.get("transformed") is True:
+            skip("opponent-transformed")
+            continue
+        if isinstance(opponent_active.get("tera_type"), str) and opponent_active.get("tera_type"):
+            skip("opponent-terastallized")
             continue
         if not _item_is_hidden(opponent_active.get("item")):
             skip("opponent-item-known")
@@ -820,7 +828,14 @@ def mine_candidates(
             continue
 
         is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
-        key = (opponent_species, tuple(revealed), is_lead, opponent_level)
+        public_ability = _to_id(str(opponent_active.get("ability") or ""))
+        key = (
+            opponent_species,
+            tuple(revealed),
+            is_lead,
+            opponent_level,
+            public_ability,
+        )
         if key not in cache:
             try:
                 cache[key] = _sample_worlds(
@@ -830,6 +845,7 @@ def mine_candidates(
                     rounds=rounds,
                     is_lead=is_lead,
                     public_level=opponent_level,
+                    public_ability=public_ability,
                 )
             except UnsupportedWorldSample:
                 skip("world-sample-unsupported")
