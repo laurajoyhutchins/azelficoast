@@ -12,7 +12,7 @@ from typing import Mapping, Protocol
 
 import numpy as np
 
-from azelficoast.research.adaptive_execution import (
+from azelficoast.core.costing import (
     ExecutionCostProfile,
     ExecutionDecision,
     ExecutionFeatures,

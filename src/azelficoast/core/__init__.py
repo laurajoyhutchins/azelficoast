@@ -9,6 +9,13 @@ from azelficoast.core.contracts import (
     PartialInformationDomain,
     TransitionOracleProducer,
 )
+from azelficoast.core.costing import (
+    ExecutionCostProfile,
+    ExecutionDecision,
+    ExecutionFeatures,
+    ExecutionPath,
+    choose_execution_path,
+)
 from azelficoast.core.decision_relevance import (
     CERTIFICATE_SCHEMA,
     CERTIFICATE_SCHEMA_VERSION,
@@ -24,6 +31,16 @@ from azelficoast.core.program import (
     VERIFICATION_SCHEMA_VERSION,
     TransitionProgramError,
     program_for_action,
+)
+from azelficoast.core.planning import (
+    DEFAULT_DECISION_PLAN,
+    PLAN_EXPLAIN_SCHEMA,
+    PLAN_EXPLAIN_SCHEMA_VERSION,
+    LogicalOperator,
+    LogicalPlan,
+    PhysicalPlan,
+    choose_physical_plan,
+    explain_physical_plan,
 )
 from azelficoast.core.search import (
     SEARCH_METHODS,
@@ -42,6 +59,16 @@ from azelficoast.core.transition import (
 )
 
 __all__ = [
+    "DEFAULT_DECISION_PLAN",
+    "ExecutionCostProfile",
+    "ExecutionDecision",
+    "ExecutionFeatures",
+    "ExecutionPath",
+    "LogicalOperator",
+    "LogicalPlan",
+    "PLAN_EXPLAIN_SCHEMA",
+    "PLAN_EXPLAIN_SCHEMA_VERSION",
+    "PhysicalPlan",
     "BeliefEvaluator",
     "CERTIFICATE_SCHEMA",
     "CERTIFICATE_SCHEMA_VERSION",
@@ -62,7 +89,10 @@ __all__ = [
     "VERIFICATION_SCHEMA",
     "VERIFICATION_SCHEMA_VERSION",
     "canonical_json",
+    "choose_execution_path",
+    "choose_physical_plan",
     "decision_relevance_quotient",
+    "explain_physical_plan",
     "program_for_action",
     "search_transition_program",
     "sha256_json",

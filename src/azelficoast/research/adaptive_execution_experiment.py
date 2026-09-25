@@ -15,13 +15,13 @@ from typing import Mapping, Sequence
 import jax
 import numpy as np
 
-from azelficoast.research.adaptive_execution import (
+from azelficoast.core.costing import (
     ExecutionCostProfile,
     ExecutionFeatures,
     ExecutionPath,
     choose_execution_path,
-    current_jax_execution_target,
 )
+from azelficoast.research.adaptive_execution import current_jax_execution_target
 from azelficoast.research.mechanics.class_native_belief import (
     ClassNativeBelief,
     ProjectionMap,

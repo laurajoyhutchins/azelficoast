@@ -17,6 +17,10 @@ The current reusable surface is:
   hashing.
 - `core.decision_relevance`: exact bounded quotienting of hidden worlds by decision
   semantics.
+- `core.costing`: calibrated, identity-bound structural cost models for equivalent exact
+  execution paths.
+- `core.planning`: a small logical-plan / physical-plan boundary with deterministic
+  EXPLAIN evidence for execution-path selection.
 - `core.program`: structural transition-program lookup.
 - `core.search`: determinization and information-set search over arbitrary finite
   transition programs.
@@ -81,3 +85,26 @@ Generalization must preserve the existing research rule:
 A reusable component therefore earns its place in `core` only when a non-Pokémon test
 can exercise it without weakening Azelficoast's existing exact-result and hostile
 correctness tests.
+
+
+## Cost-based execution planning
+
+The generic core now treats execution selection as a query-planning problem. Search
+defines the logical computation; planning chooses between semantically equivalent exact
+physical paths using a calibrated cost profile.
+
+The initial logical algebra is intentionally small:
+
+```text
+scan -> filter -> project -> partition -> transition
+     -> observe -> update_belief -> evaluate -> aggregate
+```
+
+This does not change battle or research semantics. The first physical choice is the
+existing measured direct-versus-projected execution decision, promoted out of the
+research namespace. `explain_physical_plan()` records the logical operators, structural
+cardinalities, cost predictions, calibration identities, uncertainty guard, and selected
+path so planner behavior is auditable and can later become optimization evidence.
+
+Hardware/JAX target discovery remains research/runtime-specific; the core only consumes
+an opaque target signature.
