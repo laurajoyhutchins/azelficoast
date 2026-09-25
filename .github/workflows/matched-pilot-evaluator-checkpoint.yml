@@ -1,12 +1,6 @@
 name: matched-pilot-evaluator-checkpoint
 
 on:
-  pull_request:
-    paths:
-      - "experiments/matched-pilot-evaluator-source.json"
-      - "src/azelficoast/belief_evaluator.py"
-      - "src/azelficoast/belief_training.py"
-      - ".github/workflows/matched-pilot-evaluator-checkpoint.yml"
   workflow_dispatch:
 
 permissions:
