@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import urllib.parse
 import urllib.request
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -37,6 +38,10 @@ class PublicReplayConflictError(PublicReplayError):
     """Raised when an immutable public replay artifact already differs."""
 
 
+class PublicReplayRevisionMismatch(PublicReplayError):
+    """Raised when replay generation and reconstruction revisions differ."""
+
+
 @dataclass(frozen=True)
 class PublicReplay:
     replay_id: str
@@ -60,6 +65,10 @@ class PublicReplay:
             )
         return value
 
+    @property
+    def source_showdown_version(self) -> str:
+        return _input_version(self.inputlog)
+
 
 def _canonical(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -71,6 +80,14 @@ def _sha256_bytes(value: bytes) -> str:
 
 def _to_id(value: str) -> str:
     return "".join(character for character in value.lower() if character.isalnum())
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
 
 
 def _input_version(inputlog: str) -> str:
@@ -157,13 +174,13 @@ def discover_public_replays(
     return selected
 
 
-def fetch_public_replay(metadata: Mapping[str, Any]) -> PublicReplay:
+def _public_replay_from_payload(
+    metadata: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> PublicReplay:
     replay_id = metadata.get("id")
     if not isinstance(replay_id, str) or not replay_id:
         raise PublicReplayError("replay metadata has no id")
-    payload = _get_json(f"{REPLAY_ORIGIN}/{urllib.parse.quote(replay_id)}.json")
-    if not isinstance(payload, Mapping):
-        raise PublicReplayError(f"{replay_id}: replay endpoint did not return an object")
 
     payload_id = payload.get("id")
     if payload_id is not None and payload_id != replay_id:
@@ -172,7 +189,7 @@ def fetch_public_replay(metadata: Mapping[str, Any]) -> PublicReplay:
     if format_id is None:
         raw_format = payload.get("format")
         format_id = _to_id(str(raw_format)) if raw_format is not None else None
-    if format_id is not None and _to_id(str(format_id)) != DEFAULT_REPLAY_FORMAT:
+    if _to_id(str(format_id or "")) != DEFAULT_REPLAY_FORMAT:
         raise PublicReplayError(
             f"{replay_id}: expected {DEFAULT_REPLAY_FORMAT}, got {format_id!r}"
         )
@@ -180,28 +197,44 @@ def fetch_public_replay(metadata: Mapping[str, Any]) -> PublicReplay:
     replay = PublicReplay(
         replay_id=replay_id,
         payload=dict(payload),
-        rating=(
-            metadata.get("rating")
-            if isinstance(metadata.get("rating"), int)
-            and not isinstance(metadata.get("rating"), bool)
-            else None
-        ),
-        uploadtime=(
-            metadata.get("uploadtime")
-            if isinstance(metadata.get("uploadtime"), int)
-            and not isinstance(metadata.get("uploadtime"), bool)
-            else None
-        ),
+        rating=_optional_int(metadata.get("rating")),
+        uploadtime=_optional_int(metadata.get("uploadtime")),
     )
     _ = replay.log
-    inputlog = replay.inputlog
-    source_version = _input_version(inputlog)
-    if source_version != PINNED_SHOWDOWN_COMMIT:
-        raise PublicReplayError(
-            f"{replay_id}: source Showdown version {source_version} does not match "
-            f"pinned reconstruction revision {PINNED_SHOWDOWN_COMMIT}"
-        )
+    _ = replay.inputlog
+    _ = replay.source_showdown_version
     return replay
+
+
+def fetch_public_replay(metadata: Mapping[str, Any]) -> PublicReplay:
+    replay_id = metadata.get("id")
+    if not isinstance(replay_id, str) or not replay_id:
+        raise PublicReplayError("replay metadata has no id")
+    payload = _get_json(
+        f"{REPLAY_ORIGIN}/{urllib.parse.quote(replay_id, safe='')}.json"
+    )
+    if not isinstance(payload, Mapping):
+        raise PublicReplayError(f"{replay_id}: replay endpoint did not return an object")
+    return _public_replay_from_payload(metadata, payload)
+
+
+def _load_frozen_public_replay(
+    metadata: Mapping[str, Any],
+    root: str | Path,
+) -> PublicReplay | None:
+    replay_id = metadata.get("id")
+    if not isinstance(replay_id, str) or not replay_id:
+        raise PublicReplayError("replay metadata has no id")
+    path = Path(root) / "raw" / f"{replay_id}.json"
+    if not path.is_file():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise PublicReplayError(f"{replay_id}: frozen replay is unreadable: {error}") from error
+    if not isinstance(payload, Mapping):
+        raise PublicReplayError(f"{replay_id}: frozen replay is not an object")
+    return _public_replay_from_payload(metadata, payload)
 
 
 def _write_immutable(path: Path, content: bytes) -> str:
@@ -227,7 +260,7 @@ def freeze_public_replay(replay: PublicReplay, root: str | Path) -> dict[str, An
         "rating": replay.rating,
         "uploadtime": replay.uploadtime,
         "source_locator": f"{REPLAY_ORIGIN}/{replay.replay_id}",
-        "source_showdown_version": _input_version(replay.inputlog),
+        "source_showdown_version": replay.source_showdown_version,
     }
 
 
@@ -241,12 +274,22 @@ def _showdown_revision(showdown_root: Path) -> str:
         ).stdout.strip()
     except (OSError, subprocess.CalledProcessError) as error:
         raise PublicReplayError(f"cannot read Showdown revision: {error}") from error
-    if revision != PINNED_SHOWDOWN_COMMIT:
+    if not revision:
+        raise PublicReplayError("Showdown checkout has an empty revision")
+    if not (showdown_root / "dist" / "sim" / "battle.js").is_file():
         raise PublicReplayError(
-            "public replay reconstruction requires pinned Showdown "
-            f"{PINNED_SHOWDOWN_COMMIT}, got {revision}"
+            f"Showdown checkout {revision} is not built: missing dist/sim/battle.js"
         )
     return revision
+
+
+def _require_replay_revision(replay: PublicReplay, revision: str) -> None:
+    if replay.source_showdown_version != revision:
+        raise PublicReplayRevisionMismatch(
+            f"{replay.replay_id}: source Showdown version "
+            f"{replay.source_showdown_version} does not match reconstruction "
+            f"revision {revision}"
+        )
 
 
 def _bridge_script() -> Path:
@@ -311,7 +354,12 @@ def _input_choices(inputlog: str, side: str) -> list[str]:
         if not line.startswith(prefix):
             continue
         choice = line[len(prefix) :].strip()
-        if not choice or choice == "undo":
+        if not choice:
+            continue
+        if choice == "undo":
+            if not choices:
+                raise PublicReplayError(f"{side}: inputlog undo has no prior choice")
+            choices.pop()
             continue
         choices.append(choice)
     return choices
@@ -510,6 +558,7 @@ async def _trace_side(
                     "kind": "public-showdown-replay",
                     "replay_id": replay.replay_id,
                     "side": side,
+                    "source_showdown_version": replay.source_showdown_version,
                 },
             }
         )
@@ -575,6 +624,7 @@ async def _trace_side(
                     "source_replay_id": replay.replay_id,
                     "source_side": side,
                     "source_rating": replay.rating,
+                    "source_showdown_version": replay.source_showdown_version,
                 },
             }
         )
@@ -595,7 +645,7 @@ async def _trace_side(
     if battle is None:
         raise PublicReplayError(f"{replay.replay_id}/{side}: reconstructed battle missing")
     winner = _winner(replay.log)
-    won = winner == username if winner is not None else None
+    won = _to_id(winner) == _to_id(username) if winner is not None else None
     records.append(
         {
             "schema": TRACE_SCHEMA,
@@ -619,15 +669,13 @@ async def _trace_side(
     return records
 
 
-async def reconstruct_replay_trace(
+async def _reconstruct_replay_trace(
     replay: PublicReplay,
     *,
-    showdown_root: str | Path,
+    showdown_root: Path,
 ) -> list[dict[str, Any]]:
-    root = Path(showdown_root)
-    _showdown_revision(root)
     players = _input_players(replay.inputlog)
-    streams = _replay_streams(root, replay.inputlog)
+    streams = _replay_streams(showdown_root, replay.inputlog)
     rows: list[dict[str, Any]] = []
     for side in ("p1", "p2"):
         rows.extend(
@@ -639,6 +687,17 @@ async def reconstruct_replay_trace(
             )
         )
     return rows
+
+
+async def reconstruct_replay_trace(
+    replay: PublicReplay,
+    *,
+    showdown_root: str | Path,
+) -> list[dict[str, Any]]:
+    root = Path(showdown_root)
+    revision = _showdown_revision(root)
+    _require_replay_revision(replay, revision)
+    return await _reconstruct_replay_trace(replay, showdown_root=root)
 
 
 def _trace_bytes(rows: Sequence[Mapping[str, Any]]) -> bytes:
@@ -656,7 +715,8 @@ def import_public_replays(
 ) -> dict[str, Any]:
     """Fetch, freeze, reconstruct, and emit public Random Battle decision traces."""
     root = Path(output_root)
-    revision = _showdown_revision(Path(showdown_root))
+    showdown = Path(showdown_root)
+    revision = _showdown_revision(showdown)
     metadata = discover_public_replays(
         max_battles=max_battles,
         min_rating=min_rating,
@@ -668,11 +728,15 @@ def import_public_replays(
     excluded: list[dict[str, Any]] = []
     for candidate in metadata:
         replay_id = str(candidate.get("id") or "")
+        frozen: dict[str, Any] | None = None
         try:
-            replay = fetch_public_replay(candidate)
+            replay = _load_frozen_public_replay(candidate, root)
+            if replay is None:
+                replay = fetch_public_replay(candidate)
             frozen = freeze_public_replay(replay, root)
+            _require_replay_revision(replay, revision)
             replay_rows = asyncio.run(
-                reconstruct_replay_trace(replay, showdown_root=showdown_root)
+                _reconstruct_replay_trace(replay, showdown_root=showdown)
             )
             rows.extend(replay_rows)
             admitted.append(
@@ -687,13 +751,18 @@ def import_public_replays(
         except (PublicReplayError, OSError) as error:
             if strict:
                 raise
-            excluded.append(
-                {
-                    "replay_id": replay_id,
-                    "reason": type(error).__name__,
-                    "detail": str(error)[-1000:],
-                }
-            )
+            exclusion = {
+                "replay_id": replay_id,
+                "reason": type(error).__name__,
+                "detail": str(error)[-1000:],
+            }
+            if frozen is not None:
+                exclusion["raw_path"] = frozen["raw_path"]
+                exclusion["raw_sha256"] = frozen["raw_sha256"]
+                exclusion["source_showdown_version"] = frozen[
+                    "source_showdown_version"
+                ]
+            excluded.append(exclusion)
 
     trace_path = root / "decisions.jsonl"
     trace_digest = _write_immutable(trace_path, _trace_bytes(rows))
@@ -702,6 +771,16 @@ def import_public_replays(
         "schema_version": PUBLIC_REPLAY_SCHEMA_VERSION,
         "format": DEFAULT_REPLAY_FORMAT,
         "showdown_commit": revision,
+        "reconstruction_showdown_commit": revision,
+        "source_revision_counts": dict(
+            sorted(
+                Counter(
+                    str(row["source_showdown_version"])
+                    for row in [*admitted, *excluded]
+                    if row.get("source_showdown_version")
+                ).items()
+            )
+        ),
         "query": {
             "max_battles": max_battles,
             "min_rating": min_rating,
