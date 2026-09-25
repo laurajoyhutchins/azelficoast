@@ -109,7 +109,10 @@ def test_exact_artifact_restore_binds_digest_and_download_to_same_id() -> None:
     assert '"repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"' in source
     assert '"/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip"' in source
     assert '[[ "${actual_digest}" != "${EXPECTED_DIGEST}" ]]' in source
-    assert 'rm -rf "${DESTINATION}"' in source
+    assert "extract:" in source
+    assert 'EXTRACT: ${{ inputs.extract }}' in source
+    assert 'if [[ "${EXTRACT}" == "true" ]]' in source
+    assert 'elif [[ "${EXTRACT}" == "false" ]]' in source
     assert 'unzip -q "${archive}" -d "${DESTINATION}"' in source
 
 
@@ -119,9 +122,9 @@ def test_workflows_delegate_exact_artifact_restore() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         source = path.read_text(encoding="utf-8")
 
-        assert not (
-            "actions/artifacts/" in source and "--jq '.digest'" in source
-        ), f"{path.name} must not independently verify and then fetch an artifact"
+        assert "actions/artifacts/" not in source, (
+            f"{path.name} must restore historical artifacts through the exact-artifact helper"
+        )
 
         if "uses: ./.github/actions/restore-exact-artifact" not in source:
             continue

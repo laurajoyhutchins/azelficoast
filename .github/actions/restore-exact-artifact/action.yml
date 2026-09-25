@@ -9,8 +9,12 @@ inputs:
     description: Expected GitHub artifact digest, including the sha256 prefix.
     required: true
   path:
-    description: Empty destination directory for the extracted artifact.
+    description: Destination directory when extracting, or ZIP path when extraction is disabled.
     required: true
+  extract:
+    description: Whether to extract the verified ZIP into path.
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -22,6 +26,7 @@ runs:
         ARTIFACT_ID: ${{ inputs.artifact-id }}
         EXPECTED_DIGEST: ${{ inputs.digest }}
         DESTINATION: ${{ inputs.path }}
+        EXTRACT: ${{ inputs.extract }}
       run: |
         set -euo pipefail
 
@@ -31,10 +36,19 @@ runs:
           exit 1
         fi
 
-        rm -rf "${DESTINATION}"
-        mkdir -p "${DESTINATION}"
         archive="${RUNNER_TEMP}/azelficoast-artifact-${ARTIFACT_ID}.zip"
-
         gh api           -H "Accept: application/vnd.github+json"           "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip"           > "${archive}"
-        unzip -q "${archive}" -d "${DESTINATION}"
-        rm -f "${archive}"
+
+        if [[ "${EXTRACT}" == "true" ]]; then
+          rm -rf "${DESTINATION}"
+          mkdir -p "${DESTINATION}"
+          unzip -q "${archive}" -d "${DESTINATION}"
+          rm -f "${archive}"
+        elif [[ "${EXTRACT}" == "false" ]]; then
+          rm -rf "${DESTINATION}"
+          mkdir -p "$(dirname "${DESTINATION}")"
+          mv "${archive}" "${DESTINATION}"
+        else
+          echo "extract must be true or false, got ${EXTRACT}" >&2
+          exit 2
+        fi

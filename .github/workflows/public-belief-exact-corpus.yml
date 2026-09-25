@@ -5,6 +5,7 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/restore-exact-artifact/action.yml"
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
@@ -45,15 +46,12 @@ jobs:
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
 
-      - name: Fetch frozen discovery artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          curl --fail --location \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10827665365/zip" \
-            --output /tmp/discovery.zip
+      - name: Restore frozen discovery artifact
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10827665365"
+          digest: "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34"
+          path: /tmp/discovery
 
       - name: Extract exact candidate fixture
         id: extract
@@ -63,29 +61,29 @@ jobs:
           python - <<'PY'
           import json
           import os
-          import zipfile
           from pathlib import Path
 
           fixture_id = os.environ["FIXTURE_ID"]
           fixture = None
           candidate = None
 
-          with zipfile.ZipFile("/tmp/discovery.zip") as archive:
-              with archive.open("speed-fork-fixtures.jsonl") as stream:
-                  for raw in stream:
-                      row = json.loads(raw)
-                      if row.get("fixture_id") == fixture_id:
-                          fixture = row
-                          break
-              candidates = json.load(archive.open("speed-fork-candidates.json"))
-              candidate = next(
-                  (
-                      row
-                      for row in candidates["candidates"]
-                      if row.get("fixture_id") == fixture_id
-                  ),
-                  None,
-              )
+          with Path("/tmp/discovery/speed-fork-fixtures.jsonl").open() as stream:
+              for raw in stream:
+                  row = json.loads(raw)
+                  if row.get("fixture_id") == fixture_id:
+                      fixture = row
+                      break
+          candidates = json.loads(
+              Path("/tmp/discovery/speed-fork-candidates.json").read_text()
+          )
+          candidate = next(
+              (
+                  row
+                  for row in candidates["candidates"]
+                  if row.get("fixture_id") == fixture_id
+              ),
+              None,
+          )
 
           assert fixture is not None, fixture_id
           assert candidate is not None, fixture_id

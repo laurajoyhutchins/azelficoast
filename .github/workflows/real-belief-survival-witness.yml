@@ -5,6 +5,7 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/restore-exact-artifact/action.yml"
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
@@ -28,15 +29,13 @@ jobs:
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
 
-      - name: Fetch frozen source artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          curl --fail --location \
-            --header "Authorization: Bearer ${GH_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10816374615/zip" \
-            --output /tmp/real-belief-source.zip
+      - name: Restore frozen source artifact
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10816374615"
+          digest: "sha256:4f043f14ea90362f7c60af6fbe957c85d63118f44aa639b9f733e791af9067e3"
+          path: /tmp/real-belief-source.zip
+          extract: "false"
 
       - name: Extract exact Tropius versus Chi-Yu decision
         run: |
