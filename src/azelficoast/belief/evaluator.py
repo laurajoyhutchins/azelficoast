@@ -343,6 +343,9 @@ def loss(
 CHECKPOINT_SCHEMA = "azelficoast.belief-policy-value-checkpoint"
 CHECKPOINT_SCHEMA_VERSION = 1
 
+PROMOTION_SCHEMA = "azelficoast.evaluator-promotion"
+PROMOTION_SCHEMA_VERSION = 1
+
 
 @dataclass(frozen=True)
 class BeliefPrediction:
@@ -476,6 +479,34 @@ def load_checkpoint(
         raise BeliefEvaluatorError("numpy is required to load evaluator checkpoints") from error
 
     source = Path(directory)
+    expected_promoted_digest: str | None = None
+    if source.is_file():
+        pointer_path = source
+        try:
+            pointer = json.loads(pointer_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise BeliefEvaluatorError(f"cannot read checkpoint promotion pointer: {error}") from error
+        if not isinstance(pointer, Mapping):
+            raise BeliefEvaluatorError("checkpoint promotion pointer must be an object")
+        if (
+            pointer.get("schema") != PROMOTION_SCHEMA
+            or pointer.get("schema_version") != PROMOTION_SCHEMA_VERSION
+        ):
+            raise BeliefEvaluatorError("unexpected checkpoint promotion schema")
+        checkpoint_reference = pointer.get("checkpoint")
+        expected_promoted_digest = pointer.get("checkpoint_digest")
+        if not isinstance(checkpoint_reference, str) or not checkpoint_reference:
+            raise BeliefEvaluatorError("checkpoint promotion pointer is missing checkpoint")
+        if not (
+            isinstance(expected_promoted_digest, str)
+            and expected_promoted_digest.startswith("sha256:")
+            and len(expected_promoted_digest) == 71
+        ):
+            raise BeliefEvaluatorError("checkpoint promotion pointer has an invalid digest")
+        source = Path(checkpoint_reference)
+        if not source.is_absolute():
+            source = pointer_path.parent / source
+
     try:
         manifest = json.loads((source / "manifest.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -519,6 +550,10 @@ def load_checkpoint(
     actual = checkpoint_digest(params, spec)
     if evaluator.get("checkpoint_digest") != actual:
         raise BeliefEvaluatorError("checkpoint content digest does not match manifest")
+    if expected_promoted_digest is not None and actual != expected_promoted_digest:
+        raise BeliefEvaluatorError(
+            "promoted checkpoint content digest does not match promotion pointer"
+        )
     expected_identity = evaluator_identity(checkpoint_digest_value=actual, spec=spec)
     if dict(evaluator) != expected_identity:
         raise BeliefEvaluatorError("checkpoint evaluator identity is inconsistent")

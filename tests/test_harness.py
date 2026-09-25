@@ -86,3 +86,21 @@ def test_belief_coverage_parsing() -> None:
     )
     assert args.command == "belief-coverage"
     assert [str(path) for path in args.traces] == ["one.jsonl", "two.jsonl"]
+
+
+def test_training_improve_parsing() -> None:
+    args = _build_parser().parse_args(
+        [
+            "training",
+            "improve",
+            "training.jsonl",
+            "--incumbent",
+            "models/incumbent",
+            "--epochs",
+            "3",
+        ]
+    )
+    assert args.training_command == "improve"
+    assert args.dataset.name == "training.jsonl"
+    assert str(args.incumbent) == "models/incumbent"
+    assert args.epochs == 3

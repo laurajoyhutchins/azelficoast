@@ -189,6 +189,31 @@ Splitting is battle-grouped. If the same content-addressed fixture occurs in mul
 battles, those battles are joined into one split group so an identical information
 state cannot appear on opposite sides of the train/validation/test boundary.
 
+
+### Evidence-gated self-improvement
+
+Once an incumbent evaluator exists, Azelficoast can train one candidate from the
+frozen training records and let deterministic validation rules decide whether it
+becomes the live checkpoint:
+
+~~~bash
+uv run azelficoast training improve artifacts/training.jsonl \
+  --incumbent artifacts/evaluators/current.json
+~~~
+
+Candidates and receipts are content-addressed. Record order is canonicalized before
+training, and any split-group, battle, or fixture leakage across train/validation/test
+fails closed. The admission gate uses validation total loss while independently
+forbidding value-MSE or policy-cross-entropy regressions by default. Test metrics are
+recorded in the receipt but are never consulted by the admission decision.
+
+An admitted candidate atomically replaces only
+`artifacts/evaluators/current.json`, a digest-bound pointer to the immutable
+checkpoint. A rejected candidate leaves the current pointer untouched. The normal
+`--evaluator-checkpoint` option accepts either a checkpoint directory or this
+promotion pointer, so subsequent battles consume the admitted model without copying
+or mutating checkpoint contents.
+
 ## Evidence model
 
 The repository tries to keep claims narrower than the code around them.
