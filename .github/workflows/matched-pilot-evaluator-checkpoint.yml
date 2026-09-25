@@ -1,6 +1,10 @@
 name: matched-pilot-evaluator-checkpoint
 
 on:
+  pull_request:
+    paths:
+      - "experiments/matched-pilot-evaluator-source.json"
+      - ".github/workflows/matched-pilot-evaluator-checkpoint.yml"
   workflow_dispatch:
 
 permissions:
