@@ -697,7 +697,7 @@ def mine_candidates(
     rounds: int = 2048,
     persistent_only: bool = False,
 ) -> dict[str, Any]:
-    cache: dict[tuple[str, tuple[str, ...], bool], dict[str, Any]] = {}
+    cache: dict[tuple[str, tuple[str, ...], bool, int], dict[str, Any]] = {}
     candidates: list[dict[str, Any]] = []
     skipped: dict[str, int] = {}
     excluded_fixtures: list[dict[str, str]] = []
@@ -820,7 +820,7 @@ def mine_candidates(
             continue
 
         is_lead = _to_id(str(history["lead_species"])) == _to_id(opponent_species)
-        key = (opponent_species, tuple(revealed), is_lead)
+        key = (opponent_species, tuple(revealed), is_lead, opponent_level)
         if key not in cache:
             try:
                 cache[key] = _sample_worlds(
