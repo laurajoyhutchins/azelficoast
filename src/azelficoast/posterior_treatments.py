@@ -134,6 +134,8 @@ def generator_faithful_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
             "generator_matches": matches,
             "preserves_joint_hidden_worlds": True,
             "weight_rule": "normalized transition-oracle generator mass",
+            "total_variation_from_generator_faithful": 0.0,
+            "changed_world_weight_count": 0,
         },
     )
 
@@ -167,6 +169,17 @@ def practical_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
             approximated.append(row)
 
     approximated.sort(key=lambda world: str(world["world_id"]))
+    original_by_id = {
+        str(world["world_id"]): float(world["weight"]) for world in worlds
+    }
+    total_variation = 0.5 * sum(
+        abs(float(world["weight"]) - original_by_id[str(world["world_id"])])
+        for world in approximated
+    )
+    changed_world_weight_count = sum(
+        abs(float(world["weight"]) - original_by_id[str(world["world_id"])]) > 1e-15
+        for world in approximated
+    )
     return _artifact(
         oracle=oracle,
         treatment="practical",
@@ -176,6 +189,8 @@ def practical_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
             "generator_rounds": rounds,
             "preserves_joint_hidden_world_support": True,
             "preserves_item_marginal_mass": True,
+            "total_variation_from_generator_faithful": total_variation,
+            "changed_world_weight_count": changed_world_weight_count,
             "discarded_weight_structure": [
                 "ability-within-item frequency",
                 "EV/IV-within-item frequency",
