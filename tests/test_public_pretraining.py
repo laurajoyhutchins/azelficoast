@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
 import pytest
 
+from azelficoast.belief import public_pretraining
 from azelficoast.belief.public_pretraining import (
+    PinnedShowdownPublicPosteriorSource,
     PublicPretrainingError,
     build_public_pretraining_records,
     run_public_pretraining,
@@ -155,6 +158,82 @@ def test_public_pretraining_excludes_controls_from_another_showdown_revision(
             [trace],
             posterior_source=FakePosteriorSource(),
         )
+
+
+def test_public_posterior_source_reuses_generator_population_cache(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    revision = "a" * 40
+    showdown = tmp_path / "showdown"
+    (showdown / "dist" / "sim").mkdir(parents=True)
+    (showdown / "dist" / "sim" / "battle.js").write_text("", encoding="utf-8")
+    fixture = DecisionFixture(
+        fixture_id="fixture-cache",
+        state={"legal_actions": ["/choose move protect"]},
+        protocol_prefix=(),
+        control_decisions=(),
+    )
+    monkeypatch.setattr(
+        public_pretraining,
+        "build_probe_source",
+        lambda _fixture: (
+            {
+                "schema": "azelficoast.real-belief-source-fixture",
+                "schema_version": 1,
+                "fixture_id": fixture.fixture_id,
+                "showdown_commit": revision,
+                "fixture": fixture.as_record(),
+                "own_active_tera_type": "Steel",
+            },
+            "admitted",
+        ),
+    )
+
+    node_calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        if command[0] == "git":
+            return subprocess.CompletedProcess(command, 0, stdout=revision + "\n", stderr="")
+        node_calls.append(list(command))
+        event = "miss" if len(node_calls) == 1 else "hit"
+        posterior = {
+            "schema": "azelficoast.live-belief-posterior",
+            "schema_version": 1,
+            "source_fixture_id": fixture.fixture_id,
+            "showdown_commit": revision,
+            "conditioned_on_public_history": True,
+            "realized_hidden_state_revealed": False,
+            "treatment": "generator_faithful",
+            "legal_actions": list(fixture.legal_actions),
+            "worlds": [{"world_id": "same", "weight": 1.0, "hidden": {}}],
+        }
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(posterior),
+            stderr=f"azelficoast-generator-cache:{event}:cache-key\n",
+        )
+
+    monkeypatch.setattr(public_pretraining.subprocess, "run", fake_run)
+    source = PinnedShowdownPublicPosteriorSource(showdown)
+    cache_root = source.generator_cache_root
+    try:
+        first = source.posterior(fixture)
+        second = source.posterior(fixture)
+        assert first == second
+        assert source.cache_stats() == {
+            "posterior_probe_count": 2,
+            "generator_population_cache_hit_count": 1,
+            "generator_population_cache_miss_count": 1,
+            "generator_population_count": 1,
+        }
+        assert all("--generator-cache-dir" in call for call in node_calls)
+        assert all(str(cache_root) in call for call in node_calls)
+    finally:
+        source.close()
+
+    assert not cache_root.exists()
 
 
 def test_public_pretraining_refuses_to_replace_existing_promoted_evaluator(
