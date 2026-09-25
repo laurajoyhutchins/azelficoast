@@ -16,10 +16,17 @@ from poke_env.player import MaxBasePowerPlayer, Player, RandomPlayer, SimpleHeur
 
 from azelficoast.belief.coverage import summarize_traces
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
+from azelficoast.belief.battle_promotion import (
+    BattlePromotionPolicy,
+    CANDIDATE_PRIMARY_MODE,
+    INCUMBENT_PRIMARY_MODE,
+    settle_battle_panel,
+)
 from azelficoast.belief.improvement import (
     VALUE_TARGET_SOURCES,
     AdmissionPolicy,
     improve_checkpoint,
+    promote_deferred_candidate,
 )
 from azelficoast.belief.public_pretraining import run_public_pretraining
 from azelficoast.belief.self_improvement import run_self_improvement_cycle
@@ -67,6 +74,20 @@ def _unit_float(value: str) -> float:
     parsed = float(value)
     if not 0.0 <= parsed <= 1.0:
         raise argparse.ArgumentTypeError("must be within [0, 1]")
+    return parsed
+
+
+def _open_unit_float(value: str) -> float:
+    parsed = float(value)
+    if not 0.0 < parsed < 1.0:
+        raise argparse.ArgumentTypeError("must be within (0, 1)")
+    return parsed
+
+
+def _positive_even_int(value: str) -> int:
+    parsed = _positive_int(value)
+    if parsed % 2 != 0:
+        raise argparse.ArgumentTypeError("must be even")
     return parsed
 
 
@@ -513,6 +534,18 @@ def _build_parser() -> argparse.ArgumentParser:
             "because mined teacher states are searched offline after generation"
         ),
     )
+    training_auto.add_argument(
+        "--promotion-battles",
+        type=_positive_even_int,
+        default=32,
+        help="side-balanced candidate-vs-incumbent battles required before promotion",
+    )
+    training_auto.add_argument(
+        "--promotion-alpha",
+        type=_open_unit_float,
+        default=0.10,
+        help="maximum one-sided exact superiority p-value for battle promotion",
+    )
     training_auto.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_auto.add_argument(
         "--max-teacher-fixtures",
@@ -713,7 +746,13 @@ def _live_player(
     )
 
 
-def _append_results(player: Player, path: Path, mode: str) -> None:
+def _append_results(
+    player: Player,
+    path: Path,
+    mode: str,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
     with path.open("a", encoding="utf-8") as handle:
         for battle in player.battles.values():
             record = {
@@ -727,6 +766,7 @@ def _append_results(player: Player, path: Path, mode: str) -> None:
                 "lost": battle.lost,
                 "rating": battle.rating,
                 "opponent_rating": battle.opponent_rating,
+                **(dict(metadata) if metadata is not None else {}),
             }
             handle.write(json.dumps(record, sort_keys=True) + "\n")
 
@@ -761,6 +801,7 @@ async def _run_local(
     trace_source: Mapping[str, Any] | None = None,
     mode: str = "local",
     print_summary: bool = True,
+    result_metadata: Mapping[str, Any] | None = None,
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
@@ -779,7 +820,7 @@ async def _run_local(
             max_concurrent_battles=concurrency,
         )
     await player.battle_against(opponent, n_battles=battles)
-    _append_results(player, results, mode=mode)
+    _append_results(player, results, mode=mode, metadata=result_metadata)
     if print_summary:
         _print_summary(player)
 
