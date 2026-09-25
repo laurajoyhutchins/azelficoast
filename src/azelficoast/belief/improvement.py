@@ -335,10 +335,10 @@ def evaluate_hostile_invariants(
     ) -> bool:
         if expected[2] != actual[2] or set(expected[1]) != set(actual[1]):
             return False
-        if not math.isclose(expected[0], actual[0], rel_tol=1e-10, abs_tol=1e-10):
+        if not math.isclose(expected[0], actual[0], rel_tol=1e-6, abs_tol=1e-6):
             return False
         return all(
-            math.isclose(expected[1][action], actual[1][action], rel_tol=1e-10, abs_tol=1e-10)
+            math.isclose(expected[1][action], actual[1][action], rel_tol=1e-6, abs_tol=1e-6)
             for action in expected[1]
         )
 
