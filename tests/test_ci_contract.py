@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import tarfile
 from pathlib import Path
 
 
@@ -110,11 +113,27 @@ def test_repository_evidence_replaces_historical_artifact_runtime_dependencies()
     assert bundle.is_file()
     assert action.is_file()
 
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    expected_digest = document["bundle"]["sha256"]
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == expected_digest
+
+    required_paths = set(document["bundle"]["required_paths"])
+    assert required_paths
+    with tarfile.open(bundle, "r:gz") as archive:
+        members = {
+            member.name
+            for member in archive.getmembers()
+            if member.isfile()
+        }
+    assert required_paths <= members, sorted(required_paths - members)
+
     action_source = action.read_text(encoding="utf-8")
     assert "canonical-evidence.json" in action_source
     assert "canonical-evidence.tar.gz" in action_source
     assert "sha256sum" in action_source
     assert "tar -xzf" in action_source
+    assert "required_paths" in action_source
+    assert "canonical research evidence is incomplete" in action_source
 
     for path in sorted(WORKFLOWS.glob("*.yml")):
         source = path.read_text(encoding="utf-8")
