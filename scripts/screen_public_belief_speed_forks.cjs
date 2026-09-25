@@ -83,6 +83,8 @@ function compatibleVariants(candidate, fixture, rounds = 512) {
       item: set.item || "",
       level: set.level,
       moves: [...set.moves],
+      evs: {...set.evs},
+      ivs: {...set.ivs},
       role: set.role || "",
       teraType: set.teraType || null,
     };
@@ -107,8 +109,8 @@ function pokemonSet(snapshot, overrides = {}) {
     item: overrides.item ?? snapshot.item ?? "",
     moves: overrides.moves || snapshot.moves,
     nature: "Serious",
-    evs: EVS,
-    ivs: IVS,
+    evs: overrides.evs || EVS,
+    ivs: overrides.ivs || IVS,
   };
 }
 
