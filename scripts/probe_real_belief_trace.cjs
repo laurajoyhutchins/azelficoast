@@ -110,6 +110,7 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.evs",
   "opponent.active.ivs",
   "opponent.active.exact_hp",
+  "opponent.active.tera_type",
 ];
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
 
@@ -380,8 +381,11 @@ function normalizedOpponentPolicy() {
       if (configured.weighting !== "equal-active-strategies") {
         fail("strategy-mixture requires equal-active-strategies weighting");
       }
-      if (configured.voluntary_switches === true) {
-        fail("strategy-mixture does not yet model voluntary switches");
+      if (
+        configured.voluntary_switches != null &&
+        typeof configured.voluntary_switches !== "boolean"
+      ) {
+        fail("strategy-mixture voluntary_switches must be boolean");
       }
       if (!Array.isArray(configured.strategies) || !configured.strategies.length) {
         fail("strategy-mixture requires at least one strategy");
@@ -417,7 +421,7 @@ function normalizedOpponentPolicy() {
         kind,
         weighting: "equal-active-strategies",
         strategies,
-        voluntary_switches: false,
+        voluntary_switches: configured.voluntary_switches === true,
       };
     }
     fail("unsupported opponent_policy kind " + kind);
@@ -437,7 +441,7 @@ function normalizedOpponentPolicy() {
     kind: "strategy-mixture",
     weighting: "equal-active-strategies",
     strategies,
-    voluntary_switches: false,
+    voluntary_switches: true,
   };
 }
 
@@ -710,6 +714,13 @@ function opponentTeamSize() {
   return size;
 }
 
+function publicOpponentView(speciesName) {
+  const species = toID(speciesName);
+  return Object.values(fixture.state.opponent_team || {}).find(
+    view => toID(view && view.species) === species
+  ) || null;
+}
+
 function opponentBenchSpecies() {
   if (source.opponent_bench_species) return String(source.opponent_bench_species);
 
@@ -939,6 +950,18 @@ function applyFixtureState(battle, world) {
   opponent.status =
     opponentStatus && opponentStatus !== "FNT" ? toID(opponentStatus) : "";
 
+  for (const bench of battle.p2.pokemon.filter(pokemon => !pokemon.active)) {
+    const view = publicOpponentView(bench.species.name);
+    if (!view) continue;
+    const hpFraction = Number(view.hp_fraction);
+    if (Number.isFinite(hpFraction) && Math.abs(hpFraction - 1) <= 1e-12) {
+      bench.hp = bench.maxhp;
+    }
+    const status = view.status;
+    bench.status =
+      status && status !== "FNT" ? toID(status) : "";
+  }
+
   for (const condition of Object.keys(fixture.state.side_conditions || {})) {
     battle.p1.addSideCondition(toID(condition), "debug");
   }
@@ -1060,6 +1083,16 @@ function instrumentOpponentHiddenReads(battle) {
   trackDataProperty(pokemon, "item", ["opponent.active.item"]);
   trackDataProperty(pokemon, "ability", ["opponent.active.ability"]);
   trackDataProperty(pokemon, "hp", ["opponent.active.exact_hp"]);
+  trackDataProperty(
+    pokemon,
+    "teraType",
+    ["opponent.active.tera_type"]
+  );
+  trackDataProperty(
+    pokemon,
+    "canTerastallize",
+    ["opponent.active.tera_type"]
+  );
   trackDataProperty(
     pokemon,
     "maxhp",
@@ -1190,6 +1223,51 @@ function moveDamageHeuristic(battle, moveId) {
   );
 }
 
+function maybeTeraDamageDistribution(battle, distribution) {
+  const attacker = battle.p2.active[0];
+  const defender = battle.p1.active[0];
+  const teraType = attacker && attacker.canTerastallize;
+  if (!attacker || !defender || !teraType) return distribution;
+
+  const threatTypes = [...new Set(
+    (defender.moveSlots || [])
+      .map(slot => battle.dex.moves.get(slot.id || slot.move))
+      .filter(move => move.exists && move.category !== "Status")
+      .map(move => move.type)
+  )];
+  if (!threatTypes.length) return distribution;
+  const currentWorst = Math.max(
+    ...threatTypes.map(type =>
+      battle.dex.getImmunity(type, attacker)
+        ? 2 ** battle.dex.getEffectiveness(type, attacker)
+        : 0
+    )
+  );
+  const teraWorst = Math.max(
+    ...threatTypes.map(type =>
+      battle.dex.getImmunity(type, String(teraType))
+        ? 2 ** battle.dex.getEffectiveness(type, String(teraType))
+        : 0
+    )
+  );
+
+  return distribution.flatMap(row => {
+    const moveId = String(row.choice).replace(/^move\s+/, "");
+    const move = battle.dex.moves.get(moveId);
+    const offensive = move.exists && toID(move.type) === toID(teraType);
+    const defensive = teraWorst + 1e-12 < currentWorst;
+    if (!offensive && !defensive) return [row];
+    return [
+      {...row, probability: row.probability * 0.5},
+      {
+        choice: row.choice + " terastallize",
+        probability: row.probability * 0.5,
+        mode: row.mode + "-tera",
+      },
+    ];
+  });
+}
+
 function maxDamageDistribution(battle, legalMoves) {
   const scored = legalMoves.map(move => ({
     move,
@@ -1197,7 +1275,99 @@ function maxDamageDistribution(battle, legalMoves) {
   }));
   const best = Math.max(...scored.map(row => row.score));
   if (!(best > 0)) return uniformMoveDistribution(legalMoves, "max-damage-fallback");
-  return exactTieDistribution(scored, "max-damage");
+  return maybeTeraDamageDistribution(
+    battle,
+    exactTieDistribution(scored, "max-damage")
+  );
+}
+
+function matchupPressure(battle, attacker, defender) {
+  const offensive = Math.max(
+    ...attacker.getTypes().map(type =>
+      battle.dex.getImmunity(type, defender)
+        ? 2 ** battle.dex.getEffectiveness(type, defender)
+        : 0
+    )
+  );
+  const defensive = Math.max(
+    ...defender.getTypes().map(type =>
+      battle.dex.getImmunity(type, attacker)
+        ? 2 ** battle.dex.getEffectiveness(type, attacker)
+        : 0
+    )
+  );
+  const attackerSpeed = Number(attacker.species?.baseStats?.spe || 0);
+  const defenderSpeed = Number(defender.species?.baseStats?.spe || 0);
+  const speed = attackerSpeed > defenderSpeed ? 0.1 : attackerSpeed < defenderSpeed ? -0.1 : 0;
+  const publicView = publicOpponentView(attacker.species?.name);
+  const publicHp = Number(publicView && publicView.hp_fraction);
+  const hp = Number.isFinite(publicHp)
+    ? publicHp
+    : attacker.maxhp > 0
+      ? attacker.hp / attacker.maxhp
+      : 0;
+  return offensive - defensive + speed + 0.4 * hp;
+}
+
+function legalOpponentSwitches(battle) {
+  const request = battle.p2.activeRequest;
+  if (
+    !OPPONENT_POLICY.voluntary_switches ||
+    !request ||
+    !request.active ||
+    request.active[0]?.trapped
+  ) {
+    return [];
+  }
+  return battle.p2.pokemon
+    .filter(pokemon => {
+      if (pokemon.hp <= 0 || pokemon.active) return false;
+      const view = publicOpponentView(pokemon.species.name);
+      if (!view || view.fainted) return false;
+      const hpFraction = Number(view.hp_fraction);
+      // Full health has one exact public interpretation. Damaged bench HP is still
+      // percentage-censored and needs its own posterior before it can be switched in
+      // without inventing an exact value.
+      return Number.isFinite(hpFraction) && Math.abs(hpFraction - 1) <= 1e-12;
+    })
+    .map(pokemon => ({
+      pokemon,
+      choice: `switch ${pokemon.position + 1}`,
+    }))
+    .sort((left, right) => left.choice.localeCompare(right.choice));
+}
+
+function voluntarySwitchDistribution(battle, legalSwitches, mode, {urgent = false} = {}) {
+  if (!legalSwitches.length) return null;
+  const active = battle.p2.active[0];
+  const defender = battle.p1.active[0];
+  if (!active || !defender) return null;
+
+  const activeScore = matchupPressure(battle, active, defender);
+  const activeBoosts = active.boosts || {};
+  const deeplyDropped =
+    Number(activeBoosts.def || 0) <= -3 ||
+    Number(activeBoosts.spd || 0) <= -3 ||
+    Number(activeBoosts.atk || 0) <= -3 ||
+    Number(activeBoosts.spa || 0) <= -3;
+
+  const scored = legalSwitches.map(row => ({
+    ...row,
+    score: matchupPressure(battle, row.pokemon, defender),
+  }));
+  const best = Math.max(...scored.map(row => row.score));
+  const shouldSwitch =
+    urgent ||
+    deeplyDropped ||
+    (activeScore < -0.75 && best >= activeScore + 0.75);
+  if (!shouldSwitch) return null;
+
+  const choices = scored
+    .filter(row => Math.abs(row.score - best) <= 1e-12)
+    .map(row => row.choice)
+    .sort();
+  const probability = 1 / choices.length;
+  return choices.map(choice => ({choice, probability, mode}));
 }
 
 const HAZARD_MOVES = new Map([
@@ -1208,12 +1378,19 @@ const HAZARD_MOVES = new Map([
 ]);
 const HAZARD_REMOVAL_MOVES = new Set(["defog", "rapidspin"]);
 
-function simpleHeuristicsDistribution(battle, legalMoves) {
+function simpleHeuristicsDistribution(battle, legalMoves, legalSwitches) {
   const attacker = battle.p2.active[0];
   const defender = battle.p1.active[0];
   if (!attacker || !defender) {
     return uniformMoveDistribution(legalMoves, "simple-heuristics-fallback");
   }
+
+  const voluntarySwitch = voluntarySwitchDistribution(
+    battle,
+    legalSwitches,
+    "simple-heuristics-switch"
+  );
+  if (voluntarySwitch) return voluntarySwitch;
 
   const moveObjects = legalMoves.map(move => battle.dex.moves.get(move));
 
@@ -1321,7 +1498,7 @@ function moveCanInflictMajorStatus(move) {
   return false;
 }
 
-function dirtyTricksDistribution(battle, legalMoves) {
+function dirtyTricksDistribution(battle, legalMoves, legalSwitches) {
   const attacker = battle.p2.active[0];
   const defender = battle.p1.active[0];
   if (!attacker || !defender) {
@@ -1343,6 +1520,15 @@ function dirtyTricksDistribution(battle, legalMoves) {
     );
     if (antiSetup) return antiSetup;
   }
+
+  const activeHpFraction = attacker.maxhp > 0 ? attacker.hp / attacker.maxhp : 0;
+  const voluntarySwitch = voluntarySwitchDistribution(
+    battle,
+    legalSwitches,
+    "dirty-tricks-switch",
+    {urgent: activeHpFraction <= 0.25}
+  );
+  if (voluntarySwitch) return voluntarySwitch;
 
   const defenderHpFraction = defender.maxhp > 0 ? defender.hp / defender.maxhp : 1;
   if (defenderHpFraction <= 0.35) {
@@ -1416,18 +1602,18 @@ function repeatObservedDistribution(strategy, legalMoves) {
   }];
 }
 
-function strategyDistribution(battle, legalMoves, strategy) {
+function strategyDistribution(battle, legalMoves, legalSwitches, strategy) {
   if (strategy.kind === "uniform-legal-moves") {
     return uniformMoveDistribution(legalMoves, "uniform-legal-moves");
   }
   if (strategy.kind === "dirty-tricks") {
-    return dirtyTricksDistribution(battle, legalMoves);
+    return dirtyTricksDistribution(battle, legalMoves, legalSwitches);
   }
   if (strategy.kind === "max-damage") {
     return maxDamageDistribution(battle, legalMoves);
   }
   if (strategy.kind === "simple-heuristics") {
-    return simpleHeuristicsDistribution(battle, legalMoves);
+    return simpleHeuristicsDistribution(battle, legalMoves, legalSwitches);
   }
   if (strategy.kind === "repeat-observed-move") {
     return repeatObservedDistribution(strategy, legalMoves);
@@ -1435,10 +1621,15 @@ function strategyDistribution(battle, legalMoves, strategy) {
   fail("unsupported normalized opponent strategy " + strategy.kind);
 }
 
-function equalStrategyMixture(battle, legalMoves) {
+function equalStrategyMixture(battle, legalMoves, legalSwitches) {
   const active = [];
   for (const strategy of OPPONENT_POLICY.strategies) {
-    const distribution = strategyDistribution(battle, legalMoves, strategy);
+    const distribution = strategyDistribution(
+      battle,
+      legalMoves,
+      legalSwitches,
+      strategy
+    );
     if (distribution && distribution.length) {
       active.push({strategy, distribution});
     }
@@ -1503,6 +1694,7 @@ function opponentActionDistribution(battle, hiddenReads = null) {
       .filter(Boolean)
   )].sort();
   if (!legalMoves.length) fail("opponent policy found no legal move choices");
+  const legalSwitches = legalOpponentSwitches(battle);
 
   if (hiddenReads) {
     hiddenReads.add("opponent.active.moves");
@@ -1510,6 +1702,10 @@ function opponentActionDistribution(battle, hiddenReads = null) {
       hiddenReads.add("opponent.active.evs");
       hiddenReads.add("opponent.active.ivs");
       hiddenReads.add("opponent.active.exact_hp");
+      hiddenReads.add("opponent.active.tera_type");
+      if (legalSwitches.length && BENCH_PRIOR) {
+        hiddenReads.add(BENCH_FACTOR_FIELD);
+      }
     }
   }
 
@@ -1517,7 +1713,7 @@ function opponentActionDistribution(battle, hiddenReads = null) {
     return uniformMoveDistribution(legalMoves, "uniform-legal-moves");
   }
   if (OPPONENT_POLICY.kind === "strategy-mixture") {
-    return equalStrategyMixture(battle, legalMoves);
+    return equalStrategyMixture(battle, legalMoves, legalSwitches);
   }
   fail("unsupported normalized opponent policy " + OPPONENT_POLICY.kind);
 }
