@@ -58,27 +58,37 @@ def test_expensive_pr_workflows_only_run_for_candidate_heads() -> None:
     assert checked, "expected at least one candidate-only research workflow"
 
 
-def test_python_workflows_use_locked_dependency_resolution() -> None:
+def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
+    source = (
+        ROOT / ".github" / "actions" / "setup-python-environment" / "action.yml"
+    ).read_text(encoding="utf-8")
+
+    assert "uses: actions/setup-python@v7" in source
+    assert 'python-version: "3.13"' in source
+    assert "python -m pip install uv==0.12.18" in source
+    assert "uv sync --locked" in source
+    assert "uv sync --locked --extra simulator" in source
+
+
+def test_uv_managed_workflows_use_shared_python_environment() -> None:
     checked: list[str] = []
 
     for path in sorted(WORKFLOWS.glob("*.yml")):
         source = path.read_text(encoding="utf-8")
-        if "uv sync" not in source:
+        if "uv run" not in source:
             continue
 
-        assert "python -m pip install uv==0.12.18" in source, (
-            f"{path.name} must pin the CI uv bootstrap"
+        assert "uses: ./.github/actions/setup-python-environment" in source, (
+            f"{path.name} must use the shared Python environment setup"
         )
+        assert "actions/setup-python@v7" not in source
+        assert "pip install uv" not in source
+        assert "uv sync --locked" not in source
 
-        sync_lines = [
-            line.strip()
-            for line in source.splitlines()
-            if "uv sync" in line
-        ]
-        assert sync_lines, f"{path.name} must contain a uv sync command"
-        assert all("--locked" in line for line in sync_lines), (
-            f"{path.name} must install only from the committed uv lock: {sync_lines!r}"
-        )
+        if path.name != "ci.yml" and "    paths:\n" in source:
+            assert '- ".github/actions/setup-python-environment/action.yml"' in source, (
+                f"{path.name} must rerun when shared Python setup changes"
+            )
 
         if '- "pyproject.toml"' in source:
             assert '- "uv.lock"' in source, (
