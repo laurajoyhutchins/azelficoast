@@ -450,6 +450,11 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
         "root_snapshot_builds": 2,
         "saved_root_snapshot_builds": 3,
         "transition_execution_cache_hits": 4,
+        "exact_transition_execution_cache_hits": 1,
+        "public_projection_cache_hits": 3,
+        "public_root_dependency_schema": 1,
+        "public_read_fields": ["battle.turn", "p1.pokemon.0.hp"],
+        "public_trace_incomplete_executions": 0,
         "transition_execution_cache_misses": 5,
         "fresh_showdown_turn_executions": 6,
         "reused_showdown_turn_executions": 7,
@@ -469,6 +474,14 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.diagnostics["root_snapshot_builds"] == 2
     assert result.diagnostics["saved_root_snapshot_builds"] == 3
     assert result.diagnostics["transition_execution_cache_hits"] == 4
+    assert result.diagnostics["exact_transition_execution_cache_hits"] == 1
+    assert result.diagnostics["public_projection_cache_hits"] == 3
+    assert result.diagnostics["public_root_dependency_schema"] == 1
+    assert result.diagnostics["public_read_fields"] == [
+        "battle.turn",
+        "p1.pokemon.0.hp",
+    ]
+    assert result.diagnostics["public_trace_incomplete_executions"] == 0
     assert result.diagnostics["transition_execution_cache_misses"] == 5
     assert result.diagnostics["fresh_showdown_turn_executions"] == 6
     assert result.diagnostics["reused_showdown_turn_executions"] == 7

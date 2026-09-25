@@ -543,6 +543,19 @@ def transition_program_belief_result(
             "transition_execution_cache_hits": producer_diagnostics.get(
                 "transition_execution_cache_hits"
             ),
+            "exact_transition_execution_cache_hits": producer_diagnostics.get(
+                "exact_transition_execution_cache_hits"
+            ),
+            "public_projection_cache_hits": producer_diagnostics.get(
+                "public_projection_cache_hits"
+            ),
+            "public_root_dependency_schema": producer_diagnostics.get(
+                "public_root_dependency_schema"
+            ),
+            "public_read_fields": producer_diagnostics.get("public_read_fields"),
+            "public_trace_incomplete_executions": producer_diagnostics.get(
+                "public_trace_incomplete_executions"
+            ),
             "transition_execution_cache_misses": producer_diagnostics.get(
                 "transition_execution_cache_misses"
             ),

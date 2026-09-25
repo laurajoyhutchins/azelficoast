@@ -72,6 +72,25 @@ actions do not rebuild the same battle. Cache hit, miss, fresh-turn, reused-turn
 root-snapshot counts are emitted as producer diagnostics so latency improvements remain
 separate from scientific transition/evaluator counts.
 
+The worker also maintains a second, independently bounded public-projection cache.
+Before an execution is admitted there, the probe wraps a conservative surface of mutable
+Battle and Pokemon fields and records every read made by the opponent policy, Showdown
+turn execution, and public successor construction. The cache key retains a normalized
+post-restart Showdown state with only those traceable fields masked. Non-traceable state,
+derived requests, queues, effect state, move slots, and every other simulator byte remain
+part of the static identity.
+
+A projection entry is eligible only when its read trace was complete and every field read
+by the original execution has the same value in the new root. If a property cannot be
+instrumented, the execution is ineligible for projection reuse. Showdown's wall-clock
+`|t:|` log metadata is normalized before exact-root hashing because it is explicitly
+excluded from battle semantics and from emitted observations.
+
+The two caches have separate limits:
+`AZELFICOAST_SHOWDOWN_TRANSITION_CACHE_ENTRIES` controls exact normalized-root reuse,
+while `AZELFICOAST_SHOWDOWN_PUBLIC_PROJECTION_CACHE_ENTRIES` controls traced projection
+reuse. Both default to 512 entries.
+
 ### The owned compiler owns small exact integer kernels
 
 The custom compiler is deliberately a tiny lowering from an explicitly supported Python

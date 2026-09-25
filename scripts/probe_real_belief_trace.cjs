@@ -113,6 +113,55 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.tera_type",
 ];
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
+const PUBLIC_ROOT_DEPENDENCY_SCHEMA = 1;
+const PUBLIC_BATTLE_CANDIDATES = [
+  "turn",
+  "requestState",
+  "midTurn",
+  "lastDamage",
+  "lastMoveLine",
+  "lastSuccessfulMoveThisTurn",
+  "quickClawRoll",
+];
+const PUBLIC_POKEMON_CANDIDATES = [
+  "hp",
+  "status",
+  "boosts",
+  "fainted",
+  "usedItemThisTurn",
+  "ateBerry",
+  "itemKnockedOff",
+  "trapped",
+  "maybeTrapped",
+  "maybeDisabled",
+  "maybeLocked",
+  "transformed",
+  "switchFlag",
+  "forceSwitchFlag",
+  "draggedIn",
+  "newlySwitched",
+  "beingCalledBack",
+  "moveThisTurn",
+  "statsRaisedThisTurn",
+  "statsLoweredThisTurn",
+  "hurtThisTurn",
+  "lastDamage",
+  "timesAttacked",
+  "isActive",
+  "activeTurns",
+  "activeMoveActions",
+  "previouslySwitchedIn",
+  "truantTurn",
+  "bondTriggered",
+  "heroMessageDisplayed",
+  "swordBoost",
+  "shieldBoost",
+  "syrupTriggered",
+  "isStarted",
+  "duringMove",
+  "speed",
+  "canTerastallize",
+];
 
 const actualCommit = execFileSync(
   "git",
@@ -197,6 +246,7 @@ function loadBenchPrior() {
 
 const common = require(path.join(showdownRoot, "test", "common.js"));
 const {Battle, extractChannelMessages} = require(path.join(showdownRoot, "dist", "sim", "battle.js"));
+const {State} = require(path.join(showdownRoot, "dist", "sim", "state.js"));
 const {Teams} = require(path.join(showdownRoot, "dist", "sim", "teams.js"));
 const randomSets = require(
   path.join(showdownRoot, "data", "random-battles", "gen9", "sets.json")
@@ -1119,6 +1169,77 @@ function instrumentOpponentHiddenReads(battle) {
   };
 }
 
+function instrumentPublicRootReads(battle) {
+  const reads = new Set();
+  const restorers = [];
+  let complete = true;
+
+  function trackDataProperty(object, key, field) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (
+      !descriptor ||
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      descriptor.configurable === false
+    ) {
+      complete = false;
+      return;
+    }
+
+    let value = descriptor.value;
+    Object.defineProperty(object, key, {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get() {
+        reads.add(field);
+        return value;
+      },
+      set(next) {
+        if (descriptor.writable === false) {
+          throw new TypeError("cannot write instrumented read-only property " + field);
+        }
+        value = next;
+      },
+    });
+    restorers.push(() => {
+      Object.defineProperty(object, key, {
+        ...descriptor,
+        value,
+      });
+    });
+  }
+
+  for (const key of PUBLIC_BATTLE_CANDIDATES) {
+    trackDataProperty(battle, key, "battle." + key);
+  }
+  for (const [sideIndex, side] of battle.sides.entries()) {
+    const sideId = "p" + String(sideIndex + 1);
+    for (const [pokemonIndex, pokemon] of side.pokemon.entries()) {
+      for (const key of PUBLIC_POKEMON_CANDIDATES) {
+        trackDataProperty(
+          pokemon,
+          key,
+          sideId + ".pokemon." + String(pokemonIndex) + "." + key
+        );
+      }
+    }
+  }
+
+  let restored = false;
+  return {
+    reads() {
+      return [...reads].sort();
+    },
+    complete() {
+      return complete;
+    },
+    restore() {
+      if (restored) return;
+      restored = true;
+      for (const restore of restorers.reverse()) restore();
+    },
+  };
+}
+
 function rootChoice(action) {
   if (!action.startsWith("/choose ")) fail(`unexpected root action ${action}`);
   return action.slice("/choose ".length);
@@ -1718,12 +1839,27 @@ function opponentActionDistribution(battle, hiddenReads = null) {
   fail("unsupported normalized opponent policy " + OPPONENT_POLICY.kind);
 }
 
-function opponentDistributionForSnapshot(snapshot, hiddenReads = null) {
+function opponentDistributionForSnapshot(
+  snapshot,
+  hiddenReads = null,
+  publicReads = null,
+  publicTraceState = null
+) {
   const probe = Battle.fromJSON(snapshot);
   probe.restart(() => {});
-  const distribution = opponentActionDistribution(probe, hiddenReads);
-  probe.destroy();
-  return distribution;
+  const publicTrace = publicReads ? instrumentPublicRootReads(probe) : null;
+  try {
+    return opponentActionDistribution(probe, hiddenReads);
+  } finally {
+    if (publicTrace) {
+      for (const field of publicTrace.reads()) publicReads.add(field);
+      if (publicTraceState && !publicTrace.complete()) {
+        publicTraceState.complete = false;
+      }
+      publicTrace.restore();
+    }
+    probe.destroy();
+  }
 }
 
 function observation(battle, logStart) {
@@ -2141,8 +2277,15 @@ function immediateWholeTurn(world, action, baseSnapshot = null) {
 
   const outcomes = [];
   const reads = new Set();
+  const publicReads = new Set();
+  const publicTraceState = {complete: true};
   const policyReads = new Set();
-  const responses = opponentDistributionForSnapshot(rootSnapshot, policyReads);
+  const responses = opponentDistributionForSnapshot(
+    rootSnapshot,
+    policyReads,
+    publicReads,
+    publicTraceState
+  );
   for (const field of policyReads) reads.add(field);
 
   for (const [responseIndex, response] of responses.entries()) {
@@ -2152,28 +2295,40 @@ function immediateWholeTurn(world, action, baseSnapshot = null) {
         seed(i, 1_000 + legalActions.indexOf(action) + responseIndex * 4099)
       );
       const logStart = battle.log.length;
-      const readTrace = instrumentOpponentHiddenReads(battle);
+      const hiddenTrace = instrumentOpponentHiddenReads(battle);
+      const publicTrace = instrumentPublicRootReads(battle);
+      let transitionReads;
+      let outcome;
       try {
-        battle.makeChoices(rootChoice(action), response.choice);
+        try {
+          battle.makeChoices(rootChoice(action), response.choice);
+        } finally {
+          hiddenTrace.restore();
+        }
+        transitionReads = [
+          ...new Set([...policyReads, ...hiddenTrace.reads()]),
+        ].sort();
+        for (const field of transitionReads) reads.add(field);
+        outcome = {
+          probability: response.probability / ROOT_CHANCE_SAMPLES,
+          observation: observation(battle, logStart),
+          successor: stateSummary(battle, world),
+          legal_actions: battle.ended
+            ? ["<terminal>"]
+            : battle.p1.activeRequest?.wait
+              ? ["<wait>"]
+              : legalP1Continuations(battle),
+          transition_reads: transitionReads,
+          opponent_action: response.choice,
+          opponent_policy_mode: response.mode,
+        };
+        for (const field of publicTrace.reads()) publicReads.add(field);
+        if (!publicTrace.complete()) publicTraceState.complete = false;
       } finally {
-        readTrace.restore();
+        publicTrace.restore();
+        battle.destroy();
       }
-      const transitionReads = [...new Set([...policyReads, ...readTrace.reads()])].sort();
-      for (const field of transitionReads) reads.add(field);
-      outcomes.push({
-        probability: response.probability / ROOT_CHANCE_SAMPLES,
-        observation: observation(battle, logStart),
-        successor: stateSummary(battle, world),
-        legal_actions: battle.ended
-          ? ["<terminal>"]
-          : battle.p1.activeRequest?.wait
-            ? ["<wait>"]
-            : legalP1Continuations(battle),
-        transition_reads: transitionReads,
-        opponent_action: response.choice,
-        opponent_policy_mode: response.mode,
-      });
-      battle.destroy();
+      outcomes.push(outcome);
     }
   }
   const semantics = outcomes
@@ -2191,6 +2346,8 @@ function immediateWholeTurn(world, action, baseSnapshot = null) {
     opponent_action_branch_count: responses.length,
     showdown_turn_executions: outcomes.length,
     read_fields: [...reads].sort(),
+    public_read_fields: [...publicReads].sort(),
+    public_trace_complete: publicTraceState.complete,
     semantic_hash: sha256PythonCanonical(semantics),
   };
 }
@@ -2201,6 +2358,90 @@ function projectionKey(world, fields) {
 
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function publicRootMaterial(snapshot) {
+  const prepared = Battle.fromJSON(snapshot);
+  prepared.restart(() => {});
+  let state;
+  try {
+    state = JSON.parse(JSON.stringify(prepared));
+    state.__azelficoast_active_requests = prepared.sides.map(side =>
+      side.activeRequest == null ? side.activeRequest : cloneJson(side.activeRequest)
+    );
+  } finally {
+    prepared.destroy();
+  }
+
+  State.normalize(state);
+  const exactHash = sha256({
+    schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
+    state,
+  });
+  const masked = cloneJson(state);
+  const values = {};
+  let complete = true;
+  const markerValue = {"__azelficoast_public_dependency__": true};
+
+  function mask(object, key, field) {
+    if (
+      !object ||
+      typeof object !== "object" ||
+      !Object.prototype.hasOwnProperty.call(object, key)
+    ) {
+      complete = false;
+      return;
+    }
+    values[field] = cloneJson(object[key]);
+    object[key] = markerValue;
+  }
+
+  for (const key of PUBLIC_BATTLE_CANDIDATES) {
+    mask(masked, key, "battle." + key);
+  }
+  if (!Array.isArray(masked.sides)) {
+    complete = false;
+  } else {
+    for (let sideIndex = 0; sideIndex < masked.sides.length; sideIndex++) {
+      const side = masked.sides[sideIndex];
+      const sideId = "p" + String(sideIndex + 1);
+      if (!side || !Array.isArray(side.pokemon)) {
+        complete = false;
+        continue;
+      }
+      for (let pokemonIndex = 0; pokemonIndex < side.pokemon.length; pokemonIndex++) {
+        const pokemon = side.pokemon[pokemonIndex];
+        for (const key of PUBLIC_POKEMON_CANDIDATES) {
+          mask(
+            pokemon,
+            key,
+            sideId + ".pokemon." + String(pokemonIndex) + "." + key
+          );
+        }
+      }
+    }
+  }
+
+  return {
+    complete,
+    exact_hash: exactHash,
+    static_hash: sha256({
+      schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
+      state: masked,
+    }),
+    values,
+  };
+}
+
+function publicReadProjection(material, fields) {
+  const projection = [];
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(material.values, field)) {
+      return null;
+    }
+    projection.push([field, material.values[field]]);
+  }
+  return projection;
 }
 
 function counterfactualWorld(baseWorld, donorWorld, field) {
@@ -2263,10 +2504,23 @@ function executionWorldMaterial(world) {
   };
 }
 
-function executionWorldKey(world, action, baseSnapshot) {
+function executionWorldKey(world, action, rootMaterial) {
   return action + "\u0000" + sha256({
     showdown_commit: actualCommit,
-    root_snapshot_sha256: sha256(baseSnapshot),
+    normalized_root_sha256: rootMaterial.exact_hash,
+    world: executionWorldMaterial(world),
+    opponent_policy: OPPONENT_POLICY,
+    root_chance_samples: ROOT_CHANCE_SAMPLES,
+    chance_seed_family: CHANCE_SEED_FAMILY,
+    action_index: legalActions.indexOf(action),
+  });
+}
+
+function executionProjectionBaseKey(world, action, rootMaterial) {
+  return action + "\u0000" + sha256({
+    showdown_commit: actualCommit,
+    public_dependency_schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
+    static_root_sha256: rootMaterial.static_hash,
     world: executionWorldMaterial(world),
     opponent_policy: OPPONENT_POLICY,
     root_chance_samples: ROOT_CHANCE_SAMPLES,
@@ -2289,8 +2543,28 @@ function sharedTransitionExecutionCache() {
   return null;
 }
 
+function sharedTransitionProjectionCache() {
+  const cache = globalThis.__azelficoastTransitionProjectionCache;
+  if (
+    cache &&
+    typeof cache.get === "function" &&
+    typeof cache.set === "function" &&
+    typeof cache.delete === "function" &&
+    typeof cache.keys === "function" &&
+    typeof cache.values === "function"
+  ) {
+    return cache;
+  }
+  return null;
+}
+
 function sharedTransitionExecutionCacheLimit() {
   const raw = globalThis.__azelficoastTransitionExecutionCacheMaxEntries;
+  return Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
+}
+
+function sharedTransitionProjectionCacheLimit() {
+  const raw = globalThis.__azelficoastTransitionProjectionCacheMaxEntries;
   return Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
 }
 
@@ -2312,6 +2586,50 @@ function sharedCacheSet(cache, key, value) {
   }
 }
 
+function sharedProjectionCacheGet(cache, baseKey, material) {
+  for (const [key, entry] of [...cache.entries()].reverse()) {
+    if (!entry || entry.base_key !== baseKey) continue;
+    const projection = publicReadProjection(material, entry.read_fields || []);
+    if (projection === null) continue;
+    if (sha256(projection) !== entry.projection_sha256) continue;
+    cache.delete(key);
+    cache.set(key, entry);
+    return cloneJson(entry.execution);
+  }
+  return undefined;
+}
+
+function sharedProjectionCacheSet(cache, baseKey, material, execution) {
+  if (
+    !execution ||
+    execution.public_trace_complete !== true ||
+    !Array.isArray(execution.public_read_fields)
+  ) {
+    return false;
+  }
+  const projection = publicReadProjection(material, execution.public_read_fields);
+  if (projection === null) return false;
+  const entry = {
+    base_key: baseKey,
+    read_fields: [...execution.public_read_fields],
+    projection_sha256: sha256(projection),
+    execution: cloneJson(execution),
+  };
+  const key = sha256({
+    base_key: baseKey,
+    read_fields: entry.read_fields,
+    projection_sha256: entry.projection_sha256,
+  });
+  cache.delete(key);
+  cache.set(key, entry);
+  const limit = sharedTransitionProjectionCacheLimit();
+  while (limit > 0 && cache.size > limit) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
+  return true;
+}
+
 function compileLazyWholeTurnPrograms() {
   const orderedWorlds = [...worlds].sort((left, right) =>
     left.world_id.localeCompare(right.world_id)
@@ -2319,47 +2637,97 @@ function compileLazyWholeTurnPrograms() {
   const executionCache = new Map();
   const rootSnapshotCache = new Map();
   const sharedExecutionCache = sharedTransitionExecutionCache();
-  let sharedExecutionCacheHits = 0;
+  const sharedProjectionCache = sharedTransitionProjectionCache();
+  let exactExecutionCacheHits = 0;
+  let projectedExecutionCacheHits = 0;
   let sharedExecutionCacheMisses = 0;
+  let publicTraceIncompleteExecutions = 0;
   let rootSnapshotBuilds = 0;
+  let publicRootMaterialBuilds = 0;
   const programs = [];
 
-  function rootSnapshot(world) {
+  function rootRecord(world) {
     const key = sha256(executionWorldMaterial(world));
-    let snapshot = rootSnapshotCache.get(key);
-    if (snapshot === undefined) {
-      snapshot = rootSnapshotForWorld(world);
-      rootSnapshotCache.set(key, snapshot);
+    let record = rootSnapshotCache.get(key);
+    if (record === undefined) {
+      const snapshot = rootSnapshotForWorld(world);
+      const material = publicRootMaterial(snapshot);
+      record = {snapshot, material};
+      rootSnapshotCache.set(key, record);
       rootSnapshotBuilds++;
+      publicRootMaterialBuilds++;
     }
-    return snapshot;
+    return record;
   }
 
   function executeWorld(world, action, role) {
-    const baseSnapshot = rootSnapshot(world);
-    const key = executionWorldKey(world, action, baseSnapshot);
+    const root = rootRecord(world);
+    const key = executionWorldKey(world, action, root.material);
+    const projectionBaseKey = executionProjectionBaseKey(
+      world,
+      action,
+      root.material
+    );
     let record = executionCache.get(key);
     if (!record) {
       let execution;
       let reused = false;
+      let reuseKind = null;
+
       if (sharedExecutionCache !== null) {
         execution = sharedCacheGet(sharedExecutionCache, key);
         if (execution !== undefined) {
           reused = true;
-          sharedExecutionCacheHits++;
-        } else {
-          sharedExecutionCacheMisses++;
+          reuseKind = "exact";
+          exactExecutionCacheHits++;
         }
       }
+      if (
+        execution === undefined &&
+        root.material.complete &&
+        sharedProjectionCache !== null
+      ) {
+        execution = sharedProjectionCacheGet(
+          sharedProjectionCache,
+          projectionBaseKey,
+          root.material
+        );
+        if (execution !== undefined) {
+          reused = true;
+          reuseKind = "public-projection";
+          projectedExecutionCacheHits++;
+          if (sharedExecutionCache !== null) {
+            sharedCacheSet(sharedExecutionCache, key, execution);
+          }
+        }
+      }
+
       if (execution === undefined) {
-        execution = immediateWholeTurn(world, action, baseSnapshot);
+        sharedExecutionCacheMisses++;
+        execution = immediateWholeTurn(world, action, root.snapshot);
+        if (execution.public_trace_complete !== true) {
+          publicTraceIncompleteExecutions++;
+        }
         if (sharedExecutionCache !== null) {
           sharedCacheSet(sharedExecutionCache, key, execution);
         }
+        if (
+          root.material.complete &&
+          sharedProjectionCache !== null
+        ) {
+          sharedProjectionCacheSet(
+            sharedProjectionCache,
+            projectionBaseKey,
+            root.material,
+            execution
+          );
+        }
       }
+
       record = {
         execution,
         reused,
+        reuse_kind: reuseKind,
         roles: new Set(),
         synthetic: String(world.world_id).startsWith("counterfactual-"),
       };
@@ -2522,6 +2890,15 @@ function compileLazyWholeTurnPrograms() {
     (sum, row) => sum + row.execution.opponent_action_branch_count,
     0
   );
+  const publicReadFields = [
+    ...new Set(
+      cacheRows.flatMap(row =>
+        Array.isArray(row.execution.public_read_fields)
+          ? row.execution.public_read_fields
+          : []
+      )
+    ),
+  ].sort();
   const exhaustiveWorldActionProduct = worlds.length * legalActions.length;
 
   return {
@@ -2542,7 +2919,14 @@ function compileLazyWholeTurnPrograms() {
       class_representative_executions: classRepresentativeExecutions,
       root_snapshot_builds: rootSnapshotBuilds,
       saved_root_snapshot_builds: uniqueExecutions - rootSnapshotBuilds,
-      transition_execution_cache_hits: sharedExecutionCacheHits,
+      public_root_dependency_schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
+      public_root_material_builds: publicRootMaterialBuilds,
+      public_read_fields: publicReadFields,
+      public_trace_incomplete_executions: publicTraceIncompleteExecutions,
+      exact_transition_execution_cache_hits: exactExecutionCacheHits,
+      public_projection_cache_hits: projectedExecutionCacheHits,
+      transition_execution_cache_hits:
+        exactExecutionCacheHits + projectedExecutionCacheHits,
       transition_execution_cache_misses: sharedExecutionCacheMisses,
       opponent_action_branches: opponentActionBranches,
       showdown_turn_executions: showdownTurnExecutions,
