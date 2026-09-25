@@ -44,8 +44,15 @@ async function main() {
 
   const p1Read = collect(streams.p1);
   const p2Read = collect(streams.p2);
-  await streams.omniscient.write(inputlog);
-  await streams.omniscient.writeEnd();
+
+  // BattleStream flushes ordinary protocol updates after each write. Replay the
+  // authoritative input log command-by-command so side requests remain causally
+  // interleaved with the public state updates that make those requests meaningful.
+  for (const line of inputlog.split("\n")) {
+    if (!line) continue;
+    await stream.write(line);
+  }
+  await stream.writeEnd();
 
   const [p1, p2] = await Promise.all([p1Read, p2Read]);
   process.stdout.write(JSON.stringify({
