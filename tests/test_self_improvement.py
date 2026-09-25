@@ -292,3 +292,20 @@ def test_state_mining_spends_budget_across_battles_before_refilling() -> None:
     assert manifest["selected_decision_count"] == 2
     assert manifest["one_decision_per_battle"] is True
     assert manifest["kind"] == "public-evidence-debt-curriculum"
+
+
+
+def test_unbounded_state_mining_preserves_existing_cycle_population() -> None:
+    fixtures = [
+        _mining_fixture("a-one", "battle-a", status="search", margin=0.0),
+        _mining_fixture("a-two", "battle-a", status="search", margin=0.1),
+        _mining_fixture("b-one", "battle-b", status="selected", margin=0.9),
+    ]
+
+    selected, manifest = _mine_informative_fixtures(fixtures, max_fixtures=None)
+
+    assert selected == fixtures
+    assert manifest["kind"] == "all-public-decisions"
+    assert manifest["selected_fixture_count"] == 3
+    assert manifest["selected_decision_count"] == 3
+    assert manifest["one_decision_per_battle"] is False
