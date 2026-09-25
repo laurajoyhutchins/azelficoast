@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.32.4"]
 build-backend = "hatchling.build"
 
 [project]
@@ -21,8 +21,8 @@ azelficoast = "azelficoast.harness:main"
 
 [dependency-groups]
 dev = [
-  "pytest>=8,<9",
-  "ruff>=0.13,<0.14",
+  "pytest==9.1.1",
+  "ruff==0.16.9",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -34,3 +34,6 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.uv]
+required-version = "==0.12.18"
