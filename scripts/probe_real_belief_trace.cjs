@@ -40,7 +40,6 @@ if (posteriorOnly && transitionProgramOnly) {
   fail("--posterior-only and --transition-program-only are mutually exclusive");
 }
 
-const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
 const GENERATOR_ROUNDS = 2048;
 
 function environmentInteger(name, fallback, {min = 0} = {}) {
@@ -88,6 +87,15 @@ const DEPENDENCY_CANDIDATES = [
 ];
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
 
+const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
+  fail("unexpected source fixture schema");
+}
+const SHOWDOWN_COMMIT = String(source.showdown_commit || "");
+if (!/^[0-9a-f]{40}$/.test(SHOWDOWN_COMMIT)) {
+  fail("source fixture must bind an exact 40-hex Showdown revision");
+}
+
 const actualCommit = execFileSync(
   "git",
   ["-C", showdownRoot, "rev-parse", "HEAD"],
@@ -95,14 +103,6 @@ const actualCommit = execFileSync(
 ).trim();
 if (actualCommit !== SHOWDOWN_COMMIT) {
   fail(`expected Showdown ${SHOWDOWN_COMMIT}, got ${actualCommit}`);
-}
-
-const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
-if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
-  fail("unexpected source fixture schema");
-}
-if (source.showdown_commit !== SHOWDOWN_COMMIT) {
-  fail("source fixture is bound to a different Showdown revision");
 }
 const fixture = source.fixture || {
   fixture_id: source.fixture_id,
