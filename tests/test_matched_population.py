@@ -12,7 +12,7 @@ from azelficoast.matched_population import (
 def _plan() -> dict[str, object]:
     return {
         "schema": "azelficoast.matched-search-comparison-plan",
-        "schema_version": 1,
+        "schema_version": 2,
         "posterior_treatments": ["generator_faithful", "practical"],
         "compute_budget": {
             "unit": "transition_evaluations",
@@ -26,6 +26,14 @@ def _plan() -> dict[str, object]:
         ],
         "cluster_unit": "battle_tag",
         "showdown_commit": "pinned",
+        "evaluator": {
+            "schema": "azelficoast.belief-policy-value-evaluator",
+            "schema_version": 1,
+            "checkpoint_digest": "sha256:" + "a" * 64,
+            "observability": "public_belief_only",
+            "architecture": "weighted_deep_sets_policy_value",
+            "spec": {"hidden_width": 256},
+        },
         "inference": {
             "bootstrap_replicates": 20,
             "bootstrap_seed": 1729,
@@ -65,6 +73,9 @@ def _result(fixture: str, battle: str, treatment: str, depth: int) -> dict[str, 
             {
                 "method": "determinization",
                 "input_digest": packet["input_digest"],
+                "evaluator_digest": packet["evaluator_digest"],
+                "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+                "evaluator_calls": 3,
                 "compute_budget": packet["compute_budget"],
                 "consumed": 90,
                 "chosen_action": "a",
@@ -73,6 +84,9 @@ def _result(fixture: str, battle: str, treatment: str, depth: int) -> dict[str, 
             {
                 "method": "information_set",
                 "input_digest": packet["input_digest"],
+                "evaluator_digest": packet["evaluator_digest"],
+                "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+                "evaluator_calls": 3,
                 "compute_budget": packet["compute_budget"],
                 "consumed": 80,
                 "chosen_action": "b",
@@ -112,6 +126,12 @@ def test_population_requires_complete_state_posterior_depth_matrix() -> None:
     assert aggregate["matrix_complete"] is True
     assert aggregate["matched_input"] is True
     assert aggregate["matched_authorized_compute"] is True
+    assert aggregate["matched_evaluator"] is True
+    assert aggregate["matched_evaluator_checkpoint"] is True
+    assert aggregate["evaluator"] == _plan()["evaluator"]
+    assert aggregate["evaluator_checkpoint_digest"] == _plan()["evaluator"][
+        "checkpoint_digest"
+    ]
     assert len(aggregate["figure_rows"]) == 4
     row = aggregate["figure_rows"][0]
     assert row["state_count"] == 2
