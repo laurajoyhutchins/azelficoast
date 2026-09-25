@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +14,7 @@ from typing import Any, Mapping, Protocol, Sequence
 from azelficoast.belief.competence import build_competence_ledger, curriculum_priority
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.improvement import AdmissionPolicy, ImprovementError, improve_checkpoint
+from azelficoast.belief.joint_posterior import JointPosteriorError, validate_joint_posterior
 from azelficoast.belief.validity import power_reweight_posterior
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
@@ -31,6 +33,10 @@ from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOW
 
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
 TEACHER_MANIFEST_SCHEMA_VERSION = 3
+TEACHER_BASELINE_POSTERIOR_TREATMENTS = (
+    "generator_faithful_joint_empirical",
+    "practical_joint_completion",
+)
 CHALLENGER_POSTERIOR_TREATMENTS = (("flattened", 0.0), ("sharpened", 2.0))
 DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD = 0.75
 CYCLE_RECEIPT_SCHEMA = "azelficoast.self-improvement-cycle"
@@ -215,16 +221,18 @@ def _challenger_teacher_required(
 def _challenger_consensus(
     baseline_action: str,
     challenger_actions: Mapping[str, str],
+    *,
+    baseline_treatment: str = "generator_faithful",
 ) -> dict[str, Any]:
     """Require the information-set teacher action to survive prior stress."""
 
-    if not baseline_action:
-        raise TeacherEvidenceError("baseline teacher action must be non-empty")
+    if not baseline_action or not baseline_treatment:
+        raise TeacherEvidenceError("baseline teacher action and treatment must be non-empty")
     required = {name for name, _ in CHALLENGER_POSTERIOR_TREATMENTS}
     if set(challenger_actions) != required:
         raise TeacherEvidenceError("challenger actions do not cover required treatments")
     actions = {
-        "generator_faithful": baseline_action,
+        baseline_treatment: baseline_action,
         **{name: challenger_actions[name] for name, _ in CHALLENGER_POSTERIOR_TREATMENTS},
     }
     passed = len(set(actions.values())) == 1
@@ -392,17 +400,109 @@ def _mine_informative_fixtures(
 
 
 class PinnedShowdownTeacherSource:
-    """Reuse the live pinned-Showdown reconstruction boundary for offline teaching."""
+    """Build exact teacher evidence from a joint opponent-team posterior."""
 
     showdown_commit = PINNED_SHOWDOWN_COMMIT
 
-    def __init__(self, showdown_root: str | Path, *, timeout_seconds: float = 20.0) -> None:
+    def __init__(
+        self,
+        showdown_root: str | Path,
+        *,
+        timeout_seconds: float = 20.0,
+        joint_target_particles: int = 16,
+        joint_minimum_particles: int = 8,
+        joint_max_rounds: int = 65_536,
+    ) -> None:
+        self.showdown_root = Path(showdown_root)
+        self.timeout_seconds = float(timeout_seconds)
+        self.joint_target_particles = int(joint_target_particles)
+        self.joint_minimum_particles = int(joint_minimum_particles)
+        self.joint_max_rounds = int(joint_max_rounds)
+        if not (
+            1 <= self.joint_minimum_particles <= self.joint_target_particles
+            and self.joint_max_rounds >= self.joint_target_particles
+        ):
+            raise TeacherEvidenceError("invalid joint posterior sampling budget")
         self.engine = PinnedShowdownBeliefPolicy(
-            showdown_root,
+            self.showdown_root,
             timeout_seconds=timeout_seconds,
         )
         if not self.engine.configured:
             raise TeacherEvidenceError("pinned Showdown teacher is not configured")
+
+    @property
+    def identity(self) -> Mapping[str, Any]:
+        return {
+            "kind": "pinned-showdown-joint-opponent-teacher",
+            "showdown_commit": self.showdown_commit,
+            "joint_sampler": "sample_joint_random_battle_posterior.cjs",
+            "joint_target_particles": self.joint_target_particles,
+            "joint_minimum_particles": self.joint_minimum_particles,
+            "joint_max_rounds": self.joint_max_rounds,
+            "admitted_posterior_treatments": list(
+                TEACHER_BASELINE_POSTERIOR_TREATMENTS
+            ),
+        }
+
+    def _joint_posterior(
+        self,
+        fixture: DecisionFixture,
+    ) -> Mapping[str, Any] | TeacherExclusion:
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "sample_joint_random_battle_posterior.cjs"
+        )
+        try:
+            with tempfile.TemporaryDirectory(
+                prefix="azelficoast-joint-teacher-"
+            ) as directory:
+                fixture_path = Path(directory) / "fixture.json"
+                fixture_path.write_text(
+                    json.dumps(fixture.as_record(), sort_keys=True),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        "node",
+                        str(script),
+                        str(self.showdown_root),
+                        str(fixture_path),
+                        "--target-particles",
+                        str(self.joint_target_particles),
+                        "--minimum-particles",
+                        str(self.joint_minimum_particles),
+                        "--max-rounds",
+                        str(self.joint_max_rounds),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds,
+                )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return TeacherExclusion(
+                "joint-opponent-posterior-failed",
+                str(error)[-1000:],
+            )
+
+        if completed.returncode not in {0, 3}:
+            detail = (completed.stderr or completed.stdout).strip()
+            return TeacherExclusion(
+                "joint-opponent-posterior-failed",
+                detail[-1000:],
+            )
+        try:
+            document = json.loads(completed.stdout)
+            if not isinstance(document, Mapping):
+                raise JointPosteriorError("joint posterior output is not an object")
+            checked = validate_joint_posterior(document)
+        except (json.JSONDecodeError, JointPosteriorError) as error:
+            return TeacherExclusion(
+                "joint-opponent-posterior-insufficient",
+                str(error)[-1000:],
+            )
+        return checked
 
     def artifacts(self, fixture: DecisionFixture) -> TeacherArtifacts | TeacherExclusion:
         probe_fixture = DecisionFixture(
@@ -416,6 +516,10 @@ class PinnedShowdownTeacherSource:
             return TeacherExclusion(admission)
         if not isinstance(source.get("opponent_policy"), Mapping):
             return TeacherExclusion("opponent-model-unavailable")
+        joint = self._joint_posterior(probe_fixture)
+        if isinstance(joint, TeacherExclusion):
+            return joint
+        source = {**source, "joint_opponent_posterior": dict(joint)}
         try:
             posterior = self.engine._probe_posterior(source)
             transition_program = self.engine._probe_transition_program(source)
@@ -446,11 +550,11 @@ class PinnedShowdownTeacherSource:
             transition_program=dict(transition_program),
         )
 
-
 def _teacher_plan(
     *,
     evaluator_identity: Mapping[str, Any],
     showdown_commit: str,
+    source_identity: Mapping[str, Any],
     compute_budget: int,
 ) -> dict[str, Any]:
     if not isinstance(compute_budget, int) or isinstance(compute_budget, bool) or compute_budget <= 0:
@@ -459,7 +563,7 @@ def _teacher_plan(
         "schema": PLAN_SCHEMA,
         "schema_version": PLAN_SCHEMA_VERSION,
         "posterior_treatments": [
-            "generator_faithful",
+            *TEACHER_BASELINE_POSTERIOR_TREATMENTS,
             *[name for name, _ in CHALLENGER_POSTERIOR_TREATMENTS],
         ],
         "compute_budget": {
@@ -474,6 +578,7 @@ def _teacher_plan(
         ],
         "cluster_unit": "battle_tag",
         "showdown_commit": showdown_commit,
+        "posterior_source": dict(source_identity),
         "evaluator": dict(evaluator_identity),
         "inference": {
             "bootstrap_replicates": 1,
@@ -522,9 +627,19 @@ def generate_teacher_evidence(
     evaluator_identity = getattr(evaluator, "identity", None)
     if not isinstance(evaluator_identity, Mapping):
         raise TeacherEvidenceError("teacher evaluator lacks an immutable identity")
+    raw_source_identity = getattr(source, "identity", None)
+    source_identity = (
+        dict(raw_source_identity)
+        if isinstance(raw_source_identity, Mapping)
+        else {
+            "kind": type(source).__name__,
+            "showdown_commit": source.showdown_commit,
+        }
+    )
     plan = _teacher_plan(
         evaluator_identity=evaluator_identity,
         showdown_commit=source.showdown_commit,
+        source_identity=source_identity,
         compute_budget=compute_budget,
     )
     trace_digests = [_file_digest(path) for path in traces]
@@ -533,6 +648,7 @@ def generate_teacher_evidence(
             "trace_digests": trace_digests,
             "evaluator": dict(evaluator_identity),
             "showdown_commit": source.showdown_commit,
+            "posterior_source": source_identity,
             "compute_budget": compute_budget,
             "challenger_uncertainty_threshold": challenger_uncertainty_threshold,
             "selection": selection,
@@ -566,8 +682,11 @@ def generate_teacher_evidence(
         worlds = posterior.get("worlds")
         if not isinstance(worlds, list) or not worlds:
             raise TeacherEvidenceError("teacher posterior contains no hidden-world support")
-        if posterior.get("treatment") != "generator_faithful":
-            raise TeacherEvidenceError("teacher posterior must be generator_faithful")
+        posterior_treatment = posterior.get("treatment")
+        if posterior_treatment not in TEACHER_BASELINE_POSTERIOR_TREATMENTS:
+            raise TeacherEvidenceError(
+                "teacher posterior must be an admitted joint-team treatment"
+            )
 
         posterior_digest = _digest(posterior)
         posterior_path = artifacts_dir / f"posterior-{posterior_digest.removeprefix('sha256:')}.json"
@@ -604,7 +723,7 @@ def generate_teacher_evidence(
                 plan=plan,
                 state=state,
                 posterior=posterior,
-                posterior_treatment="generator_faithful",
+                posterior_treatment=str(posterior_treatment),
                 depth=1,
             )
             receipts: list[dict[str, Any]] = []
@@ -745,6 +864,7 @@ def generate_teacher_evidence(
                         _challenger_consensus(
                             baseline_action,
                             challenger_actions,
+                            baseline_treatment=str(posterior_treatment),
                         )
                     )
                 if challenger_evidence.get("passed") is not True:
@@ -783,6 +903,7 @@ def generate_teacher_evidence(
                     "battle_tag": battle_tag,
                     "packet_digest": packet_digest,
                     "posterior_digest": posterior_digest,
+                    "posterior_treatment": posterior_treatment,
                     "program_digest": program_digest,
                     "packet": str(packet_path.relative_to(root)),
                     "settled": str(settled_path.relative_to(root)),
@@ -801,6 +922,7 @@ def generate_teacher_evidence(
         "run_digest": run_digest,
         "trace_digests": trace_digests,
         "showdown_commit": source.showdown_commit,
+        "posterior_source": source_identity,
         "evaluator": dict(evaluator_identity),
         "plan": plan,
         "selection": selection,
