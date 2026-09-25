@@ -389,42 +389,19 @@ function generatorVariants() {
   };
 }
 
-function mechanicsProjectionClasses(variants) {
-  const classes = new Map();
+function mechanicsProjectionVariantCount(variants) {
+  const keys = new Set();
   for (const entry of variants) {
-    const execution = {
+    keys.add(JSON.stringify(stable({
       species: entry.set.species,
       ability: entry.set.ability,
       item: entry.set.item,
       level: entry.set.level,
       evs: entry.set.evs,
       ivs: entry.set.ivs,
-    };
-    const key = JSON.stringify(stable(execution));
-    const remainder = stable({
-      moves: entry.set.moves,
-      teraType: entry.set.teraType,
-    });
-    const existing = classes.get(key);
-    if (!existing) {
-      classes.set(key, {
-        set: entry.set,
-        count: entry.count,
-        generator_variant_count: 1,
-        marginalized_remainders: [{value: remainder, count: entry.count}],
-      });
-      continue;
-    }
-    existing.count += entry.count;
-    existing.generator_variant_count += 1;
-    const remainderKey = JSON.stringify(remainder);
-    const prior = existing.marginalized_remainders.find(
-      candidate => JSON.stringify(candidate.value) === remainderKey
-    );
-    if (prior) prior.count += entry.count;
-    else existing.marginalized_remainders.push({value: remainder, count: entry.count});
+    })));
   }
-  return [...classes.values()];
+  return keys.size;
 }
 
 function ownActiveTeraType() {
@@ -1169,7 +1146,7 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
 }
 
 const {matched, itemCounts, variants} = generatorVariants();
-const mechanicsProjectionVariants = mechanicsProjectionClasses(variants);
+const mechanicsProjectionCount = mechanicsProjectionVariantCount(variants);
 if (
   source.expected_generator_rounds != null &&
   Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
@@ -1245,7 +1222,7 @@ if (posteriorOnly) {
       generator_rounds: GENERATOR_ROUNDS,
       generator_matches: matched,
       generator_variant_count: variants.length,
-      mechanics_projection_variant_count: mechanicsProjectionVariants.length,
+      mechanics_projection_variant_count: mechanicsProjectionCount,
       mechanics_projection_fields: [
         "opponent.active.moves",
         "opponent.active.tera_type",
@@ -1647,7 +1624,7 @@ process.stdout.write(JSON.stringify({
     generator_rounds: GENERATOR_ROUNDS,
     generator_matches: matched,
     generator_variant_count: variants.length,
-    mechanics_projection_variant_count: mechanicsProjectionVariants.length,
+    mechanics_projection_variant_count: mechanicsProjectionCount,
     mechanics_projection_fields: [
       "opponent.active.moves",
       "opponent.active.tera_type",
