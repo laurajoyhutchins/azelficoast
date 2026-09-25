@@ -5,6 +5,7 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/restore-exact-artifact/action.yml"
       - "experiments/natural-status-move-treatment.json"
       - "src/azelficoast/status_move_treatment.py"
       - "scripts/probe_real_belief_trace.cjs"
@@ -33,17 +34,15 @@ jobs:
       - name: Test treatment freezer
         run: uv run pytest tests/test_status_move_treatment.py
 
-      - name: Verify and download corrected source artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          actual_digest="$(gh api             repos/${{ github.repository }}/actions/artifacts/10836574187             --jq '.digest')"
-          test "$actual_digest" =             "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
+      - name: Restore corrected source artifact
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10836574187"
+          digest: "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
+          path: /tmp/source-artifact
 
-          mkdir -p /tmp/source-artifact
-          gh run download 36068967462             --name live-belief-coverage             --dir /tmp/source-artifact
-
-          test -s /tmp/source-artifact/decisions.jsonl
+      - name: Verify corrected source contents
+        run: test -s /tmp/source-artifact/decisions.jsonl
 
       - name: Freeze preregistered natural decision
         run: |

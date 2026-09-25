@@ -99,3 +99,37 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
         checked.append(path.name)
 
     assert checked, "expected at least one uv-managed workflow"
+
+
+def test_exact_artifact_restore_binds_digest_and_download_to_same_id() -> None:
+    source = (
+        ROOT / ".github" / "actions" / "restore-exact-artifact" / "action.yml"
+    ).read_text(encoding="utf-8")
+
+    assert '"repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"' in source
+    assert '"/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip"' in source
+    assert '[[ "${actual_digest}" != "${EXPECTED_DIGEST}" ]]' in source
+    assert 'rm -rf "${DESTINATION}"' in source
+    assert 'unzip -q "${archive}" -d "${DESTINATION}"' in source
+
+
+def test_workflows_delegate_exact_artifact_restore() -> None:
+    checked: list[str] = []
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+
+        assert not (
+            "actions/artifacts/" in source and "--jq '.digest'" in source
+        ), f"{path.name} must not independently verify and then fetch an artifact"
+
+        if "uses: ./.github/actions/restore-exact-artifact" not in source:
+            continue
+
+        if "    paths:\n" in source:
+            assert '- ".github/actions/restore-exact-artifact/action.yml"' in source, (
+                f"{path.name} must rerun when exact artifact restore changes"
+            )
+        checked.append(path.name)
+
+    assert checked, "expected workflows to restore exact GitHub artifacts"

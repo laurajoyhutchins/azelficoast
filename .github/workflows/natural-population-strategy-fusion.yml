@@ -18,6 +18,7 @@ on:
       - "tests/test_natural_disagreements.py"
       - ".github/workflows/natural-population-strategy-fusion.yml"
       - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/restore-exact-artifact/action.yml"
       - ".github/actions/setup-showdown/action.yml"
   workflow_dispatch:
 
@@ -40,19 +41,15 @@ jobs:
       - name: Test population machinery
         run: uv run pytest tests/test_population_study.py tests/test_natural_disagreements.py
 
-      - name: Recover immutable 256-battle source population
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Restore immutable 256-battle source population
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10836574187"
+          digest: "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
+          path: /tmp/source
+
+      - name: Verify immutable source population
         run: |
-          actual_digest="$(gh api \
-            repos/${{ github.repository }}/actions/artifacts/10836574187 \
-            --jq '.digest')"
-          test "$actual_digest" = \
-            "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
-          mkdir -p /tmp/source
-          gh run download 36068967462 \
-            --name live-belief-coverage \
-            --dir /tmp/source
           python - <<'PY'
           import json
           from pathlib import Path
@@ -174,19 +171,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Recover frozen outcome-blind cohort
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Restore frozen outcome-blind cohort
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10845773798"
+          digest: "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
+          path: /tmp/selection
+
+      - name: Verify frozen outcome-blind cohort
         run: |
-          actual_digest="$(gh api \
-            repos/${{ github.repository }}/actions/artifacts/10845773798 \
-            --jq '.digest')"
-          test "$actual_digest" = \
-            "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
-          mkdir -p /tmp/selection
-          gh run download 36092751541 \
-            --name natural-population-selection \
-            --dir /tmp/selection
           python - <<'PY'
           import json
           from pathlib import Path
@@ -258,19 +251,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-environment
-      - name: Recover frozen outcome-blind cohort
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Restore frozen outcome-blind cohort
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10845773798"
+          digest: "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
+          path: /tmp/selection
+
+      - name: Verify frozen outcome-blind cohort
         run: |
-          actual_digest="$(gh api \
-            repos/${{ github.repository }}/actions/artifacts/10845773798 \
-            --jq '.digest')"
-          test "$actual_digest" = \
-            "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
-          mkdir -p /tmp/selection
-          gh run download 36092751541 \
-            --name natural-population-selection \
-            --dir /tmp/selection
           python - <<'PY'
           import json
           from pathlib import Path

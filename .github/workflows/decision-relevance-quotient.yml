@@ -5,6 +5,7 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/restore-exact-artifact/action.yml"
       - "src/azelficoast/decision_relevance.py"
       - "src/azelficoast/live_belief.py"
       - "tests/test_decision_relevance.py"
@@ -33,24 +34,22 @@ jobs:
         run: |
           uv run pytest             tests/test_decision_relevance.py             tests/test_live_belief.py
 
-      - name: Download exact natural oracles
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Restore exact status oracle
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10839882597"
+          digest: "sha256:777f63475c9fb8c297a9ffbaf91ce2ff1f1db28c2a4b3bb1bbbad153e47e9318"
+          path: /tmp/status
+
+      - name: Restore exact strategy-fusion oracle
+        uses: ./.github/actions/restore-exact-artifact
+        with:
+          artifact-id: "10832550259"
+          digest: "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443"
+          path: /tmp/fusion
+
+      - name: Verify restored natural oracles
         run: |
-          set -euo pipefail
-
-          status_digest="$(gh api             repos/${{ github.repository }}/actions/artifacts/10839882597             --jq '.digest')"
-          test "$status_digest" =             "sha256:777f63475c9fb8c297a9ffbaf91ce2ff1f1db28c2a4b3bb1bbbad153e47e9318"
-
-          fusion_digest="$(gh api             repos/${{ github.repository }}/actions/artifacts/10832550259             --jq '.digest')"
-          test "$fusion_digest" =             "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443"
-
-          mkdir -p /tmp/status /tmp/fusion
-          gh api             -H "Accept: application/vnd.github+json"             /repos/${{ github.repository }}/actions/artifacts/10839882597/zip             > /tmp/status.zip
-          gh api             -H "Accept: application/vnd.github+json"             /repos/${{ github.repository }}/actions/artifacts/10832550259/zip             > /tmp/fusion.zip
-          unzip -q /tmp/status.zip -d /tmp/status
-          unzip -q /tmp/fusion.zip -d /tmp/fusion
-
           test -s /tmp/status/status-oracle.json
           test -s /tmp/fusion/transition-oracle.json
 

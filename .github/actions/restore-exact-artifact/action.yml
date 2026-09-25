@@ -1,0 +1,40 @@
+name: Restore exact GitHub artifact
+description: Verify an immutable GitHub Actions artifact by ID and digest, then extract that same artifact.
+
+inputs:
+  artifact-id:
+    description: Exact GitHub Actions artifact ID.
+    required: true
+  digest:
+    description: Expected GitHub artifact digest, including the sha256 prefix.
+    required: true
+  path:
+    description: Empty destination directory for the extracted artifact.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify and restore exact artifact
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        ARTIFACT_ID: ${{ inputs.artifact-id }}
+        EXPECTED_DIGEST: ${{ inputs.digest }}
+        DESTINATION: ${{ inputs.path }}
+      run: |
+        set -euo pipefail
+
+        actual_digest="$(gh api           "repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}"           --jq '.digest')"
+        if [[ "${actual_digest}" != "${EXPECTED_DIGEST}" ]]; then
+          echo "artifact ${ARTIFACT_ID}: expected ${EXPECTED_DIGEST}, got ${actual_digest}" >&2
+          exit 1
+        fi
+
+        rm -rf "${DESTINATION}"
+        mkdir -p "${DESTINATION}"
+        archive="${RUNNER_TEMP}/azelficoast-artifact-${ARTIFACT_ID}.zip"
+
+        gh api           -H "Accept: application/vnd.github+json"           "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${ARTIFACT_ID}/zip"           > "${archive}"
+        unzip -q "${archive}" -d "${DESTINATION}"
+        rm -f "${archive}"
