@@ -134,6 +134,10 @@ class DecisionDeadline:
         current = time.monotonic() if now is None else now
         return max(0.0, self.expires_at_monotonic - current)
 
+    def check(self, *, now: float | None = None) -> None:
+        if self.remaining_seconds(now=now) <= 0:
+            raise DecisionDeadlineExceeded("live decision deadline expired")
+
     def operation_timeout(
         self,
         operation_ceiling_seconds: float,
