@@ -250,8 +250,11 @@ uv run azelficoast \
 ~~~
 
 Each generation creates fresh Random Battles, accumulates their immutable traces, and
-mines a bounded curriculum from public evidence only. The miner admits at most one
-teacher state per `(run_id, battle_tag)`, prioritizing searched/uncertain states, low
+mines a bounded curriculum from public evidence only. Battle generation defaults to
+learned-policy play rather than conservative search-every-turn shadow mode; exact
+information-set search happens afterward only for mined teacher states. This keeps
+generation throughput separate from scientific target quality. The miner admits at most
+one teacher state per `(run_id, battle_tag)`, prioritizing searched/uncertain states, low
 learned-policy margin, high policy entropy, and larger legal action sets. Fallback counts
 remain recorded as evidence debt but do not outrank states the current teacher can
 actually label. The exact selection is written into the teacher manifest and therefore
