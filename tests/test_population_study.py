@@ -63,6 +63,7 @@ def _candidate(fixture_id: str) -> dict[str, object]:
         "opponent_species": "Zapdos-Galar",
         "revealed_moves": ["uturn"],
         "locked_move": "U-turn",
+        "is_lead": False,
         "item_counts": {"Choice Band": 50, "Choice Scarf": 50},
         "item_weights": {"Choice Band": 0.5, "Choice Scarf": 0.5},
         "persistent_protect_actions": [{"action": "/choose move protect"}],
