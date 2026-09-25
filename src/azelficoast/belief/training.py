@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from azelficoast.belief_evaluator import (
+from azelficoast.belief.evaluator import (
     BeliefEvaluatorError,
     BeliefEvaluatorInput,
     _require_jax,
