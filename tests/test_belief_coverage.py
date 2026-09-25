@@ -141,7 +141,7 @@ def test_coverage_reports_static_admission_and_observed_routing(tmp_path) -> Non
     assert admission["exact_search_ready_rate"] == 1.0
     assert admission["exact_search_blocker_counts"] == []
     assert admission["opponent_policy_kind_counts"] == [
-        {"kind": "repeat-last-or-uniform-legal-moves", "count": 2}
+        {"kind": "strategy-mixture", "count": 2}
     ]
 
 
