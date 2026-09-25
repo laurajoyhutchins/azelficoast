@@ -48,6 +48,8 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.ability",
   "opponent.active.moves",
   "opponent.active.tera_type",
+  "opponent.active.evs",
+  "opponent.active.ivs",
   "opponent.active.exact_hp",
 ];
 
@@ -238,6 +240,8 @@ function generatorVariants() {
       item: set.item,
       level: set.level,
       moves,
+      evs: {...set.evs},
+      ivs: {...set.ivs},
       teraType: set.teraType,
     };
     const key = JSON.stringify(stable(semantic));
@@ -371,8 +375,8 @@ function ownSet(view, {active = false} = {}) {
     item: view.item || "",
     moves: view.moves,
     nature: "Serious",
-    evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
-    ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
+    evs: {...world.variant.evs},
+    ivs: {...world.variant.ivs},
   };
   if (active) set.teraType = OWN_ACTIVE_TERA_TYPE;
   return set;
@@ -701,6 +705,8 @@ for (const entry of variants) {
       "opponent.active.ability": entry.set.ability,
       "opponent.active.moves": entry.set.moves,
       "opponent.active.tera_type": entry.set.teraType,
+      "opponent.active.evs": entry.set.evs,
+      "opponent.active.ivs": entry.set.ivs,
       "opponent.active.exact_hp": exactHp,
     };
     const worldId = sha256(hidden);
