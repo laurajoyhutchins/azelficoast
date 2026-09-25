@@ -25,7 +25,12 @@ from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.public_replays import import_public_replays
 from azelficoast.live.player import AzelficoastPlayer
-from azelficoast.live.timing import LiveTimingPolicy
+from azelficoast.live.timing import (
+    DEFAULT_LIVE_CLOCK_RESERVE_SECONDS,
+    DEFAULT_LIVE_FALLBACK_BUDGET_SECONDS,
+    DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS,
+    LiveTimingPolicy,
+)
 from azelficoast.research.training_records import build_training_dataset
 
 BATTLE_FORMAT = "gen9randombattle"
@@ -105,7 +110,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--live-operation-timeout",
         type=_positive_float,
-        default=os.getenv("AZELFICOAST_LIVE_OPERATION_TIMEOUT_SECONDS", "20"),
+        default=os.getenv(
+            "AZELFICOAST_LIVE_OPERATION_TIMEOUT_SECONDS",
+            str(DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS),
+        ),
         help=(
             "maximum seconds for one live Showdown subprocess; the battle-clock "
             "deadline can shorten it"
@@ -114,13 +122,19 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--live-clock-reserve",
         type=_nonnegative_float,
-        default=os.getenv("AZELFICOAST_LIVE_CLOCK_RESERVE_SECONDS", "5"),
+        default=os.getenv(
+            "AZELFICOAST_LIVE_CLOCK_RESERVE_SECONDS",
+            str(DEFAULT_LIVE_CLOCK_RESERVE_SECONDS),
+        ),
         help="seconds reserved for fallback selection and move submission (default: 5)",
     )
     parser.add_argument(
         "--live-fallback-budget",
         type=_positive_float,
-        default=os.getenv("AZELFICOAST_LIVE_FALLBACK_BUDGET_SECONDS", "20"),
+        default=os.getenv(
+            "AZELFICOAST_LIVE_FALLBACK_BUDGET_SECONDS",
+            str(DEFAULT_LIVE_FALLBACK_BUDGET_SECONDS),
+        ),
         help=(
             "decision budget when no authoritative Showdown timer observation is "
             "available (default: 20)"
