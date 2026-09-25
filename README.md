@@ -8,6 +8,48 @@ It is also building the machinery needed to make that comparison on real Pokémo
 
 > **Status:** active research code, not a finished competitive bot. The live player uses bounded public-belief search only on admitted states and falls back to poke-env simple heuristics elsewhere.
 
+## Experimental north star
+
+The repository is organized around one matched comparison:
+
+~~~text
+same naturally occurring decision states
+                |
+      same posterior treatment
+                |
+       same compute budget
+                |
+    +-----------+-----------+
+    |                       |
+determinization     information-set search
+    |                       |
+    +-----------+-----------+
+                |
+      value bias + regret
+                |
+         decision quality
+                |
+    eventual battle outcome
+~~~
+
+The infrastructure is laboratory equipment for that comparison. New mechanics, simulator optimizations, and search machinery should earn priority by increasing the comparison's coverage, fidelity, scale, or reproducibility.
+
+Belief quality is a first-class treatment rather than an implicit assumption. The intended experimental ladder is:
+
+1. **oracle posterior:** the exact or best-available conditional distribution over hidden worlds under the Random Battle generative process and the public history, not revelation of the realized hidden world;
+2. **generator-faithful posterior:** a finite sampled approximation that preserves generator correlations and conditions on public evidence;
+3. **approximate practical posterior:** an inference procedure cheap enough to use during play.
+
+This separates the value of information-set-respecting search from the quality of hidden-state inference.
+
+### Current game-theoretic boundary
+
+"Public-belief" currently means that Azelficoast prevents the acting policy from branching on hidden-world identity that is not public at that decision point. The present natural-state population treatment does **not** establish a solution to the full two-player imperfect-information game: its bounded continuation model fixes the observed opponent response rather than optimizing an opponent policy over the opponent's private information history.
+
+Future two-sided search must make each player's information set and policy conditioning explicit. Until then, claims should stay at the narrower information-set-respecting boundary above.
+
+See [the experimental north star](docs/experimental-north-star.md) for the population-study contract and the evidence needed to advance the claim.
+
 ## What exists today
 
 ~~~text
