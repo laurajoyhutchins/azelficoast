@@ -28,6 +28,11 @@
       "hidden item changes relative move order",
       "hidden item changes incoming KO-roll probability",
       "hidden item changes incoming damage fraction"
+    ],
+    "eligibility": [
+      "current active HP is positive",
+      "current live bounded-belief admission succeeds",
+      "live item support exactly matches generator-conditioned candidate item support"
     ]
   },
   "exact_treatment": {
