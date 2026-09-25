@@ -504,6 +504,8 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
         "generator variant"
     ) in source
     assert "function opponentActionDistribution(" in source
+    assert "const currentSpecies = toID(" in source
+    assert "moveSpecies === currentSpecies" in source
     assert '"uniform-legal-moves"' in source
     assert '"uniform-forced-switch"' in source
     assert 'hiddenReads.add("opponent.active.moves")' in source
