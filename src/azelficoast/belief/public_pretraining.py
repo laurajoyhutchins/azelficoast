@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,7 +28,7 @@ from azelficoast.belief.improvement import (
     improve_checkpoint,
 )
 from azelficoast.corpus import DecisionFixture, build_fixtures
-from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
+from azelficoast.live.belief import build_probe_source
 from azelficoast.research.matched_comparison import _sha256 as matched_digest
 from azelficoast.research.training_records import (
     DEFAULT_SPLIT_SEED,
@@ -40,7 +41,6 @@ from azelficoast.research.training_records import (
     _terminal_outcomes,
     write_training_records,
 )
-from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 PUBLIC_PRETRAINING_BUILD_SCHEMA = "azelficoast.public-pretraining-build"
 PUBLIC_PRETRAINING_BUILD_SCHEMA_VERSION = 1
@@ -66,17 +66,42 @@ class PublicPosteriorSource(Protocol):
 
 
 class PinnedShowdownPublicPosteriorSource:
-    """Generate the same generator-faithful posterior used by live belief reasoning."""
+    """Generate a posterior against the exact revision of the supplied checkout.
 
-    showdown_commit = PINNED_SHOWDOWN_COMMIT
+    Historical revisions are admitted only through the probe's posterior-only
+    override. Ordinary live, mechanics, and research probes retain the project pin.
+    """
 
     def __init__(self, showdown_root: str | Path, *, timeout_seconds: float = 20.0) -> None:
-        self.engine = PinnedShowdownBeliefPolicy(
-            showdown_root,
-            operation_timeout_seconds=timeout_seconds,
-        )
-        if not self.engine.configured:
-            raise PublicPretrainingError("pinned Showdown posterior source is not configured")
+        self.showdown_root = Path(showdown_root)
+        self.timeout_seconds = float(timeout_seconds)
+        try:
+            completed = subprocess.run(
+                ["git", "-C", str(self.showdown_root), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=min(timeout_seconds, 5.0),
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            raise PublicPretrainingError(
+                f"cannot read public-pretraining Showdown revision: {error}"
+            ) from error
+        self.showdown_commit = completed.stdout.strip()
+        if (
+            len(self.showdown_commit) != 40
+            or any(
+                character not in "0123456789abcdef"
+                for character in self.showdown_commit
+            )
+        ):
+            raise PublicPretrainingError(
+                "public-pretraining Showdown revision must be an exact 40-hex commit"
+            )
+        if not (self.showdown_root / "dist" / "sim" / "battle.js").is_file():
+            raise PublicPretrainingError(
+                "public-pretraining Showdown checkout is not built"
+            )
 
     def posterior(
         self, fixture: DecisionFixture
@@ -90,8 +115,44 @@ class PinnedShowdownPublicPosteriorSource:
         source, admission = build_probe_source(probe_fixture)
         if source is None:
             return PosteriorExclusion(admission)
+        source = {**source, "showdown_commit": self.showdown_commit}
+        script = (
+            Path(__file__).resolve().parents[3]
+            / "scripts"
+            / "probe_real_belief_trace.cjs"
+        )
         try:
-            posterior = self.engine._probe_posterior(source)
+            with tempfile.TemporaryDirectory(
+                prefix="azelficoast-public-pretraining-"
+            ) as directory:
+                source_path = Path(directory) / "source.json"
+                source_path.write_text(
+                    json.dumps(source, sort_keys=True),
+                    encoding="utf-8",
+                )
+                completed = subprocess.run(
+                    [
+                        "node",
+                        str(script),
+                        str(self.showdown_root),
+                        str(source_path),
+                        "--posterior-only",
+                        "--historical-showdown-commit",
+                        self.showdown_commit,
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=self.timeout_seconds,
+                )
+            posterior = json.loads(completed.stdout)
+            if not isinstance(posterior, Mapping):
+                raise PublicPretrainingError("posterior probe returned a non-object")
+            if (
+                posterior.get("schema") != "azelficoast.live-belief-posterior"
+                or posterior.get("schema_version") != 1
+            ):
+                raise PublicPretrainingError("unexpected posterior-only probe schema")
         except (
             OSError,
             subprocess.CalledProcessError,
@@ -129,9 +190,12 @@ def _human_metadata(control: Mapping[str, Any]) -> Mapping[str, Any] | None:
         return None
     replay_id = metadata.get("source_replay_id")
     side = metadata.get("source_side")
+    source_showdown_version = metadata.get("source_showdown_version")
     if not isinstance(replay_id, str) or not replay_id:
         return None
     if side not in {"p1", "p2"}:
+        return None
+    if not isinstance(source_showdown_version, str) or not source_showdown_version:
         return None
     return metadata
 
@@ -166,17 +230,25 @@ def build_public_pretraining_records(
         excluded["non_public_human_decision"] += (
             len(fixture.control_decisions) - len(human_controls)
         )
-        if not human_controls:
+        compatible_controls: list[Mapping[str, Any]] = []
+        for control in human_controls:
+            metadata = _human_metadata(control)
+            assert metadata is not None
+            if metadata["source_showdown_version"] != posterior_source.showdown_commit:
+                excluded["source-showdown-version-mismatch"] += 1
+                continue
+            compatible_controls.append(control)
+        if not compatible_controls:
             continue
 
         posterior_result = posterior_source.posterior(fixture)
         if isinstance(posterior_result, PosteriorExclusion):
-            excluded[posterior_result.reason] += len(human_controls)
+            excluded[posterior_result.reason] += len(compatible_controls)
             continue
         posterior = dict(posterior_result)
         posterior_digest = matched_digest(posterior)
 
-        for control in human_controls:
+        for control in compatible_controls:
             metadata = _human_metadata(control)
             assert metadata is not None
             run_id = control.get("run_id")
@@ -254,6 +326,7 @@ def build_public_pretraining_records(
                             "replay_id": metadata["source_replay_id"],
                             "side": metadata["source_side"],
                             "rating": metadata.get("source_rating"),
+                            "showdown_commit": metadata["source_showdown_version"],
                             "scientific_search_teacher": False,
                         },
                         "value_target": {
