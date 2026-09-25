@@ -392,6 +392,19 @@ def _promote(
     receipt_digest: str,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ImprovementError(f"cannot read current promotion pointer: {error}") from error
+        if not isinstance(current, Mapping):
+            raise ImprovementError("current promotion pointer must be an object")
+        current_digest = current.get("checkpoint_digest")
+        if current_digest != incumbent_digest:
+            raise ImprovementError(
+                "promotion authority changed since candidate evaluation: "
+                f"expected {incumbent_digest}, found {current_digest!r}"
+            )
     pointer = {
         "schema": PROMOTION_SCHEMA,
         "schema_version": PROMOTION_SCHEMA_VERSION,
@@ -413,6 +426,7 @@ def improve_checkpoint(
     models_dir: str | Path,
     receipts_dir: str | Path,
     promotion_file: str | Path,
+    expected_incumbent_digest: str | None = None,
     epochs: int = 1,
     learning_rate: float = 3e-4,
     policy_weight: float = 1.0,
@@ -435,6 +449,14 @@ def improve_checkpoint(
         ),
         "incumbent.evaluator.checkpoint_digest",
     )
+    if (
+        expected_incumbent_digest is not None
+        and incumbent_digest != expected_incumbent_digest
+    ):
+        raise ImprovementError(
+            "incumbent checkpoint changed before candidate training: "
+            f"expected {expected_incumbent_digest}, found {incumbent_digest}"
+        )
     dataset = load_training_dataset(
         dataset_path,
         spec=spec,
