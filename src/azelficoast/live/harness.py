@@ -9,12 +9,13 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Sequence
+from typing import Any, Mapping, Sequence
 
 from poke_env import AccountConfiguration, ShowdownServerConfiguration
-from poke_env.player import Player, RandomPlayer
+from poke_env.player import MaxBasePowerPlayer, Player, RandomPlayer, SimpleHeuristicsPlayer
 
 from azelficoast.belief.coverage import summarize_traces
+from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.improvement import (
     VALUE_TARGET_SOURCES,
     AdmissionPolicy,
@@ -23,7 +24,7 @@ from azelficoast.belief.improvement import (
 from azelficoast.belief.public_pretraining import run_public_pretraining
 from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.live.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
-from azelficoast.research.public_replays import import_public_replays
+from azelficoast.research.public_replays import PublicReplayError, import_public_replays
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.research.training_records import build_training_dataset
 
@@ -45,6 +46,13 @@ def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
         raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _nonnegative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
     return parsed
 
 
@@ -482,6 +490,21 @@ def _build_parser() -> argparse.ArgumentParser:
     training_auto.add_argument("--battles-per-generation", type=_positive_int, default=12)
     training_auto.add_argument("--concurrency", type=_positive_int, default=1)
     training_auto.add_argument(
+        "--public-replays-per-generation",
+        type=_nonnegative_int,
+        default=4,
+        help=(
+            "replenish the curriculum from this many public Random Battle replays "
+            "per generation; use 0 to disable network acquisition"
+        ),
+    )
+    training_auto.add_argument(
+        "--public-replay-min-rating",
+        type=_nonnegative_int,
+        default=1500,
+        help="minimum public replay rating admitted to automatic curriculum acquisition",
+    )
+    training_auto.add_argument(
         "--battle-search-policy-margin",
         type=_unit_float,
         default=0.0,
@@ -566,6 +589,105 @@ def _prepare_output_paths(results: Path, decisions: Path, replays: Path) -> None
     replays.mkdir(parents=True, exist_ok=True)
 
 
+def _immutable_checkpoint(path: Path) -> Path:
+    """Resolve a mutable promotion pointer to the checkpoint it names now."""
+
+    if path.is_dir():
+        return path
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot resolve incumbent checkpoint {path}: {error}") from error
+    if not isinstance(document, Mapping):
+        raise ValueError(f"incumbent pointer {path} must contain a JSON object")
+    checkpoint = document.get("checkpoint")
+    if not isinstance(checkpoint, str) or not checkpoint:
+        raise ValueError(f"incumbent pointer {path} does not name a checkpoint")
+    target = path.parent / checkpoint
+    if not target.is_dir():
+        raise ValueError(f"incumbent pointer {path} names missing checkpoint {target}")
+    return target
+
+
+def _checkpoint_digest(path: Path) -> str:
+    runtime = BeliefEvaluatorRuntime.from_checkpoint(path)
+    return str(runtime.identity["checkpoint_digest"])
+
+
+def _balanced_battle_allocation(
+    battle_count: int,
+    opponent_count: int,
+) -> tuple[int, ...]:
+    if battle_count <= 0 or opponent_count <= 0:
+        raise ValueError("battle and opponent counts must be positive")
+    quotient, remainder = divmod(battle_count, opponent_count)
+    return tuple(
+        quotient + int(index < remainder)
+        for index in range(opponent_count)
+    )
+
+
+def _training_opponent_specs(
+    current_checkpoint: Path,
+    archive_checkpoints: Sequence[Path],
+) -> list[dict[str, Any]]:
+    """Freeze the deterministic opponent population for one generation."""
+
+    specs: list[dict[str, Any]] = [
+        {"kind": "random"},
+        {"kind": "max-base-power"},
+        {"kind": "simple-heuristics"},
+        {
+            "kind": "incumbent",
+            "checkpoint": str(current_checkpoint),
+            "checkpoint_digest": _checkpoint_digest(current_checkpoint),
+        },
+    ]
+    for offset, checkpoint in enumerate(reversed(archive_checkpoints[-3:]), start=1):
+        specs.append(
+            {
+                "kind": "archive",
+                "archive_recency": offset,
+                "checkpoint": str(checkpoint),
+                "checkpoint_digest": _checkpoint_digest(checkpoint),
+            }
+        )
+    return specs
+
+
+def _training_opponent(
+    spec: Mapping[str, Any],
+    *,
+    concurrency: int,
+    showdown_root: Path,
+    belief_timeout: float,
+    search_policy_margin: float,
+) -> Player:
+    kind = spec.get("kind")
+    common = {
+        "battle_format": BATTLE_FORMAT,
+        "max_concurrent_battles": concurrency,
+    }
+    if kind == "random":
+        return RandomPlayer(**common)
+    if kind == "max-base-power":
+        return MaxBasePowerPlayer(**common)
+    if kind == "simple-heuristics":
+        return SimpleHeuristicsPlayer(**common)
+    if kind in {"incumbent", "archive"}:
+        checkpoint = spec.get("checkpoint")
+        if not isinstance(checkpoint, str) or not checkpoint:
+            raise ValueError(f"{kind} opponent lacks a checkpoint")
+        return AzelficoastPlayer(
+            **common,
+            showdown_root=showdown_root,
+            belief_timeout_seconds=belief_timeout,
+            evaluator_checkpoint=Path(checkpoint),
+            search_policy_margin=search_policy_margin,
+        )
+    raise ValueError(f"unsupported training opponent kind {kind!r}")
+
+
 def _live_player(
     username: str,
     password: str,
@@ -635,24 +757,31 @@ async def _run_local(
     belief_timeout: float,
     evaluator_checkpoint: Path | None,
     search_policy_margin: float,
+    opponent: Player | None = None,
+    trace_source: Mapping[str, Any] | None = None,
+    mode: str = "local",
+    print_summary: bool = True,
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
         max_concurrent_battles=concurrency,
         save_replays=str(replays),
         decision_log=decisions,
+        trace_source=trace_source,
         showdown_root=showdown_root,
         belief_timeout_seconds=belief_timeout,
         evaluator_checkpoint=evaluator_checkpoint,
         search_policy_margin=search_policy_margin,
     )
-    opponent = RandomPlayer(
-        battle_format=BATTLE_FORMAT,
-        max_concurrent_battles=concurrency,
-    )
+    if opponent is None:
+        opponent = RandomPlayer(
+            battle_format=BATTLE_FORMAT,
+            max_concurrent_battles=concurrency,
+        )
     await player.battle_against(opponent, n_battles=battles)
-    _append_results(player, results, mode="local")
-    _print_summary(player)
+    _append_results(player, results, mode=mode)
+    if print_summary:
+        _print_summary(player)
 
 
 async def _run_live(args: argparse.Namespace) -> None:
@@ -726,7 +855,7 @@ def _run_corpus(args: argparse.Namespace) -> None:
 
 
 async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str, object]:
-    """Generate fresh Random Battles, mine them, and attempt bounded promotions."""
+    """Acquire mixed curriculum evidence and attempt bounded promotions."""
 
     if args.showdown_root is None:
         raise ValueError(
@@ -734,11 +863,14 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
         )
 
     traces: list[Path] = []
-    current_checkpoint = args.incumbent
+    current_checkpoint = _immutable_checkpoint(args.incumbent)
+    archive_checkpoints: list[Path] = []
     generations: list[dict[str, object]] = []
+    public_before: int | None = None
 
     for index in range(args.generations):
-        generation_root = args.workspace / "generations" / f"{index + 1:04d}"
+        generation_number = index + 1
+        generation_root = args.workspace / "generations" / f"{generation_number:04d}"
         if generation_root.exists():
             raise ValueError(
                 f"generation output already exists and is immutable: {generation_root}"
@@ -749,18 +881,92 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
         manifest_path = generation_root / "generation.json"
 
         _prepare_output_paths(results, decisions, replays)
-        await _run_local(
-            args.battles_per_generation,
-            args.concurrency,
-            results,
-            decisions,
-            replays,
-            showdown_root=args.showdown_root,
-            belief_timeout=args.belief_timeout,
-            evaluator_checkpoint=current_checkpoint,
-            search_policy_margin=args.battle_search_policy_margin,
+        opponent_specs = _training_opponent_specs(
+            current_checkpoint,
+            archive_checkpoints,
         )
+        allocations = _balanced_battle_allocation(
+            args.battles_per_generation,
+            len(opponent_specs),
+        )
+        opponent_population: list[dict[str, object]] = []
+        for spec, battle_count in zip(opponent_specs, allocations, strict=True):
+            population_row = {
+                **dict(spec),
+                "battle_count": battle_count,
+            }
+            opponent_population.append(population_row)
+            if battle_count == 0:
+                continue
+            opponent = _training_opponent(
+                spec,
+                concurrency=args.concurrency,
+                showdown_root=args.showdown_root,
+                belief_timeout=args.belief_timeout,
+                search_policy_margin=args.battle_search_policy_margin,
+            )
+            trace_source = {
+                "kind": f"generated-{spec['kind']}",
+                "generation": generation_number,
+                "opponent_kind": spec["kind"],
+                **(
+                    {"opponent_checkpoint_digest": spec["checkpoint_digest"]}
+                    if isinstance(spec.get("checkpoint_digest"), str)
+                    else {}
+                ),
+            }
+            await _run_local(
+                battle_count,
+                args.concurrency,
+                results,
+                decisions,
+                replays,
+                showdown_root=args.showdown_root,
+                belief_timeout=args.belief_timeout,
+                evaluator_checkpoint=current_checkpoint,
+                search_policy_margin=args.battle_search_policy_margin,
+                opponent=opponent,
+                trace_source=trace_source,
+                mode=f"training:{spec['kind']}",
+                print_summary=False,
+            )
         traces.append(decisions)
+
+        public_curriculum: dict[str, object]
+        if args.public_replays_per_generation > 0:
+            public_root = generation_root / "public-replays"
+            try:
+                public_result = await asyncio.to_thread(
+                    import_public_replays,
+                    showdown_root=args.showdown_root,
+                    output_root=public_root,
+                    max_battles=args.public_replays_per_generation,
+                    min_rating=args.public_replay_min_rating,
+                    before=public_before,
+                    strict=False,
+                )
+                public_curriculum = {
+                    "status": "acquired",
+                    **public_result,
+                }
+                next_before = public_result.get("next_before")
+                if isinstance(next_before, int) and not isinstance(next_before, bool):
+                    public_before = next_before
+                public_trace = public_result.get("trace")
+                if (
+                    isinstance(public_trace, str)
+                    and int(public_result.get("decision_count", 0)) > 0
+                ):
+                    traces.append(Path(public_trace))
+            except (PublicReplayError, OSError, ValueError) as error:
+                public_curriculum = {
+                    "status": "unavailable",
+                    "reason": type(error).__name__,
+                    "detail": str(error)[-1000:],
+                    "before": public_before,
+                }
+        else:
+            public_curriculum = {"status": "disabled"}
 
         receipt = run_self_improvement_cycle(
             traces,
@@ -790,14 +996,23 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
         )
         promoted = receipt.get("status") == "promoted"
         if promoted:
-            current_checkpoint = args.promotion
+            improvement = receipt.get("improvement")
+            if not isinstance(improvement, Mapping):
+                raise ValueError("promoted generation lacks improvement evidence")
+            candidate_checkpoint = improvement.get("candidate_checkpoint")
+            if not isinstance(candidate_checkpoint, str) or not candidate_checkpoint:
+                raise ValueError("promoted generation lacks immutable candidate checkpoint")
+            archive_checkpoints.append(current_checkpoint)
+            current_checkpoint = Path(candidate_checkpoint)
 
         generation = {
             "schema": "azelficoast.self-improvement-generation",
-            "schema_version": 1,
-            "generation": index + 1,
+            "schema_version": 2,
+            "generation": generation_number,
             "battle_count": args.battles_per_generation,
             "battle_search_policy_margin": args.battle_search_policy_margin,
+            "opponent_population": opponent_population,
+            "public_curriculum": public_curriculum,
             "trace": str(decisions),
             "trace_digest": _file_sha256(decisions),
             "results": str(results),
@@ -831,10 +1046,11 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
 
     return {
         "schema": "azelficoast.self-improvement-run",
-        "schema_version": 1,
+        "schema_version": 2,
         "generation_count": len(generations),
         "generations": generations,
         "final_checkpoint": str(current_checkpoint),
+        "archived_checkpoint_count": len(archive_checkpoints),
     }
 
 

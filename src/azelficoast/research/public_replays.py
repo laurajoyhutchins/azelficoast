@@ -622,6 +622,12 @@ async def _trace_side(
                 "decision_index": decision_index,
                 "state": battle_view(battle),
                 "chosen_action": action,
+                "source": {
+                    "kind": "public-showdown-replay",
+                    "replay_id": replay.replay_id,
+                    "side": side,
+                    "source_showdown_version": replay.source_showdown_version,
+                },
                 "decision_metadata": {
                     "selected_policy": "recorded-human",
                     "training_policy_authority": False,
@@ -729,6 +735,12 @@ def import_public_replays(
         min_rating=min_rating,
         before=before,
     )
+    uploadtimes = [
+        value
+        for row in metadata
+        if (value := _optional_int(row.get("uploadtime"))) is not None
+    ]
+    next_before = min(uploadtimes) - 1 if uploadtimes else before
 
     rows: list[dict[str, Any]] = []
     admitted: list[dict[str, Any]] = []
@@ -797,6 +809,7 @@ def import_public_replays(
             "max_battles": max_battles,
             "min_rating": min_rating,
             "before": before,
+            "next_before": next_before,
         },
         "provenance": {
             "source": "Pokemon Showdown public replay service",
@@ -838,4 +851,5 @@ def import_public_replays(
         "admitted_count": len(admitted),
         "excluded_count": len(excluded),
         "decision_count": manifest["decision_count"],
+        "next_before": next_before,
     }

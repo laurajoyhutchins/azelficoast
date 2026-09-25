@@ -4,7 +4,13 @@ import argparse
 
 import pytest
 
-from azelficoast.live.harness import _build_parser, _positive_int, _resolve_live_credentials
+from azelficoast.live.harness import (
+    _balanced_battle_allocation,
+    _build_parser,
+    _nonnegative_int,
+    _positive_int,
+    _resolve_live_credentials,
+)
 
 
 def test_challenge_parsing() -> None:
@@ -149,3 +155,28 @@ def test_training_auto_parsing() -> None:
     assert args.battles_per_generation == 20
     assert args.battle_search_policy_margin == 0.0
     assert args.max_teacher_fixtures == 48
+
+
+def test_nonnegative_int_allows_zero_and_rejects_negative() -> None:
+    assert _nonnegative_int("0") == 0
+    with pytest.raises(argparse.ArgumentTypeError):
+        _nonnegative_int("-1")
+
+
+def test_training_battles_are_balanced_across_opponent_population() -> None:
+    assert _balanced_battle_allocation(12, 4) == (3, 3, 3, 3)
+    assert _balanced_battle_allocation(7, 4) == (2, 2, 2, 1)
+
+
+def test_training_auto_replenishes_public_curriculum_by_default() -> None:
+    args = _build_parser().parse_args(
+        [
+            "--showdown-root",
+            "/tmp/pokemon-showdown",
+            "training",
+            "auto",
+        ]
+    )
+
+    assert args.public_replays_per_generation == 4
+    assert args.public_replay_min_rating == 1500
