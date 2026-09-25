@@ -14,7 +14,11 @@ from typing import Any, Mapping, Sequence
 from poke_env.data import GenData
 
 from azelficoast.corpus import DecisionFixture
-from azelficoast.real_belief_trace import BeliefTraceError, analyze_oracle
+from azelficoast.decision_relevance import (
+    DecisionRelevanceError,
+    analyze_quotiented_oracle,
+)
+from azelficoast.real_belief_trace import BeliefTraceError
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
@@ -272,8 +276,14 @@ def public_belief_result(
     """Analyze one exact mechanics oracle and return its legal public-belief action."""
 
     try:
-        trace = analyze_oracle(oracle)
-    except (BeliefTraceError, KeyError, TypeError, ValueError) as error:
+        trace, certificate = analyze_quotiented_oracle(oracle)
+    except (
+        BeliefTraceError,
+        DecisionRelevanceError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ) as error:
         return LiveDecisionResult(
             action=None,
             status="fallback",
@@ -299,7 +309,14 @@ def public_belief_result(
         diagnostics={
             "fixture_id": trace.get("source_fixture_id"),
             "showdown_commit": trace.get("showdown_commit"),
-            "world_count": trace.get("world_count"),
+            "source_world_count": certificate.get("worlds_in"),
+            "decision_class_count": certificate.get("classes_out"),
+            "decision_relevant_hidden_fields": certificate.get("decision_fields"),
+            "decision_world_reduction": certificate.get("world_reduction"),
+            "decision_reduction_fraction": certificate.get("reduction_fraction"),
+            "belief_branching_required": certificate.get(
+                "belief_branching_required"
+            ),
             "legal_action_count": trace.get("legal_action_count"),
             "strategy_fusion_observation_count": trace.get(
                 "strategy_fusion_observation_count"
