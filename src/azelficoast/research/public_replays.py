@@ -510,10 +510,26 @@ def _request_from_chunk(chunk: str) -> Mapping[str, Any] | None:
             value = json.loads(line[len("|request|") :])
         except json.JSONDecodeError as error:
             raise PublicReplayError("invalid request JSON in reconstructed replay") from error
+        if value is None:
+            return None
         if not isinstance(value, Mapping):
             raise PublicReplayError("reconstructed request is not an object")
         return value
     return None
+
+
+def _poke_env_messages(messages: Sequence[Sequence[str]]) -> list[list[str]]:
+    """Drop protocol messages poke-env cannot represent without losing evidence."""
+
+    return [
+        list(message)
+        for message in messages
+        if not (
+            len(message) >= 3
+            and message[1] == "request"
+            and "|".join(message[2:]).strip() == "null"
+        )
+    ]
 
 
 async def _trace_side(
@@ -543,8 +559,10 @@ async def _trace_side(
         messages = _protocol_messages(chunk)
         if not messages:
             continue
-        split_messages = [[f">{battle_tag}"], *messages]
-        await reader._handle_battle_message(split_messages)
+        reader_messages = _poke_env_messages(messages)
+        if reader_messages:
+            split_messages = [[f">{battle_tag}"], *reader_messages]
+            await reader._handle_battle_message(split_messages)
 
         records.append(
             {

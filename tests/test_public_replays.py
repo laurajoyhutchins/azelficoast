@@ -27,6 +27,15 @@ def test_replay_bridge_resolves_to_repository_script() -> None:
 
 
 
+def test_null_replay_request_is_non_actionable_for_poke_env() -> None:
+    chunk = "|turn|1\n|request|null\n"
+
+    assert public_replays._request_from_chunk(chunk) is None
+    assert public_replays._poke_env_messages(public_replays._protocol_messages(chunk)) == [
+        ["", "turn", "1"]
+    ]
+
+
 def test_discovery_uses_51st_row_only_as_pagination_signal(monkeypatch) -> None:
     first = [
         {
