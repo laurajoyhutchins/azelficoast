@@ -9,9 +9,16 @@ function fail(message) {
   process.exit(2);
 }
 
-const [showdownRoot, candidatesPath, fixturesPath] = process.argv.slice(2);
+const [showdownRoot, candidatesPath, fixturesPath, roundsText] = process.argv.slice(2);
 if (!showdownRoot || !candidatesPath || !fixturesPath) {
-  fail("usage: screen_public_belief_speed_forks.cjs SHOWDOWN_ROOT CANDIDATES FIXTURES");
+  fail(
+    "usage: screen_public_belief_speed_forks.cjs SHOWDOWN_ROOT CANDIDATES FIXTURES [ROUNDS]"
+  );
+}
+
+const rounds = roundsText ? Number(roundsText) : 512;
+if (!Number.isSafeInteger(rounds) || rounds < 1 || rounds > 65536) {
+  fail("ROUNDS must be an integer from 1 through 65536");
 }
 
 const common = require(path.join(showdownRoot, "test", "common.js"));
@@ -278,7 +285,7 @@ for (const candidate of candidatesDocument.candidates) {
   const fixture = fixtures.get(candidate.fixture_id);
   if (!fixture) fail(`missing fixture ${candidate.fixture_id}`);
 
-  const variants = compatibleVariants(candidate, fixture);
+  const variants = compatibleVariants(candidate, fixture, rounds);
   const worlds = [];
   for (const variant of variants) {
     const incoming = incomingMetrics(fixture, variant, candidate.locked_move);
@@ -348,5 +355,6 @@ process.stdout.write(JSON.stringify({
   showdown_commit: candidatesDocument.candidates[0]?.showdown_commit || null,
   case_count: cases.length,
   strict_execution_fork_count: cases.filter(c => c.strict_execution_fork).length,
+  rounds,
   cases,
 }, null, 2) + "\n");
