@@ -7,14 +7,16 @@ on:
     paths:
       - "experiments/matched-population-pilot-plan.json"
       - "experiments/matched-pilot-evaluator-source.json"
-      - ".github/workflows/matched-pilot-evaluator-checkpoint.yml"
       - "src/azelficoast/belief_evaluator.py"
+      - "src/azelficoast/belief_training.py"
+      - "src/azelficoast/matched_pilot_evaluator.py"
       - "src/azelficoast/matched_comparison.py"
       - "src/azelficoast/matched_oracle_search.py"
       - "src/azelficoast/matched_population.py"
       - "src/azelficoast/matched_population_run.py"
       - "src/azelficoast/posterior_treatments.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "tests/test_matched_pilot_evaluator.py"
       - "tests/test_matched_comparison.py"
       - "tests/test_matched_oracle_search.py"
       - "tests/test_matched_population.py"
@@ -30,46 +32,31 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: matched-population-pilot-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  exact:
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      max-parallel: 5
-      matrix:
-        shard: [0, 1, 2, 3, 4]
+  evaluator:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
       - uses: ./.github/actions/setup-python-environment
         with:
           simulator: "true"
-      - name: Restore canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-      - name: Restore verified pinned Pokémon Showdown
-        uses: ./.github/actions/setup-showdown
 
-      - name: Restore frozen learned evaluator
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Build frozen learned evaluator
         run: |
           set -euo pipefail
-          artifact_id="$(python -c 'import json; print(json.load(open("experiments/matched-population-pilot-plan.json"))["evaluator_checkpoint"]["artifact_id"])')"
-          curl -fL \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
-            -o /tmp/matched-evaluator.zip
-          rm -rf /tmp/matched-evaluator
-          mkdir -p /tmp/matched-evaluator
-          unzip -q /tmp/matched-evaluator.zip -d /tmp/matched-evaluator
+          uv run python -m azelficoast.matched_pilot_evaluator \
+            experiments/matched-pilot-evaluator-source.json \
+            --output /tmp/matched-evaluator \
+            | tee /tmp/matched-evaluator-build.json
+
+      - name: Verify evaluator identity and training isolation
+        run: |
           uv run python - <<'PY'
           import json
           from pathlib import Path
@@ -79,18 +66,63 @@ jobs:
           plan = json.loads(
               Path("experiments/matched-population-pilot-plan.json").read_text()
           )
+          source = json.loads(
+              Path("experiments/matched-pilot-evaluator-source.json").read_text()
+          )
           runtime = BeliefEvaluatorRuntime.from_checkpoint("/tmp/matched-evaluator")
+          summary = json.loads(
+              Path("/tmp/matched-evaluator/build-summary.json").read_text()
+          )
+
           assert runtime.identity == plan["evaluator"], (
               runtime.identity,
               plan["evaluator"],
           )
+          assert summary["posterior_world_count"] == 33, summary
+          assert summary["training_battle_tag"] == source["battle_tag"], summary
+          assert summary["final_loss"] < summary["initial_loss"], summary
           PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-population-pilot-evaluator
+          path: /tmp/matched-evaluator
+          if-no-files-found: error
+
+  exact:
+    needs: evaluator
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: "true"
+
+      - name: Restore canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
+
+      - name: Restore verified pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: matched-population-pilot-evaluator
+          path: /tmp/matched-evaluator
 
       - name: Verify frozen pilot contract
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
+
+          from azelficoast.belief_evaluator import BeliefEvaluatorRuntime
 
           plan = json.loads(
               Path("experiments/matched-population-pilot-plan.json").read_text()
@@ -98,6 +130,11 @@ jobs:
           manifest = json.loads(
               Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
           )
+          source = json.loads(
+              Path("experiments/matched-pilot-evaluator-source.json").read_text()
+          )
+          runtime = BeliefEvaluatorRuntime.from_checkpoint("/tmp/matched-evaluator")
+
           assert plan["schema_version"] == 2, plan
           assert plan["posterior_treatments"] == [
               "generator_faithful",
@@ -109,21 +146,18 @@ jobs:
               "incoming_ko_roll_probability_gap",
               "opponent_public_hp_fraction",
           ], plan
+          assert runtime.identity == plan["evaluator"], (
+              runtime.identity,
+              plan["evaluator"],
+          )
           assert manifest["source_decision_state_count"] == 6485, manifest
           assert manifest["selected_count"] == 10, manifest
           assert len({row["battle_tag"] for row in manifest["selected"]}) == 6, manifest
           assert manifest["frozen_before_policy_values"] is True, manifest
           assert manifest["selection_uses_policy_result"] is False, manifest
-          assert plan["evaluator"]["checkpoint_digest"] == (
-              "sha256:a06c3ee1bf8c30954b46236f14236cdeaefdf835cecaa50fc6011fa10d27d823"
-          ), plan
-          assert plan["evaluator_checkpoint"]["artifact_id"] == 10875025443, plan
-          training_source = json.loads(
-              Path("experiments/matched-pilot-evaluator-source.json").read_text()
-          )
           pilot_battles = {row["battle_tag"] for row in manifest["selected"]}
-          assert training_source["battle_tag"] not in pilot_battles, (
-              training_source["battle_tag"],
+          assert source["battle_tag"] not in pilot_battles, (
+              source["battle_tag"],
               pilot_battles,
           )
           PY
@@ -158,9 +192,20 @@ jobs:
             source="/tmp/azelficoast-evidence/population/selected/$filename"
             oracle="/tmp/oracle-$index.json"
 
-            node scripts/probe_real_belief_trace.cjs               /tmp/pokemon-showdown               "$source"               > "$oracle"
+            node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown \
+              "$source" \
+              > "$oracle"
 
-            uv run python -m azelficoast.matched_population_run state               experiments/matched-population-pilot-plan.json               "$source"               /tmp/azelficoast-evidence/population/manifest.json               "$oracle"               --population-index "$index"               --evaluator-checkpoint /tmp/matched-evaluator               --output-dir /tmp/matched               > "/tmp/run-$index.json"
+            uv run python -m azelficoast.matched_population_run state \
+              experiments/matched-population-pilot-plan.json \
+              "$source" \
+              /tmp/azelficoast-evidence/population/manifest.json \
+              "$oracle" \
+              --population-index "$index" \
+              --evaluator-checkpoint /tmp/matched-evaluator \
+              --output-dir /tmp/matched \
+              > "/tmp/run-$index.json"
 
             rm -f "$oracle"
           done < /tmp/shard.tsv
@@ -177,13 +222,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
       - uses: ./.github/actions/setup-python-environment
+
       - name: Restore canonical research evidence
         uses: ./.github/actions/setup-research-evidence
 
       - name: Freeze matched cohort projection
         run: |
-          uv run python -m azelficoast.matched_population_run cohort             /tmp/azelficoast-evidence/population/manifest.json             --output /tmp/matched-cohort.json             > /tmp/cohort-output.json
+          uv run python -m azelficoast.matched_population_run cohort \
+            /tmp/azelficoast-evidence/population/manifest.json \
+            --output /tmp/matched-cohort.json \
+            > /tmp/cohort-output.json
 
       - uses: actions/download-artifact@v4
         with:
@@ -193,7 +243,12 @@ jobs:
 
       - name: Aggregate complete matched matrix
         run: |
-          uv run python -m azelficoast.matched_population             experiments/matched-population-pilot-plan.json             /tmp/matched-cohort.json             /tmp/exact             --output /tmp/matched-population-pilot-aggregate.json             | tee /tmp/aggregate-output.json
+          uv run python -m azelficoast.matched_population \
+            experiments/matched-population-pilot-plan.json \
+            /tmp/matched-cohort.json \
+            /tmp/exact \
+            --output /tmp/matched-population-pilot-aggregate.json \
+            | tee /tmp/aggregate-output.json
 
           python - <<'PY'
           import json
