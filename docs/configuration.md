@@ -62,6 +62,19 @@ uv run azelficoast \
 Decision traces record the budget source, observed clock values when available, reserve,
 usable decision budget, clock-observation age, and measured decision latency.
 
+## Timeout migration
+
+The previous `--belief-timeout` / `AZELFICOAST_BELIEF_TIMEOUT_SECONDS`
+setting mixed two different concerns and is intentionally removed.
+
+- live subprocess ceilings use `--live-operation-timeout` /
+  `AZELFICOAST_LIVE_OPERATION_TIMEOUT_SECONDS`;
+- offline teacher and posterior probes use `--teacher-timeout` /
+  `AZELFICOAST_TEACHER_TIMEOUT_SECONDS`.
+
+There is no compatibility alias. A stale deployment therefore fails on the removed CLI
+flag instead of silently applying one timeout to the wrong timing domain.
+
 ## Offline teacher timing
 
 Scientific target generation is not constrained by the live battle clock. Its subprocess
