@@ -715,7 +715,7 @@ def test_live_high_margin_route_does_not_require_opponent_response_model() -> No
     assert result.reason == "learned-public-belief"
 
 
-def test_live_low_margin_route_uses_uniform_opponent_model_without_move_history() -> None:
+def test_live_low_margin_route_uses_strategy_mixture_without_move_history() -> None:
     protocol = (
         (
             ("", "player", "p1", "Azelficoast"),
@@ -776,7 +776,13 @@ def test_live_low_margin_route_uses_uniform_opponent_model_without_move_history(
     assert result.action == actions[1]
     assert result.reason == "transition-program-public-belief"
     assert seen_policy == {
-        "kind": "uniform-legal-moves",
+        "kind": "strategy-mixture",
+        "weighting": "equal-active-strategies",
+        "strategies": [
+            {"kind": "simple-heuristics"},
+            {"kind": "max-damage"},
+            {"kind": "uniform-legal-moves"},
+        ],
         "voluntary_switches": False,
     }
 
