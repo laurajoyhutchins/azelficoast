@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from azelficoast.belief.coverage import summarize_traces
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 
 
 def _record(

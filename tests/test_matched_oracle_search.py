@@ -10,7 +10,7 @@ from azelficoast.research.matched_search import (
     MatchedSearchExecutionError,
     execute_method,
 )
-from azelficoast.whole_turn_program import compile_whole_turn_programs
+from azelficoast.core.whole_turn_program import compile_whole_turn_programs
 
 
 class _FakeEvaluator:

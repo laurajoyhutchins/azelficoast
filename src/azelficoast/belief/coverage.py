@@ -8,8 +8,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
-from azelficoast.corpus import DecisionFixture, build_fixtures
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.live.corpus import DecisionFixture, build_fixtures
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 from azelficoast.live.belief import build_probe_source, opponent_move_from_protocol
 
 REPORT_SCHEMA = "azelficoast.live-belief-coverage"

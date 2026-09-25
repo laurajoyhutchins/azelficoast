@@ -27,7 +27,7 @@ from azelficoast.belief.improvement import (
     ImprovementError,
     improve_checkpoint,
 )
-from azelficoast.corpus import DecisionFixture, build_fixtures
+from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import build_probe_source
 from azelficoast.research.matched_comparison import _sha256 as matched_digest
 from azelficoast.research.training_records import (

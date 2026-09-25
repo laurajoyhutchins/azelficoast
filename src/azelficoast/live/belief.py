@@ -14,9 +14,9 @@ from typing import Any, Mapping, Sequence
 from poke_env.data import GenData
 
 from azelficoast.belief.evaluator import build_evaluator_input
-from azelficoast.corpus import DecisionFixture
+from azelficoast.live.corpus import DecisionFixture
 from azelficoast.core.decision_relevance import DecisionRelevanceError
-from azelficoast.real_belief_trace import BeliefTraceError, analyze_quotiented_oracle
+from azelficoast.research.verification.real_belief_trace import BeliefTraceError, analyze_quotiented_oracle
 from azelficoast.core.mechanics import (
     MechanicsContractError,
     VerifiedTransitionProgramSet,
@@ -26,7 +26,7 @@ from azelficoast.research.contracts import (
     ResearchContractError,
     parse_belief_artifact,
 )
-from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
+from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,

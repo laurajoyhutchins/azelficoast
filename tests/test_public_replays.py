@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from azelficoast import public_replays
-from azelficoast.public_replays import (
+from azelficoast.research import public_replays
+from azelficoast.research.public_replays import (
     PublicReplay,
     PublicReplayError,
     _input_choices,
@@ -16,7 +16,7 @@ from azelficoast.public_replays import (
     fetch_public_replay,
     freeze_public_replay,
 )
-from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
+from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 
 def test_discovery_uses_51st_row_only_as_pagination_signal(monkeypatch) -> None:

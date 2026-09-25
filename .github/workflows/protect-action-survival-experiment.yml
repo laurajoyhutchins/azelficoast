@@ -6,8 +6,8 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - "experiments/protect-action-survival.json"
-      - "src/azelficoast/action_survival.py"
-      - "src/azelficoast/gen9_damage.py"
+      - "src/azelficoast/research/action_survival.py"
+      - "src/azelficoast/research/mechanics/gen9_damage.py"
       - "tests/test_action_survival.py"
       - ".github/workflows/protect-action-survival-experiment.yml"
   workflow_dispatch:
@@ -30,7 +30,7 @@ jobs:
 
       - name: Analyze frozen natural witness
         run: |
-          uv run python -m azelficoast.action_survival             experiments/protect-action-survival.json             | tee /tmp/protect-action-survival.json
+          uv run python -m azelficoast.research.action_survival             experiments/protect-action-survival.json             | tee /tmp/protect-action-survival.json
 
           python - <<'PY'
           import json

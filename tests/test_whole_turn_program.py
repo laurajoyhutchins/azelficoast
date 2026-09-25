@@ -4,9 +4,9 @@ import copy
 
 import pytest
 
-from azelficoast.real_belief_trace import analyze_oracle
+from azelficoast.research.verification.real_belief_trace import analyze_oracle
 from azelficoast.core.program import program_for_action
-from azelficoast.whole_turn_program import (
+from azelficoast.core.whole_turn_program import (
     WholeTurnProgramError,
     compile_whole_turn_programs,
     execute_whole_turn_program,

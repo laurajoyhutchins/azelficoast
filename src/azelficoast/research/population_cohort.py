@@ -8,7 +8,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.corpus import DecisionFixture
+from azelficoast.live.corpus import DecisionFixture
 from azelficoast.search.fusion import FusionSearchError, _candidate_signals
 from azelficoast.live.belief import build_probe_source
 

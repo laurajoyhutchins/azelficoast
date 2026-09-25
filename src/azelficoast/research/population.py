@@ -11,7 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.corpus import load_corpus
+from azelficoast.live.corpus import load_corpus
 from azelficoast.research.population_cohort import (
     COHORT_SCHEMA,
     COHORT_SCHEMA_VERSION as COHORT_SCHEMA_VERSION,

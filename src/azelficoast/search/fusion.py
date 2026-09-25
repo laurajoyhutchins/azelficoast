@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.corpus import DecisionFixture, load_corpus
+from azelficoast.live.corpus import DecisionFixture, load_corpus
 from azelficoast.live.belief import build_probe_source
 
 PLAN_SCHEMA = "azelficoast.large-margin-strategy-fusion-plan"

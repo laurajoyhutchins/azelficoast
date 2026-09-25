@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.simulator_experiment import run_experiment
-from azelficoast.simulator_ir import (
+from azelficoast.research.simulator_experiment import run_experiment
+from azelficoast.research.mechanics.simulator_ir import (
     ITEM_CHOICE_SCARF,
     ITEM_CHOICE_SPECS,
     MOVE_MOONBLAST,
