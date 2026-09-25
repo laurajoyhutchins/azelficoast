@@ -78,6 +78,14 @@ jobs:
               Path("/tmp/real-belief-transition-oracle.json").read_text()
           )
           certificate = verify_whole_turn_program_set(program, oracle)
+          producer = program.get("producer", {})
+          assert producer.get("strategy") == "counterfactual-causal-refinement", producer
+          unique = int(producer.get("unique_world_action_executions", -1))
+          exhaustive = int(producer.get("exhaustive_world_action_product", -1))
+          saved = int(producer.get("saved_world_action_executions", -1))
+          assert 0 < unique < exhaustive, producer
+          assert saved == exhaustive - unique and saved > 0, producer
+          certificate["producer"] = producer
           Path("/tmp/whole-turn-transition-verification.json").write_text(
               json.dumps(certificate, sort_keys=True) + "\n",
               encoding="utf-8",
