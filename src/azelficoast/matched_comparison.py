@@ -320,6 +320,7 @@ def settle_packet(
     root_values: dict[str, dict[str, float]] = {}
     consumed: dict[str, int] = {}
     evaluator_calls: dict[str, int] = {}
+    resource_accounting: dict[str, dict[str, Any]] = {}
     transition_program_digests: dict[str, str] = {}
     chosen: dict[str, str] = {}
 
@@ -364,6 +365,36 @@ def settle_packet(
         if used > int(packet["compute_budget"]["authorized"]):
             raise MatchedComparisonError(f"{method}: exceeded the authorized budget")
         consumed[method] = used
+        raw_resources = receipt.get("resource_accounting")
+        if raw_resources is not None:
+            if not isinstance(raw_resources, Mapping):
+                raise MatchedComparisonError(
+                    f"{method}: resource_accounting must be an object"
+                )
+            if raw_resources.get("verified_execution_classes_consumed") != used:
+                raise MatchedComparisonError(
+                    f"{method}: resource accounting disagrees with consumed class budget"
+                )
+            if raw_resources.get("evaluator_calls") != calls:
+                raise MatchedComparisonError(
+                    f"{method}: resource accounting disagrees with evaluator calls"
+                )
+            for timing_field in (
+                "executor_preparation_wall_ms",
+                "search_wall_ms",
+                "executor_wall_ms",
+            ):
+                timing = raw_resources.get(timing_field)
+                if (
+                    not isinstance(timing, (int, float))
+                    or isinstance(timing, bool)
+                    or not math.isfinite(float(timing))
+                    or float(timing) < 0.0
+                ):
+                    raise MatchedComparisonError(
+                        f"{method}: invalid {timing_field} resource measurement"
+                    )
+            resource_accounting[method] = dict(raw_resources)
 
         values = receipt.get("root_values")
         if not isinstance(values, Mapping) or set(map(str, values)) != set(legal_actions):
@@ -426,6 +457,7 @@ def settle_packet(
         "evaluator_calls": evaluator_calls,
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
+        "resource_accounting": resource_accounting,
         "predictors": dict(packet["predictors"]),
         "two_player_information_sets_preserved": (
             packet["opponent_model"] == "two_sided_information_sets"
