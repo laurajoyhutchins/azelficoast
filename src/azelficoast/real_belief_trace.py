@@ -14,13 +14,13 @@ import math
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-from azelficoast.transition_oracle import (
-    ORACLE_SCHEMA as SCHEMA,
-    ORACLE_SCHEMA_VERSION as SCHEMA_VERSION,
-    canonical_json as _canonical,
-    transition_outcomes,
-    validate_oracle_core,
-)
+from azelficoast import transition_oracle as _transition_oracle
+
+SCHEMA = _transition_oracle.ORACLE_SCHEMA
+SCHEMA_VERSION = _transition_oracle.ORACLE_SCHEMA_VERSION
+_canonical = _transition_oracle.canonical_json
+transition_outcomes = _transition_oracle.transition_outcomes
+validate_oracle_core = _transition_oracle.validate_oracle_core
 
 RESULT_SCHEMA = "azelficoast.real-belief-decision-trace"
 RESULT_SCHEMA_VERSION = 3
@@ -217,7 +217,6 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             "evidence": dict(evidence or {}),
         }
 
-    legal_actions = [str(action) for action in raw_actions]
     for field, factor in factored_hidden.items():
         unread = set(factor["unread_actions"])
         unknown_actions = unread - set(legal_actions)
