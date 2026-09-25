@@ -1508,7 +1508,7 @@ function compileLazyWholeTurnPrograms() {
   const exhaustiveWorldActionProduct = worlds.length * legalActions.length;
 
   return {
-    schema: "azelficoast.whole-turn-transition-program-set",
+    schema: "azelficoast.core.transition-program-set",
     schema_version: 1,
     source_fixture_id: fixture.fixture_id,
     showdown_commit: actualCommit,
@@ -1601,7 +1601,7 @@ const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
 process.stdout.write(JSON.stringify({
-  schema: "azelficoast.real-belief-transition-oracle",
+  schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
   source_artifact: source.source_artifact,

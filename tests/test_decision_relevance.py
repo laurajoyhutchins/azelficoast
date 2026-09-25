@@ -4,12 +4,11 @@ import copy
 
 import pytest
 
-from azelficoast.search.decision_relevance import (
+from azelficoast.core.decision_relevance import (
     DecisionRelevanceError,
-    analyze_quotiented_oracle,
     decision_relevance_quotient,
 )
-from azelficoast.real_belief_trace import analyze_oracle
+from azelficoast.real_belief_trace import analyze_oracle, analyze_quotiented_oracle
 
 
 def _strategy_fusion_oracle() -> dict[str, object]:
@@ -63,7 +62,7 @@ def _strategy_fusion_oracle() -> dict[str, object]:
             ]
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "quotient-test",
         "showdown_commit": "pinned",
@@ -105,7 +104,7 @@ def test_exact_quotient_removes_irrelevant_hidden_dimension() -> None:
 
 def test_exact_quotient_collapses_belief_when_all_hidden_state_is_irrelevant() -> None:
     document = {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "irrelevant",
         "showdown_commit": "pinned",
@@ -150,7 +149,7 @@ def test_exact_quotient_collapses_belief_when_all_hidden_state_is_irrelevant() -
 
 def test_quotient_is_invariant_to_chance_outcome_enumeration_order() -> None:
     document = {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "chance-order",
         "showdown_commit": "pinned",

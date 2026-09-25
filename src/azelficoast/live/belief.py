@@ -15,11 +15,8 @@ from poke_env.data import GenData
 
 from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.corpus import DecisionFixture
-from azelficoast.search.decision_relevance import (
-    DecisionRelevanceError,
-    analyze_quotiented_oracle,
-)
-from azelficoast.real_belief_trace import BeliefTraceError
+from azelficoast.core.decision_relevance import DecisionRelevanceError
+from azelficoast.real_belief_trace import BeliefTraceError, analyze_quotiented_oracle
 from azelficoast.core.mechanics import (
     MechanicsContractError,
     VerifiedTransitionProgramSet,
@@ -34,10 +31,7 @@ from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )
-from azelficoast.whole_turn_program import (
-    PROGRAM_SET_SCHEMA,
-    PROGRAM_SET_SCHEMA_VERSION,
-)
+from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERSION
 
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1

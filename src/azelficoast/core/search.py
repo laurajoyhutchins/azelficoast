@@ -13,7 +13,7 @@ from azelficoast.core.program import program_for_action
 from azelficoast.core.transition import canonical_json, sha256_json
 
 SEARCH_METHODS = ("determinization", "information_set")
-SEARCH_SCHEMA = "azelficoast.partial-information-search"
+SEARCH_SCHEMA = "azelficoast.core.partial-information-search"
 SEARCH_SCHEMA_VERSION = 1
 
 

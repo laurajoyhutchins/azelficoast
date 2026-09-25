@@ -237,7 +237,7 @@ def _strategy_fusion_oracle() -> dict[str, object]:
             ]
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "live",
         "showdown_commit": "pinned",
@@ -356,7 +356,7 @@ def _program_search_oracle(
             ]
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": fixture_id,
         "showdown_commit": showdown_commit,

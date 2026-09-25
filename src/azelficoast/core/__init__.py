@@ -9,6 +9,29 @@ from azelficoast.core.contracts import (
     PartialInformationDomain,
     TransitionOracleProducer,
 )
+from azelficoast.core.decision_relevance import (
+    CERTIFICATE_SCHEMA,
+    CERTIFICATE_SCHEMA_VERSION,
+    DecisionRelevanceError,
+    decision_relevance_quotient,
+)
+from azelficoast.core.program import (
+    EXECUTION_SCHEMA,
+    EXECUTION_SCHEMA_VERSION,
+    PROGRAM_SET_SCHEMA,
+    PROGRAM_SET_SCHEMA_VERSION,
+    VERIFICATION_SCHEMA,
+    VERIFICATION_SCHEMA_VERSION,
+    TransitionProgramError,
+    program_for_action,
+)
+from azelficoast.core.search import (
+    SEARCH_METHODS,
+    SEARCH_SCHEMA,
+    SEARCH_SCHEMA_VERSION,
+    PartialInformationSearchError,
+    search_transition_program,
+)
 from azelficoast.core.transition import (
     ORACLE_SCHEMA,
     ORACLE_SCHEMA_VERSION,
@@ -20,11 +43,28 @@ from azelficoast.core.transition import (
 
 __all__ = [
     "BeliefEvaluator",
+    "CERTIFICATE_SCHEMA",
+    "CERTIFICATE_SCHEMA_VERSION",
+    "DecisionRelevanceError",
+    "EXECUTION_SCHEMA",
+    "EXECUTION_SCHEMA_VERSION",
     "ORACLE_SCHEMA",
     "ORACLE_SCHEMA_VERSION",
+    "PROGRAM_SET_SCHEMA",
+    "PROGRAM_SET_SCHEMA_VERSION",
     "PartialInformationDomain",
+    "PartialInformationSearchError",
+    "SEARCH_METHODS",
+    "SEARCH_SCHEMA",
+    "SEARCH_SCHEMA_VERSION",
     "TransitionOracleProducer",
+    "TransitionProgramError",
+    "VERIFICATION_SCHEMA",
+    "VERIFICATION_SCHEMA_VERSION",
     "canonical_json",
+    "decision_relevance_quotient",
+    "program_for_action",
+    "search_transition_program",
     "sha256_json",
     "transition_outcomes",
     "validate_transition_oracle",

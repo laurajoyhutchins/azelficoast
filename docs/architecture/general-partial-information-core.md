@@ -22,11 +22,18 @@ The current reusable surface is:
   transition programs.
 - `core.projection`: integer-weight projection of finite support.
 
-Existing modules such as `azelficoast.transition_oracle`,
-`azelficoast.decision_relevance`, `azelficoast.belief_projection`, and
-`azelficoast.transition_program_search` remain stable adapters. Existing experiments
-therefore keep their schema names and import paths while running through the reusable
-machinery.
+The core contracts are now canonical rather than compatibility-backed. Callers import
+them directly from `azelficoast.core`; the former transition/search façade modules have
+been removed. Persisted generic artifacts use core-owned schema identities:
+
+- `azelficoast.core.transition-oracle`
+- `azelficoast.core.transition-program-set`
+- `azelficoast.core.weighted-transition-outcomes`
+- `azelficoast.core.transition-program-verification`
+- `azelficoast.core.decision-relevance-certificate`
+- `azelficoast.core.partial-information-search`
+
+A schema mismatch is a hard failure. There is no reader alias for the pre-cutover names.
 
 ## Domain adapter
 

@@ -110,7 +110,7 @@ def _oracle() -> dict[str, object]:
             ]
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "fixture",
         "showdown_commit": "pinned",

@@ -78,7 +78,7 @@ def _oracle() -> dict[str, object]:
             }
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "real",
         "showdown_commit": "pinned",
@@ -159,7 +159,7 @@ def test_incomplete_transition_matrix_fails_closed() -> None:
 
 def test_determinization_cannot_condition_on_unobserved_chance() -> None:
     document = {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "chance-alias",
         "showdown_commit": "pinned",
@@ -391,7 +391,7 @@ def _deep_oracle() -> dict[str, object]:
                 }
             )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "deep",
         "showdown_commit": "pinned",

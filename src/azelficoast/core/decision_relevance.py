@@ -20,7 +20,7 @@ from azelficoast.core.transition import (
     validate_transition_oracle,
 )
 
-CERTIFICATE_SCHEMA = "azelficoast.decision-relevance-certificate"
+CERTIFICATE_SCHEMA = "azelficoast.core.decision-relevance-certificate"
 CERTIFICATE_SCHEMA_VERSION = 1
 
 

@@ -17,19 +17,21 @@ import itertools
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-from azelficoast.transition_oracle import (
+from azelficoast.core.program import (
+    EXECUTION_SCHEMA,
+    EXECUTION_SCHEMA_VERSION,
+    PROGRAM_SET_SCHEMA,
+    PROGRAM_SET_SCHEMA_VERSION,
+    VERIFICATION_SCHEMA,
+    VERIFICATION_SCHEMA_VERSION,
+    program_for_action as lookup_program_for_action,
+)
+from azelficoast.core.transition import (
     canonical_json,
     sha256_json,
     transition_outcomes,
-    validate_oracle_core,
+    validate_transition_oracle,
 )
-
-PROGRAM_SET_SCHEMA = "azelficoast.whole-turn-transition-program-set"
-PROGRAM_SET_SCHEMA_VERSION = 1
-EXECUTION_SCHEMA = "azelficoast.weighted-whole-turn-outcomes"
-EXECUTION_SCHEMA_VERSION = 1
-VERIFICATION_SCHEMA = "azelficoast.whole-turn-program-verification"
-VERIFICATION_SCHEMA_VERSION = 1
 
 
 class WholeTurnProgramError(ValueError):
@@ -224,7 +226,7 @@ def compile_whole_turn_programs(
             f"unsupported whole-turn partition strategy: {partition_strategy!r}"
         )
 
-    worlds, actions, transitions, candidates = validate_oracle_core(
+    worlds, actions, transitions, candidates = validate_transition_oracle(
         oracle,
         error_type=WholeTurnProgramError,
     )
@@ -392,7 +394,7 @@ def verify_whole_turn_program_set(
     ):
         raise WholeTurnProgramError("unsupported whole-turn transition program schema")
 
-    worlds, actions, transitions, candidates = validate_oracle_core(
+    worlds, actions, transitions, candidates = validate_transition_oracle(
         oracle,
         error_type=WholeTurnProgramError,
     )
@@ -415,7 +417,7 @@ def verify_whole_turn_program_set(
     verified_classes = 0
     representative_world_executions = 0
     for action in actions:
-        program = program_for_action(program_set, action)
+        program = lookup_program_for_action(program_set, action, error_type=WholeTurnProgramError)
         raw_classes = program.get("classes")
         if not isinstance(raw_classes, list) or not raw_classes:
             raise WholeTurnProgramError(f"{action}: program has no execution classes")
@@ -526,25 +528,6 @@ def verify_whole_turn_program_set(
     }
 
 
-def program_for_action(
-    program_set: Mapping[str, Any],
-    action: str,
-) -> Mapping[str, Any]:
-    raw_programs = program_set.get("programs")
-    if not isinstance(raw_programs, list):
-        raise WholeTurnProgramError("transition program set has no programs")
-    matches = [
-        program
-        for program in raw_programs
-        if isinstance(program, Mapping) and program.get("action") == action
-    ]
-    if len(matches) != 1:
-        raise WholeTurnProgramError(
-            f"expected one whole-turn program for action {action!r}"
-        )
-    return matches[0]
-
-
 def execute_whole_turn_program(
     program_set: Mapping[str, Any],
     *,
@@ -581,7 +564,7 @@ def execute_whole_turn_program(
         raise WholeTurnProgramError("posterior has no positive mass")
     normalized = {world_id: weight / total for world_id, weight in normalized.items()}
 
-    program = program_for_action(program_set, action)
+    program = lookup_program_for_action(program_set, action, error_type=WholeTurnProgramError)
     raw_classes = program.get("classes")
     if not isinstance(raw_classes, list) or not raw_classes:
         raise WholeTurnProgramError("whole-turn program has no execution classes")

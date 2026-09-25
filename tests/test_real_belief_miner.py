@@ -81,7 +81,7 @@ def _oracle(
         )
 
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": fixture_id,
         "showdown_commit": "pinned",

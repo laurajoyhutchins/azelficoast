@@ -20,7 +20,7 @@ from azelficoast.adaptive_execution import (
     choose_execution_path,
 )
 
-CERTIFICATE_SCHEMA = "azelficoast.transition-execution-certificate"
+CERTIFICATE_SCHEMA = "azelficoast.core.transition-execution-certificate"
 CERTIFICATE_SCHEMA_VERSION = 1
 
 

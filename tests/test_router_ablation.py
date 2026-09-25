@@ -102,7 +102,7 @@ class _CounterfactualEvaluator:
 
 def _counterfactual_program() -> dict[str, object]:
     return {
-        "schema": "azelficoast.whole-turn-transition-program-set",
+        "schema": "azelficoast.core.transition-program-set",
         "schema_version": 1,
         "source_fixture_id": "fixture",
         "showdown_commit": "pinned",
