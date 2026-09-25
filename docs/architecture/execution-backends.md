@@ -44,6 +44,21 @@ Showdown execution is not itself a performance target. Repeated world-by-world S
 construction in a live decision is evidence debt to remove by proving narrower reusable
 machinery, not work to accelerate with a larger JAX kernel.
 
+For the learned live policy, process and reconstruction reuse are explicitly transport
+optimizations. One persistent Node worker keeps the pinned Showdown module graph loaded
+and caches exact Random Battle generator populations. A posterior request leaves its
+content-addressed VM context resident until routing is known. If the learned policy is
+uncertain, TransitionProgram construction resumes from that exact context instead of
+reconstructing the posterior in a second process. A high-confidence learned decision
+releases the context without compiling mechanics.
+
+This reuse grants no semantic authority. The session identity is derived from the complete
+probe source, the Showdown revision is still checked against the project pin, and the
+ordinary one-shot full oracle remains the fail-closed recovery path. Reusing a context may
+remove process startup, module loading, generator sweeps, and duplicate posterior
+construction; it may not change hidden-world support, opponent-policy identity, or
+transition semantics.
+
 ### The owned compiler owns small exact integer kernels
 
 The custom compiler is deliberately a tiny lowering from an explicitly supported Python
