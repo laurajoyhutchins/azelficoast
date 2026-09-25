@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+
+import pytest
 from types import SimpleNamespace
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
@@ -15,7 +17,12 @@ from azelficoast.live.belief import (
     transition_program_belief_result,
 )
 from azelficoast.live.player import AzelficoastPlayer
-from azelficoast.live.timing import BattleClockTracker, LiveTimingPolicy
+from azelficoast.live.timing import (
+    BattleClockTracker,
+    DecisionDeadline,
+    DecisionDeadlineExceeded,
+    LiveTimingPolicy,
+)
 from azelficoast.search.selective import PolicyMarginSearchGate
 from azelficoast.whole_turn_program import compile_whole_turn_programs
 
@@ -413,6 +420,27 @@ def _selective_fixture() -> DecisionFixture:
         protocol_prefix=(),
         control_decisions=(),
     )
+
+
+def test_transition_program_search_propagates_expired_live_deadline() -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+
+    with pytest.raises(DecisionDeadlineExceeded):
+        transition_program_belief_result(
+            fixture=fixture,
+            posterior=posterior,
+            transition_program=compile_whole_turn_programs(oracle),
+            evaluator=_PosteriorSpreadEvaluator(),
+            deadline=DecisionDeadline(expires_at_monotonic=0.0),
+        )
 
 
 def test_transition_program_belief_search_uses_successor_beliefs() -> None:
