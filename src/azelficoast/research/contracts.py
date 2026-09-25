@@ -66,6 +66,29 @@ def stable_digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
+def _semantic_mass(value: float) -> float:
+    """Drop binary normalization noise from identity, retaining full model precision."""
+    return float(format(value, ".15g"))
+
+
+def _belief_semantic_digest(
+    treatment: str,
+    worlds: Sequence[SemanticWorld],
+) -> str:
+    return stable_digest(
+        {
+            "treatment": treatment,
+            "support": [
+                {
+                    "semantic_identity": world.semantic_identity,
+                    "weight": _semantic_mass(world.weight),
+                }
+                for world in worlds
+            ],
+        }
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class FrozenJSONObject:
     """A JSON object retained canonically so nested mutable values cannot leak in."""
@@ -155,6 +178,31 @@ _FORBIDDEN_PUBLIC_FIELDS = {
     "transportid",
     "worldid",
 }
+
+
+def _reject_realized_world_payload(value: object, *, path: str) -> None:
+    if isinstance(value, Mapping):
+        for key, child in value.items():
+            if not isinstance(key, str):
+                raise ResearchContractError(f"{path} contains a non-string field name")
+            normalized = "".join(character.lower() for character in key if character.isalnum())
+            if normalized in {"realizedhiddenstaterevealed", "realizedhiddenstateused"}:
+                if child is False:
+                    continue
+                raise ResearchContractError(
+                    f"{path} may not reveal the realized hidden state or carry realized hidden-world information; forbidden private or future field {key!r}"
+                )
+            marker = ("realized" in normalized or "sampled" in normalized or "actual" in normalized) and (
+                "hidden" in normalized or "world" in normalized
+            )
+            if marker:
+                raise ResearchContractError(
+                    f"{path} may not reveal the realized hidden state or carry realized hidden-world information; forbidden private or future field {key!r}"
+                )
+            _reject_realized_world_payload(child, path=f"{path}.{key}")
+    elif isinstance(value, (tuple, list)):
+        for index, child in enumerate(value):
+            _reject_realized_world_payload(child, path=f"{path}[{index}]")
 
 
 def _public_payload(value: object, *, path: str = "public decision input") -> None:
@@ -266,6 +314,7 @@ class PublicDecisionInput:
             raise ResearchContractError("public decision input lacks battle identity")
         if not isinstance(public_state, Mapping):
             raise ResearchContractError("public decision input requires public state")
+        _reject_realized_world_payload(record, path="public decision input")
         _public_payload(record)
         if (
             not isinstance(raw_actions, list)
@@ -328,6 +377,7 @@ class PublicSuccessorState:
 
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> PublicSuccessorState:
+        _reject_realized_world_payload(record, path="public successor state")
         _public_payload(record, path="public successor state")
         return cls(public_state=FrozenJSONObject.from_mapping(record))
 
@@ -411,15 +461,7 @@ class BeliefInput:
         total_weight = math.fsum(world.weight for world in worlds)
         if not math.isfinite(total_weight) or abs(total_weight - 1.0) > 1e-12:
             raise ResearchContractError("belief weights must be normalized")
-        expected_digest = stable_digest(
-            {
-                "treatment": self.treatment,
-                "support": [
-                    {"semantic_identity": world.semantic_identity, "weight": world.weight}
-                    for world in worlds
-                ],
-            }
-        )
+        expected_digest = _belief_semantic_digest(self.treatment, worlds)
         if self.semantic_digest != expected_digest:
             raise ResearchContractError("belief semantic digest does not match its support")
 
@@ -442,15 +484,16 @@ class BeliefInput:
             raise ResearchContractError("conditional belief references unsupported semantics")
         masses: dict[str, float] = {}
         for identity, mass in mass_by_identity.items():
-            if (
-                isinstance(mass, bool)
-                or not isinstance(mass, (int, float))
-                or not math.isfinite(float(mass))
-                or mass <= 0
-            ):
+            try:
+                number = float(mass)
+            except (OverflowError, TypeError, ValueError):
+                number = math.nan
+            if isinstance(mass, bool) or not isinstance(mass, (int, float)) or not math.isfinite(number) or number <= 0:
                 raise ResearchContractError("conditional belief masses must be positive and finite")
-            masses[identity] = float(mass)
-        total = math.fsum(masses.values())
+            masses[identity] = number
+        scale = max(masses.values())
+        scaled_masses = {identity: mass / scale for identity, mass in masses.items()}
+        total = math.fsum(scaled_masses.values())
         if not math.isfinite(total) or total <= 0:
             raise ResearchContractError("conditional belief has no finite positive mass")
         worlds = tuple(
@@ -458,21 +501,13 @@ class BeliefInput:
                 semantic_identity=identity,
                 features=known[identity].features,
                 hidden_state=known[identity].hidden_state,
-                weight=mass / total,
+                weight=scaled_masses[identity] / total,
             )
             for identity, mass in sorted(
-                masses.items(), key=lambda row: known[row[0]].features.canonical
+                scaled_masses.items(), key=lambda row: known[row[0]].features.canonical
             )
         )
-        digest = stable_digest(
-            {
-                "treatment": self.treatment,
-                "support": [
-                    {"semantic_identity": world.semantic_identity, "weight": world.weight}
-                    for world in worlds
-                ],
-            }
-        )
+        digest = _belief_semantic_digest(self.treatment, worlds)
         return BeliefInput(
             treatment=self.treatment,
             model_worlds=worlds,
@@ -483,6 +518,7 @@ class BeliefInput:
 def parse_belief_artifact(
     record: Mapping[str, object],
 ) -> tuple[BeliefInput, BeliefTransportIndex]:
+    _reject_realized_world_payload(record, path="belief")
     _public_payload(
         {key: value for key, value in record.items() if key != "worlds"},
         path="belief metadata",
@@ -517,11 +553,15 @@ def parse_belief_artifact(
             root_world_record=True,
         )
         weight = raw_world.get("weight")
+        if not isinstance(weight, (int, float)) or isinstance(weight, bool):
+            raise ResearchContractError("belief world weight must be positive and finite")
+        try:
+            numeric_weight = float(weight)
+        except (OverflowError, TypeError, ValueError):
+            numeric_weight = math.nan
         if (
-            not isinstance(weight, (int, float))
-            or isinstance(weight, bool)
-            or not math.isfinite(float(weight))
-            or float(weight) <= 0
+            not math.isfinite(numeric_weight)
+            or numeric_weight <= 0
         ):
             raise ResearchContractError("belief weights must be positive and finite")
         world_id = raw_world.get("world_id", raw_world.get("id"))
@@ -551,8 +591,8 @@ def parse_belief_artifact(
         frozen_features = FrozenJSONObject.from_mapping(features)
         canonical = frozen_features.canonical
         feature_by_canonical[canonical] = frozen_features
-        mass_by_canonical.setdefault(canonical, []).append(float(weight))
-        weights.append(float(weight))
+        mass_by_canonical.setdefault(canonical, []).append(numeric_weight)
+        weights.append(numeric_weight)
         if isinstance(raw_hidden, Mapping):
             frozen_hidden: FrozenJSONObject | None = FrozenJSONObject.from_mapping(raw_hidden)
         else:
@@ -564,9 +604,11 @@ def parse_belief_artifact(
 
         if isinstance(world_id, str):
             bindings.append((world_id, stable_digest(frozen_features.to_record())))
-            transport_weights.append((world_id, float(weight)))
+            transport_weights.append((world_id, numeric_weight))
 
-    total_weight = math.fsum(sorted(weights))
+    scale = max(weights)
+    scaled_weights = [weight / scale for weight in weights]
+    total_weight = math.fsum(sorted(scaled_weights))
     if not math.isfinite(total_weight) or total_weight <= 0:
         raise ResearchContractError("belief has no finite positive probability mass")
 
@@ -574,7 +616,9 @@ def parse_belief_artifact(
     for canonical in sorted(feature_by_canonical):
         frozen_features = feature_by_canonical[canonical]
         semantic_identity = stable_digest(frozen_features.to_record())
-        mass = math.fsum(sorted(mass_by_canonical[canonical])) / total_weight
+        mass = math.fsum(
+            sorted(weight / scale for weight in mass_by_canonical[canonical])
+        ) / total_weight
         grouped.append(
             (
                 semantic_identity,
@@ -596,19 +640,18 @@ def parse_belief_artifact(
         )
         for _, world in grouped
     )
-    semantic_distribution = [
-        {"semantic_identity": world.semantic_identity, "weight": world.weight}
-        for world in semantic_worlds
-    ]
     belief = BeliefInput(
         treatment=treatment,
         model_worlds=semantic_worlds,
-        semantic_digest=stable_digest({"treatment": treatment, "support": semantic_distribution}),
+        semantic_digest=_belief_semantic_digest(treatment, semantic_worlds),
     )
     return belief, BeliefTransportIndex(
         bindings=tuple(sorted(bindings)),
         weights=tuple(
-            sorted((identifier, weight / total_weight) for identifier, weight in transport_weights)
+            sorted(
+                (identifier, (weight / scale) / total_weight)
+                for identifier, weight in transport_weights
+            )
         ),
     )
 

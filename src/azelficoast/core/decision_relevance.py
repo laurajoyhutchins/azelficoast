@@ -11,6 +11,7 @@ import copy
 import hashlib
 import itertools
 import json
+import math
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
@@ -50,6 +51,7 @@ def _normalized_outcomes(transition: Mapping[str, Any]) -> list[dict[str, Any]]:
         if (
             not isinstance(probability, (int, float))
             or isinstance(probability, bool)
+            or not math.isfinite(float(probability))
             or float(probability) <= 0
         ):
             raise DecisionRelevanceError(
@@ -60,6 +62,13 @@ def _normalized_outcomes(transition: Mapping[str, Any]) -> list[dict[str, Any]]:
         continuation = outcome.get("continuations")
         terminal = outcome.get("terminal_utility")
         if isinstance(continuation, Mapping) and continuation:
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in continuation.values()
+            ):
+                raise DecisionRelevanceError("continuation utilities must be finite numbers")
             value_surface: dict[str, Any] = {
                 "continuations": {
                     str(action): float(value)
@@ -67,6 +76,8 @@ def _normalized_outcomes(transition: Mapping[str, Any]) -> list[dict[str, Any]]:
                 }
             }
         elif isinstance(terminal, (int, float)) and not isinstance(terminal, bool):
+            if not math.isfinite(float(terminal)):
+                raise DecisionRelevanceError("terminal utility must be finite")
             value_surface = {"terminal_utility": float(terminal)}
         else:
             raise DecisionRelevanceError(
