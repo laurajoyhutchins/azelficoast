@@ -10,7 +10,7 @@ from typing import Any, Mapping, Sequence
 
 from azelficoast.core.contracts import BeliefEvaluator
 from azelficoast.core.program import program_for_action
-from azelficoast.core.transition import sha256_json
+from azelficoast.core.transition import canonical_json, sha256_json
 
 SEARCH_METHODS = ("determinization", "information_set")
 SEARCH_SCHEMA = "azelficoast.partial-information-search"
@@ -266,7 +266,7 @@ def _leaf_value(
         )
 
     successor_by_digest = {
-        repr(member["outcome"]["successor"]): member["outcome"]["successor"]
+        canonical_json(member["outcome"]["successor"]): member["outcome"]["successor"]
         for member in members
     }
     if len(successor_by_digest) != 1:
@@ -336,7 +336,7 @@ def _determinization_values(
             row = class_by_world[world_id]
             by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
             for outcome_index, outcome in enumerate(row["outcomes"]):
-                by_observation[repr(outcome.get("observation"))].append(
+                by_observation[canonical_json(outcome.get("observation"))].append(
                     {
                         "world_id": world_id,
                         "outcome_index": outcome_index,
@@ -385,7 +385,7 @@ def _information_set_values(
             members = list(row["member_world_ids"])
             for outcome_index, outcome in enumerate(row["outcomes"]):
                 chance = float(outcome["probability"])
-                observation = repr(outcome.get("observation"))
+                observation = canonical_json(outcome.get("observation"))
                 for world_id in members:
                     by_observation[observation].append(
                         {
