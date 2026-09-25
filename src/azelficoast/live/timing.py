@@ -7,6 +7,10 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Sequence
 
+DEFAULT_LIVE_CLOCK_RESERVE_SECONDS = 5.0
+DEFAULT_LIVE_FALLBACK_BUDGET_SECONDS = 20.0
+DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS = 20.0
+
 _TIMER_MESSAGE = re.compile(
     r"^Time left: (?P<turn>\d+) sec this turn \| "
     r"(?P<total>\d+) sec total"
@@ -72,9 +76,9 @@ class LiveDecisionBudget:
 class LiveTimingPolicy:
     """Configuration for translating the battle clock into execution budgets."""
 
-    safety_reserve_seconds: float = 5.0
-    fallback_decision_budget_seconds: float = 20.0
-    operation_timeout_seconds: float = 20.0
+    safety_reserve_seconds: float = DEFAULT_LIVE_CLOCK_RESERVE_SECONDS
+    fallback_decision_budget_seconds: float = DEFAULT_LIVE_FALLBACK_BUDGET_SECONDS
+    operation_timeout_seconds: float = DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS
 
     def __post_init__(self) -> None:
         if self.safety_reserve_seconds < 0:
