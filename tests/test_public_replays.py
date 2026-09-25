@@ -18,6 +18,14 @@ from azelficoast.research.public_replays import (
 )
 from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
+def test_replay_bridge_resolves_to_repository_script() -> None:
+    script = public_replays._bridge_script()
+
+    assert script.name == "replay_inputlog_to_streams.cjs"
+    assert script.parent.name == "scripts"
+    assert script.is_file()
+
+
 
 def test_discovery_uses_51st_row_only_as_pagination_signal(monkeypatch) -> None:
     first = [
