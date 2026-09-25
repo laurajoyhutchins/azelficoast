@@ -194,7 +194,10 @@ def test_freeze_selection_rejects_item_support_drift(tmp_path) -> None:
     candidate = _candidate(fixture_id)
     candidate["item_weights"] = {"Choice Band": 0.5, "Choice Specs": 0.5}
 
-    with pytest.raises(FusionSearchError, match="item supports disagree"):
+    with pytest.raises(
+        FusionSearchError,
+        match="live source item support differs from discovery",
+    ):
         freeze_selection(
             plan=_plan(top_k=1),
             candidates_document={
