@@ -28,7 +28,7 @@ from azelficoast.research.training_records import (
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
-TEACHER_MANIFEST_SCHEMA_VERSION = 1
+TEACHER_MANIFEST_SCHEMA_VERSION = 2
 CYCLE_RECEIPT_SCHEMA = "azelficoast.self-improvement-cycle"
 CYCLE_RECEIPT_SCHEMA_VERSION = 1
 
@@ -107,6 +107,121 @@ def _normalized_trace_paths(paths: Sequence[str | Path]) -> tuple[Path, ...]:
         digest = _file_digest(path)
         by_digest.setdefault(digest, path)
     return tuple(by_digest[digest] for digest in sorted(by_digest))
+
+
+def _fixture_mining_signals(fixture: DecisionFixture) -> dict[str, Any]:
+    """Extract deterministic curriculum signals from public live-decision evidence."""
+
+    fallback = 0
+    searched = 0
+    margins: list[float] = []
+    entropies: list[float] = []
+    battle_tags: set[str] = set()
+
+    for control in fixture.control_decisions:
+        battle_tag = control.get("battle_tag")
+        if isinstance(battle_tag, str) and battle_tag:
+            battle_tags.add(battle_tag)
+        metadata = control.get("decision_metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        belief = metadata.get("belief")
+        if not isinstance(belief, Mapping):
+            continue
+        status = belief.get("status")
+        fallback += int(status == "fallback")
+        searched += int(status == "search" or belief.get("reason") == "learned-policy-uncertain")
+        diagnostics = belief.get("diagnostics")
+        if not isinstance(diagnostics, Mapping):
+            continue
+        prediction = diagnostics.get("learned_prediction")
+        if not isinstance(prediction, Mapping):
+            continue
+        margin = prediction.get("policy_margin")
+        entropy = prediction.get("policy_entropy_bits")
+        if isinstance(margin, (int, float)) and not isinstance(margin, bool):
+            margins.append(float(margin))
+        if isinstance(entropy, (int, float)) and not isinstance(entropy, bool):
+            entropies.append(float(entropy))
+
+    min_margin = min(margins) if margins else 1.0
+    max_entropy = max(entropies) if entropies else 0.0
+    return {
+        "fallback_count": fallback,
+        "search_count": searched,
+        "uncertainty": max(0.0, min(1.0, 1.0 - min_margin)),
+        "policy_entropy_bits": max_entropy,
+        "legal_action_count": len(fixture.legal_actions),
+        "battle_tags": sorted(battle_tags),
+    }
+
+
+def _mine_informative_fixtures(
+    fixtures: Sequence[DecisionFixture],
+    *,
+    max_fixtures: int | None,
+) -> tuple[list[DecisionFixture], dict[str, Any]]:
+    """Select a bounded, battle-diverse curriculum without consulting hidden truth."""
+
+    if max_fixtures is not None and (
+        not isinstance(max_fixtures, int)
+        or isinstance(max_fixtures, bool)
+        or max_fixtures <= 0
+    ):
+        raise TeacherEvidenceError("max teacher fixtures must be a positive integer")
+
+    scored = [(fixture, _fixture_mining_signals(fixture)) for fixture in fixtures]
+    ranked = sorted(
+        scored,
+        key=lambda item: (
+            -int(item[1]["fallback_count"]),
+            -int(item[1]["search_count"]),
+            -float(item[1]["uncertainty"]),
+            -float(item[1]["policy_entropy_bits"]),
+            -int(item[1]["legal_action_count"]),
+            item[0].fixture_id,
+        ),
+    )
+    limit = len(ranked) if max_fixtures is None else min(max_fixtures, len(ranked))
+
+    selected: list[tuple[DecisionFixture, dict[str, Any]]] = []
+    selected_ids: set[str] = set()
+    represented_battles: set[str] = set()
+
+    # First spend budget on distinct battles so one long battle cannot monopolize
+    # the curriculum. Then fill remaining slots by evidence-debt/uncertainty rank.
+    for fixture, signals in ranked:
+        if len(selected) >= limit:
+            break
+        battle_tags = set(signals["battle_tags"])
+        if battle_tags and battle_tags <= represented_battles:
+            continue
+        selected.append((fixture, signals))
+        selected_ids.add(fixture.fixture_id)
+        represented_battles.update(battle_tags)
+
+    for fixture, signals in ranked:
+        if len(selected) >= limit:
+            break
+        if fixture.fixture_id in selected_ids:
+            continue
+        selected.append((fixture, signals))
+        selected_ids.add(fixture.fixture_id)
+
+    selection = {
+        "kind": "public-evidence-debt-curriculum",
+        "candidate_fixture_count": len(fixtures),
+        "max_fixtures": max_fixtures,
+        "selected_fixture_count": len(selected),
+        "selected": [
+            {
+                "fixture_id": fixture.fixture_id,
+                "signals": signals,
+            }
+            for fixture, signals in selected
+        ],
+    }
+    return [fixture for fixture, _ in selected], selection
 
 
 class PinnedShowdownTeacherSource:
@@ -204,11 +319,16 @@ def generate_teacher_evidence(
     source: TeacherSource,
     output_root: str | Path,
     compute_budget: int = 4096,
+    max_teacher_fixtures: int | None = None,
 ) -> TeacherEvidence:
     """Generate settled search teacher artifacts from completed real traces."""
 
     traces = _normalized_trace_paths(trace_paths)
-    fixtures = build_fixtures(traces)
+    all_fixtures = build_fixtures(traces)
+    fixtures, selection = _mine_informative_fixtures(
+        all_fixtures,
+        max_fixtures=max_teacher_fixtures,
+    )
     evaluator_identity = getattr(evaluator, "identity", None)
     if not isinstance(evaluator_identity, Mapping):
         raise TeacherEvidenceError("teacher evaluator lacks an immutable identity")
@@ -224,6 +344,7 @@ def generate_teacher_evidence(
             "evaluator": dict(evaluator_identity),
             "showdown_commit": source.showdown_commit,
             "compute_budget": compute_budget,
+            "selection": selection,
         }
     )
     root = Path(output_root) / run_digest.removeprefix("sha256:")
@@ -340,6 +461,7 @@ def generate_teacher_evidence(
         "showdown_commit": source.showdown_commit,
         "evaluator": dict(evaluator_identity),
         "plan": plan,
+        "selection": selection,
         "admitted_decision_count": len(admitted_rows),
         "excluded_decision_count": sum(
             int(row["decision_count"]) for row in excluded_rows
@@ -378,6 +500,7 @@ def run_self_improvement_cycle(
     receipts_dir: str | Path,
     promotion_file: str | Path,
     teacher_compute_budget: int = 4096,
+    max_teacher_fixtures: int | None = None,
     teacher_timeout_seconds: float = 20.0,
     split_seed: str = "azelficoast.training-records",
     train_fraction: float = 0.8,
@@ -401,10 +524,12 @@ def run_self_improvement_cycle(
         ),
         output_root=Path(workspace) / "teachers",
         compute_budget=teacher_compute_budget,
+        max_teacher_fixtures=max_teacher_fixtures,
     )
     cycle_inputs = {
         "teacher_manifest_digest": teacher.manifest_digest,
         "incumbent_checkpoint_digest": incumbent_digest,
+        "max_teacher_fixtures": max_teacher_fixtures,
         "split_seed": split_seed,
         "train_fraction": train_fraction,
         "validation_fraction": validation_fraction,
