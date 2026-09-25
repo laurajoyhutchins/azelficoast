@@ -24,6 +24,7 @@ from azelficoast.adaptive_execution import (
     ExecutionFeatures,
     ExecutionPath,
     choose_execution_path,
+    current_jax_execution_target,
 )
 from azelficoast.gen9_two_attack_turn import (
     TwoAttackTurnContext,
@@ -358,3 +359,53 @@ def execute_two_attack_turn_belief(
             "successor distribution lost or duplicated logical-world mass"
         )
     return outcomes
+
+
+
+def execute_two_attack_turn_jax(
+    belief: TwoAttackTurnBelief,
+    projection: TwoAttackTurnProjection,
+    contexts: Sequence[TwoAttackTurnContext],
+    *,
+    profile: ExecutionCostProfile | None = None,
+    force_path: ExecutionPath | None = None,
+) -> WeightedTurnOutcomes:
+    """Execute through the compiled JAX lowering on the current calibrated target."""
+
+    import jax
+
+    from azelficoast.jax_gen9_two_attack_turn import two_attack_turn_batch
+
+    backend, target_signature = current_jax_execution_target()
+
+    def batch_executor(
+        params,
+        order,
+        p1_accuracy,
+        p1_damage,
+        p1_secondary,
+        p2_accuracy,
+        p2_damage,
+    ):
+        value = two_attack_turn_batch(
+            jax.device_put(params),
+            jax.device_put(order),
+            jax.device_put(p1_accuracy),
+            jax.device_put(p1_damage),
+            jax.device_put(p1_secondary),
+            jax.device_put(p2_accuracy),
+            jax.device_put(p2_damage),
+        )
+        value.block_until_ready()
+        return np.asarray(value, dtype=np.int64)
+
+    return execute_two_attack_turn_belief(
+        belief,
+        projection,
+        contexts,
+        batch_executor=batch_executor,
+        backend=backend,
+        target_signature=target_signature,
+        profile=profile,
+        force_path=force_path,
+    )
