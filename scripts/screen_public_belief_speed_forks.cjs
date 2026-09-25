@@ -71,6 +71,8 @@ function compatibleVariants(candidate, fixture, rounds = 512) {
       toID(fixture.state.opponent_active.species)
     ) continue;
     if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
+    const publicAbility = toID(fixture.state.opponent_active.ability || "");
+    if (publicAbility && toID(set.ability) !== publicAbility) continue;
     const moves = [...set.moves].map(toID);
     if (![...observed].every(move => moves.includes(move))) continue;
     if (!allowedItems.has(set.item || "")) continue;
