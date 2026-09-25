@@ -621,6 +621,7 @@ def _sample_worlds(
     observed_moves: Sequence[str],
     rounds: int,
     is_lead: bool,
+    public_level: int,
 ) -> dict[str, Any]:
     script = Path(__file__).resolve().parents[2] / "scripts" / "sample_showdown_worlds.cjs"
     try:
@@ -633,6 +634,8 @@ def _sample_worlds(
                 ",".join(observed_moves),
                 str(rounds),
                 "true" if is_lead else "false",
+                "0",
+                str(public_level),
             ],
             check=True,
             capture_output=True,
@@ -818,6 +821,7 @@ def mine_candidates(
                     observed_moves=revealed,
                     rounds=rounds,
                     is_lead=is_lead,
+                    public_level=opponent_level,
                 )
             except UnsupportedWorldSample:
                 skip("world-sample-unsupported")
