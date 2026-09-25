@@ -46,7 +46,11 @@ POSTERIOR_TREATMENTS = (
     "sharpened",
     "widened_support",
 )
-OPPONENT_MODELS = ("fixed_observed_response", "two_sided_information_sets")
+OPPONENT_MODELS = (
+    "fixed_observed_response",
+    "repeat-last-or-uniform-legal-moves",
+    "two_sided_information_sets",
+)
 BUDGET_UNITS = ("transition_evaluations",)
 
 
