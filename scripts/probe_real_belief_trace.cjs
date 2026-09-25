@@ -203,7 +203,7 @@ function generatorVariants() {
     // role, so two sets that differ only by role are the same mechanics world
     // and must contribute prior mass to one world rather than mint duplicate IDs.
     const semantic = {
-      species: set.species || requested,
+      species: toID(set.species || requested),
       ability: set.ability,
       item: set.item,
       level: set.level,
@@ -636,7 +636,7 @@ function declaredReads(_action) {
 }
 
 const {matched, variants} = generatorVariants();
-const worlds = [];
+const worldById = new Map();
 for (const entry of variants) {
   const {maxhp, support} = hpSupportForVariant(entry.set);
   for (const exactHp of support) {
@@ -647,17 +647,43 @@ for (const entry of variants) {
       "opponent.active.tera_type": entry.set.teraType,
       "opponent.active.exact_hp": exactHp,
     };
-    worlds.push({
-      world_id: sha256(hidden),
-      weight: (entry.count / matched) / support.length,
+    const worldId = sha256(hidden);
+    const weight = (entry.count / matched) / support.length;
+    const candidate = {
+      world_id: worldId,
+      weight,
       hidden,
       variant: entry.set,
       exactHp,
       opponent_max_hp: maxhp,
       generator_count: entry.count,
+    };
+    const existing = worldById.get(worldId);
+    if (!existing) {
+      worldById.set(worldId, candidate);
+      continue;
+    }
+
+    const existingMechanics = stable({
+      variant: existing.variant,
+      exactHp: existing.exactHp,
+      opponent_max_hp: existing.opponent_max_hp,
     });
+    const candidateMechanics = stable({
+      variant: candidate.variant,
+      exactHp: candidate.exactHp,
+      opponent_max_hp: candidate.opponent_max_hp,
+    });
+    if (JSON.stringify(existingMechanics) !== JSON.stringify(candidateMechanics)) {
+      fail(
+        `hidden world identity collision across distinct mechanics: ${worldId}`
+      );
+    }
+    existing.weight += weight;
+    existing.generator_count += entry.count;
   }
 }
+const worlds = [...worldById.values()];
 if (worlds.length < 2) fail("real trace did not reconstruct multiple hidden worlds");
 
 const legalActions = fixture.state.legal_actions.map(String);
