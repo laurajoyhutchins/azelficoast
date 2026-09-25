@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 BATTLE_PROMOTION_SCHEMA = "azelficoast.battle-promotion-panel"
@@ -152,4 +155,88 @@ def settle_battle_panel(
         "failed_checks": failed,
         "admitted": not failed,
         "pairing": "side-balanced-unpaired-random-battle",
+    }
+
+
+def verify_battle_panel_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
+    """Reopen raw results and independently recompute a claimed battle settlement."""
+
+    if (
+        evidence.get("schema") != BATTLE_PROMOTION_SCHEMA
+        or evidence.get("schema_version") != BATTLE_PROMOTION_SCHEMA_VERSION
+    ):
+        raise BattlePromotionError("unexpected battle promotion evidence schema")
+    results_path = evidence.get("results")
+    expected_digest = evidence.get("results_digest")
+    if not isinstance(results_path, str) or not results_path:
+        raise BattlePromotionError("battle evidence does not name raw results")
+    if not isinstance(expected_digest, str) or not expected_digest:
+        raise BattlePromotionError("battle evidence does not bind raw results digest")
+
+    path = Path(results_path)
+    try:
+        payload = path.read_bytes()
+    except OSError as error:
+        raise BattlePromotionError(f"cannot read raw promotion results: {error}") from error
+    actual_digest = hashlib.sha256(payload).hexdigest()
+    if actual_digest != expected_digest:
+        raise BattlePromotionError("raw promotion results digest drifted")
+
+    records: list[dict[str, Any]] = []
+    for line_number, raw in enumerate(payload.decode("utf-8").splitlines(), start=1):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise BattlePromotionError(
+                f"raw promotion results line {line_number} is invalid JSON"
+            ) from error
+        if not isinstance(row, Mapping):
+            raise BattlePromotionError(
+                f"raw promotion results line {line_number} is not an object"
+            )
+        records.append(dict(row))
+
+    raw_policy = evidence.get("policy")
+    if not isinstance(raw_policy, Mapping):
+        raise BattlePromotionError("battle evidence does not contain its frozen policy")
+    try:
+        policy = BattlePromotionPolicy(
+            expected_battles=int(raw_policy["expected_battles"]),
+            max_superiority_p_value=float(raw_policy["max_superiority_p_value"]),
+            min_decisive_fraction=float(raw_policy["min_decisive_fraction"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise BattlePromotionError("battle evidence contains an invalid frozen policy") from error
+
+    candidate = evidence.get("candidate_checkpoint_digest")
+    incumbent = evidence.get("incumbent_checkpoint_digest")
+    if not isinstance(candidate, str) or not candidate:
+        raise BattlePromotionError("battle evidence lacks candidate checkpoint identity")
+    if not isinstance(incumbent, str) or not incumbent:
+        raise BattlePromotionError("battle evidence lacks incumbent checkpoint identity")
+
+    recomputed = settle_battle_panel(
+        records,
+        candidate_checkpoint_digest=candidate,
+        incumbent_checkpoint_digest=incumbent,
+        policy=policy,
+    )
+    if bool(evidence.get("admitted")) != bool(recomputed["admitted"]):
+        raise BattlePromotionError("claimed battle admission disagrees with raw results")
+    return {
+        **recomputed,
+        "results": results_path,
+        "results_digest": actual_digest,
+        **(
+            {"decision_trace": evidence["decision_trace"]}
+            if isinstance(evidence.get("decision_trace"), str)
+            else {}
+        ),
+        **(
+            {"decision_trace_digest": evidence["decision_trace_digest"]}
+            if isinstance(evidence.get("decision_trace_digest"), str)
+            else {}
+        ),
     }
