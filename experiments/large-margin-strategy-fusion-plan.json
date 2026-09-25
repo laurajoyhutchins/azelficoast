@@ -1,0 +1,53 @@
+{
+  "schema": "azelficoast.large-margin-strategy-fusion-plan",
+  "schema_version": 1,
+  "source_artifact": {
+    "workflow_run_id": 36068967462,
+    "artifact_id": 10836574187,
+    "artifact_name": "live-belief-coverage",
+    "artifact_digest": "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2",
+    "head_sha": "50f035e785f805a15b44cc2d83f4f3d42ce837bf",
+    "battle_count": 256
+  },
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "discovery": {
+    "generator_rounds": 2048,
+    "persistent_only": true,
+    "top_k": 6,
+    "ranking_uses_policy_result": false,
+    "rank_order": [
+      "descending mechanics separation channel count",
+      "descending hidden-item KO-roll probability gap",
+      "descending hidden-item incoming-damage fraction gap",
+      "descending minimum hidden-item prior mass",
+      "descending observation-preserving branch count",
+      "descending legal-action count",
+      "ascending fixture_id"
+    ],
+    "mechanics_separation_channels": [
+      "hidden item changes relative move order",
+      "hidden item changes incoming KO-roll probability",
+      "hidden item changes incoming damage fraction"
+    ]
+  },
+  "exact_treatment": {
+    "root_chance_samples": 16,
+    "continuation_chance_samples": 16,
+    "chance_seed_family": 0,
+    "large_margin_threshold": 0.02,
+    "reference_max_prior_robust_bias": 0.009511590569429629,
+    "hypothesis": "At least one of the six outcome-blind structurally selected natural candidates has a strategy-fusion value advantage >= 0.02."
+  },
+  "scientific_contract": [
+    "candidate order is frozen before exact public-belief values are computed",
+    "strategy-fusion value advantage and root-policy disagreement cannot affect selection order",
+    "a valid corpus with zero >=0.02 candidates is a green falsification",
+    "malformed provenance, incomplete mechanics, or invalid exact traces fail closed"
+  ],
+  "non_claims": [
+    "The ranking score is a mechanics heuristic, not a learned predictor.",
+    "The bounded opponent response remains the latest publicly observed fixed-damage move.",
+    "The continuation horizon remains one further decision under material utility.",
+    "Six selected candidates are not claimed to represent the full competitive state distribution."
+  ]
+}
