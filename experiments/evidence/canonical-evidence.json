@@ -2,7 +2,33 @@
   "bundle": {
     "authority": "Git commit containing this manifest and bundle",
     "path": "experiments/evidence/canonical-evidence.tar.gz",
-    "sha256": "84afaad1872799e538873750fb222b0cb2808ede25e0e57e572efee86d35118f"
+    "sha256": "84afaad1872799e538873750fb222b0cb2808ede25e0e57e572efee86d35118f",
+    "required_paths": [
+      "discovery/speed-fork-candidates.json",
+      "discovery/speed-fork-fixtures.jsonl",
+      "policy-boundary/case-01.json",
+      "policy-boundary/case-02.json",
+      "policy-boundary/case-03.json",
+      "policy-boundary/case-04.json",
+      "policy-boundary/case-05.json",
+      "policy-boundary/case-06.json",
+      "policy-boundary/case-07.json",
+      "policy-boundary/case-08.json",
+      "policy-boundary/case-09.json",
+      "population/manifest.json",
+      "population/selected/001-85075fbced43ac4caa05ff7d3226c33f90100f87f986c57de8017c7b83b406af.json",
+      "population/selected/002-de08724a57457389a4a0d378205f1488d44636d4049150b427125cecb9022d24.json",
+      "population/selected/003-8c80fd92ae6ae97210377629a18423e9d22efbfb468e2a86b01daa1030695988.json",
+      "population/selected/004-008508abb54f0d44e0fa005eba35bd775eaf3129539f50a47c108be4dadc0227.json",
+      "population/selected/005-00f016ddca2c4afc5e441ce6584c4520dfd47a235c1b8b472fb0415185ea6535.json",
+      "population/selected/006-a32cd99b693b86ac1358780eae15bf03488c9eee90b266025f068efee05f0b9e.json",
+      "population/selected/007-30d11e4d6b7be78a61e1e14c79ba60cc93ba6fc3ab9a1e605db534d9a9c906d2.json",
+      "population/selected/008-35c1ef8f09d27071a6c922392248855371a013d57d77ed31eb70a59c1831ea6d.json",
+      "population/selected/009-ea6cd332d2e12fa86f8a0237a0c2dfcf43a35e3d24f44919e096f4a54f68abf1.json",
+      "population/selected/010-ad6b735dbd06e49fbcc569d099dc5b03375485dc95ec17d0a44bc34bf58e35eb.json",
+      "status-source.json",
+      "survival-source.json"
+    ]
   },
   "contents": {
     "discovery": {
