@@ -80,6 +80,7 @@ def _oracle() -> dict[str, object]:
                             "probability": 1.0,
                             "observation": {"kind": "same"},
                             "successor": common_successor,
+                            "hidden_reads": [],
                             "continuations": {
                                 "fast": 4000.0 if item == "Specs" else -4000.0,
                                 "safe": 1000.0,
@@ -98,6 +99,7 @@ def _oracle() -> dict[str, object]:
                                 **common_successor,
                                 "revealed_item": item,
                             },
+                            "hidden_reads": ["opponent.active.item"],
                             "continuations": {
                                 "fast": 3000.0 if item == "Specs" else -3000.0,
                                 "safe": 0.0,
@@ -277,6 +279,139 @@ def test_executor_ignores_historical_leaf_utility_values() -> None:
     assert changed_receipt["evaluator_calls"] == baseline["evaluator_calls"]
 
 
+def test_executor_is_invariant_to_opaque_world_id_renaming_and_order() -> None:
+    oracle = _oracle()
+    posterior = _posterior(oracle)
+    packet = _packet(oracle, posterior)
+
+    renamed = copy.deepcopy(oracle)
+    renamed_posterior = copy.deepcopy(posterior)
+    id_map = {"scarf": "omega", "specs": "alpha"}
+    for source in (renamed, renamed_posterior):
+        worlds = source["worlds"]
+        assert isinstance(worlds, list)
+        for world in worlds:
+            assert isinstance(world, dict)
+            world["world_id"] = id_map[str(world["world_id"])]
+        worlds.reverse()
+    transitions = renamed["transitions"]
+    assert isinstance(transitions, list)
+    for transition in transitions:
+        assert isinstance(transition, dict)
+        transition["world_id"] = id_map[str(transition["world_id"])]
+    transitions.reverse()
+    renamed_packet = _packet(renamed, renamed_posterior)
+
+    for method in ("determinization", "information_set"):
+        baseline = execute_method(
+            packet=packet,
+            posterior=posterior,
+            oracle=oracle,
+            method=method,
+            evaluator=_FakeEvaluator(),
+        )
+        result = execute_method(
+            packet=renamed_packet,
+            posterior=renamed_posterior,
+            oracle=renamed,
+            method=method,
+            evaluator=_FakeEvaluator(),
+        )
+
+        assert result["root_values"] == baseline["root_values"]
+        assert result["chosen_action"] == baseline["chosen_action"]
+
+
+def test_executor_dependency_evidence_ignores_unread_hidden_perturbation() -> None:
+    baseline_oracle = _oracle()
+    baseline_posterior = _posterior(baseline_oracle)
+    baseline_oracle["dependency_candidates"].append("noise")
+    baseline_worlds = baseline_oracle["worlds"]
+    baseline_posterior_worlds = baseline_posterior["worlds"]
+    assert isinstance(baseline_worlds, list)
+    assert isinstance(baseline_posterior_worlds, list)
+    for index, (oracle_world, posterior_world) in enumerate(
+        zip(baseline_worlds, baseline_posterior_worlds, strict=True)
+    ):
+        oracle_world["hidden"]["noise"] = index
+        posterior_world["hidden"]["noise"] = index
+    baseline_packet = _packet(baseline_oracle, baseline_posterior)
+    baseline = execute_method(
+        packet=baseline_packet,
+        posterior=baseline_posterior,
+        oracle=baseline_oracle,
+        method="information_set",
+        evaluator=_FakeEvaluator(),
+    )
+
+    changed_oracle = copy.deepcopy(baseline_oracle)
+    changed_posterior = copy.deepcopy(baseline_posterior)
+    changed_worlds = changed_oracle["worlds"]
+    changed_posterior_worlds = changed_posterior["worlds"]
+    assert isinstance(changed_worlds, list)
+    assert isinstance(changed_posterior_worlds, list)
+    for oracle_world, posterior_world in zip(
+        changed_worlds, changed_posterior_worlds, strict=True
+    ):
+        oracle_world["hidden"]["noise"] += 100
+        posterior_world["hidden"]["noise"] += 100
+    changed_packet = _packet(changed_oracle, changed_posterior)
+    changed = execute_method(
+        packet=changed_packet,
+        posterior=changed_posterior,
+        oracle=changed_oracle,
+        method="information_set",
+        evaluator=_FakeEvaluator(),
+    )
+
+    assert changed["root_values"] == baseline["root_values"]
+    assert changed["chosen_action"] == baseline["chosen_action"]
+    assert changed["mechanics_evidence_digest"] == baseline["mechanics_evidence_digest"]
+
+
+def test_executor_is_invariant_to_equivalent_support_splitting() -> None:
+    oracle = _oracle()
+    posterior = _posterior(oracle)
+    packet = _packet(oracle, posterior)
+
+    split_oracle = copy.deepcopy(oracle)
+    split_posterior = copy.deepcopy(posterior)
+    for document in (split_oracle, split_posterior):
+        worlds = document["worlds"]
+        assert isinstance(worlds, list)
+        first = next(world for world in worlds if world["world_id"] == "scarf")
+        first["weight"] = 0.25
+        worlds.append({**first, "world_id": "scarf-copy", "weight": 0.25})
+    transitions = split_oracle["transitions"]
+    assert isinstance(transitions, list)
+    copies = [
+        {**transition, "world_id": "scarf-copy"}
+        for transition in transitions
+        if transition["world_id"] == "scarf"
+    ]
+    transitions.extend(copies)
+    split_packet = _packet(split_oracle, split_posterior)
+
+    for method in ("determinization", "information_set"):
+        baseline = execute_method(
+            packet=packet,
+            posterior=posterior,
+            oracle=oracle,
+            method=method,
+            evaluator=_FakeEvaluator(),
+        )
+        result = execute_method(
+            packet=split_packet,
+            posterior=split_posterior,
+            oracle=split_oracle,
+            method=method,
+            evaluator=_FakeEvaluator(),
+        )
+
+        assert result["root_values"] == baseline["root_values"]
+        assert result["chosen_action"] == baseline["chosen_action"]
+
+
 def test_executor_fails_before_search_when_budget_cannot_cover_frozen_matrix() -> None:
     oracle = _oracle()
     posterior = _posterior(oracle)
@@ -341,6 +476,39 @@ def test_executor_rejects_evaluator_checkpoint_drift() -> None:
             evaluator=evaluator,
         )
     assert evaluator.calls == 0
+
+
+def test_executor_fails_closed_when_dependency_evidence_is_incomplete() -> None:
+    oracle = _oracle()
+    posterior = _posterior(oracle)
+    packet = _packet(oracle, posterior)
+    transitions = oracle["transitions"]
+    assert isinstance(transitions, list)
+    first_outcomes = transitions[0]["outcomes"]
+    assert isinstance(first_outcomes, list)
+    first_outcomes[0].pop("hidden_reads")
+
+    with pytest.raises(MatchedSearchExecutionError, match="lacks hidden-read evidence"):
+        execute_method(
+            packet=packet,
+            posterior=posterior,
+            oracle=oracle,
+            method="information_set",
+            evaluator=_FakeEvaluator(),
+        )
+
+    missing_candidates = copy.deepcopy(_oracle())
+    missing_posterior = _posterior(missing_candidates)
+    missing_packet = _packet(missing_candidates, missing_posterior)
+    missing_candidates.pop("dependency_candidates")
+    with pytest.raises(MatchedSearchExecutionError, match="dependency_candidates list"):
+        execute_method(
+            packet=missing_packet,
+            posterior=missing_posterior,
+            oracle=missing_candidates,
+            method="information_set",
+            evaluator=_FakeEvaluator(),
+        )
 
 
 def test_depth_one_executor_rejects_deeper_evidence() -> None:

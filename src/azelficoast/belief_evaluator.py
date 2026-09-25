@@ -15,6 +15,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.research_contracts import (
+    BeliefInput,
+    PublicDecisionInput,
+    PublicSuccessorState,
+    ResearchContractError,
+)
+
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 INPUT_SCHEMA = "azelficoast.public-belief-evaluator-input"
@@ -133,48 +140,45 @@ def build_evaluator_input(
     spec: BeliefEvaluatorSpec = BeliefEvaluatorSpec(),
 ) -> BeliefEvaluatorInput:
     """Build one evaluator input while enforcing the no-realized-state boundary."""
-    if "realized_hidden_state" in public_state:
-        raise BeliefEvaluatorError("public state may not contain realized_hidden_state")
     if posterior.get("conditioned_on_public_history") is not True:
         raise BeliefEvaluatorError("posterior must be conditioned on public history")
     if posterior.get("realized_hidden_state_revealed") is not False:
         raise BeliefEvaluatorError("evaluator may not consume a revealed hidden state")
+    try:
+        public = PublicSuccessorState.from_record(public_state)
+        belief = BeliefInput.from_record(posterior)
+        return build_evaluator_input_for_contract(
+            public_state=public,
+            belief=belief,
+            legal_actions=legal_actions,
+            spec=spec,
+        )
+    except ResearchContractError as error:
+        raise BeliefEvaluatorError(str(error)) from error
 
-    worlds = posterior.get("worlds")
-    if not isinstance(worlds, list) or not worlds:
-        raise BeliefEvaluatorError("posterior must contain hidden-world support")
-    actions = tuple(str(action) for action in legal_actions)
+
+def build_evaluator_input_for_contract(
+    *,
+    public_state: PublicDecisionInput | PublicSuccessorState,
+    belief: BeliefInput,
+    legal_actions: Sequence[str],
+    spec: BeliefEvaluatorSpec = BeliefEvaluatorSpec(),
+) -> BeliefEvaluatorInput:
+    """Build model features from validated public and posterior contracts only."""
+    actions = tuple(legal_actions)
     if not actions or any(not action for action in actions):
         raise BeliefEvaluatorError("legal actions must be non-empty strings")
     if len(set(actions)) != len(actions):
         raise BeliefEvaluatorError("legal actions must be unique")
 
-    world_rows: list[tuple[float, ...]] = []
-    raw_weights: list[float] = []
-    for world in worlds:
-        if not isinstance(world, Mapping):
-            raise BeliefEvaluatorError("hidden world must be an object")
-        weight = world.get("weight")
-        if not isinstance(weight, (int, float)) or isinstance(weight, bool):
-            raise BeliefEvaluatorError("hidden world weight must be numeric")
-        weight = float(weight)
-        if not math.isfinite(weight) or weight <= 0:
-            raise BeliefEvaluatorError("hidden world weight must be positive and finite")
-
-        semantic_world = {
-            str(key): value
-            for key, value in world.items()
-            if key not in {"weight", "world_id", "id"}
-        }
-        world_rows.append(hashed_features(semantic_world, width=spec.world_width))
-        raw_weights.append(weight)
-
-    total = sum(raw_weights)
-    weights = tuple(weight / total for weight in raw_weights)
+    state_record = public_state.public_state.to_record()
     return BeliefEvaluatorInput(
-        public_features=hashed_features(public_state, width=spec.public_width),
-        world_features=tuple(world_rows),
-        world_weights=weights,
+        public_features=hashed_features(state_record, width=spec.public_width),
+        world_features=tuple(
+            hashed_features(world.features.to_record(), width=spec.world_width)
+            for world in belief.model_worlds
+        ),
+        world_weights=tuple(world.weight for world in belief.model_worlds),
         action_features=tuple(
             hashed_features({"action": action}, width=spec.action_width)
             for action in actions

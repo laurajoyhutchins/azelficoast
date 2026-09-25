@@ -2,23 +2,41 @@
 
 from __future__ import annotations
 
-import copy
 import math
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
-from azelficoast.belief_evaluator import build_evaluator_input
-from azelficoast.transition_oracle import canonical_json, sha256_json
-from azelficoast.whole_turn_program import (
-    PROGRAM_SET_SCHEMA,
-    PROGRAM_SET_SCHEMA_VERSION,
-    program_for_action,
+from azelficoast.belief_evaluator import (
+    BeliefEvaluatorInput,
+    BeliefEvaluatorSpec,
+    BeliefPrediction,
+    build_evaluator_input_for_contract,
 )
+from azelficoast.mechanics_contracts import (
+    MechanicsExecutionRequest,
+    MechanicsExecutor,
+    MechanicsContractError,
+)
+from azelficoast.research_contracts import (
+    BeliefInput,
+    BeliefTransportIndex,
+    PublicSuccessorState,
+    ResearchContractError,
+)
+from azelficoast.transition_oracle import canonical_json
+from azelficoast.whole_turn_program import program_for_action
 
 SEARCH_SCHEMA = "azelficoast.transition-program-search"
 SEARCH_SCHEMA_VERSION = 1
 METHODS = ("determinization", "information_set")
+
+
+class SearchEvaluator(Protocol):
+    spec: BeliefEvaluatorSpec
+
+    def predict(self, inputs: BeliefEvaluatorInput) -> BeliefPrediction:
+        """Predict from validated public and posterior features."""
 
 
 class TransitionProgramSearchError(ValueError):
@@ -27,29 +45,24 @@ class TransitionProgramSearchError(ValueError):
 
 @dataclass
 class _EvaluatorMeter:
-    evaluator: Any
+    evaluator: SearchEvaluator
     calls: int = 0
 
     def value(
         self,
         *,
-        public_state: Mapping[str, Any],
-        posterior_worlds: Sequence[Mapping[str, Any]],
+        public_state: PublicSuccessorState,
+        posterior: BeliefInput,
         legal_actions: Sequence[str],
     ) -> float:
         if not legal_actions:
             raise TransitionProgramSearchError(
                 "successor information set has no legal actions"
             )
-        posterior = {
-            "conditioned_on_public_history": True,
-            "realized_hidden_state_revealed": False,
-            "worlds": [copy.deepcopy(dict(world)) for world in posterior_worlds],
-        }
         try:
-            inputs = build_evaluator_input(
+            inputs = build_evaluator_input_for_contract(
                 public_state=public_state,
-                posterior=posterior,
+                belief=posterior,
                 legal_actions=legal_actions,
                 spec=self.evaluator.spec,
             )
@@ -69,85 +82,68 @@ class _EvaluatorMeter:
 
 def _normalized_inputs(
     *,
-    program_set: Mapping[str, Any],
-    posterior: Mapping[str, Any],
+    mechanics: MechanicsExecutor,
+    belief: BeliefInput,
+    transport_index: BeliefTransportIndex,
 ) -> tuple[
     list[str],
     dict[str, dict[str, Any]],
     dict[str, float],
+    dict[str, str],
+    dict[str, Any],
 ]:
-    if (
-        program_set.get("schema") != PROGRAM_SET_SCHEMA
-        or program_set.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
-    ):
-        raise TransitionProgramSearchError(
-            "unexpected whole-turn transition-program schema"
-        )
-
-    raw_world_ids = program_set.get("world_ids")
-    raw_actions = program_set.get("legal_actions")
-    raw_worlds = posterior.get("worlds")
-    if (
-        not isinstance(raw_world_ids, list)
-        or not raw_world_ids
-        or not all(isinstance(world_id, str) and world_id for world_id in raw_world_ids)
-    ):
-        raise TransitionProgramSearchError(
-            "transition program has invalid hidden-world support"
-        )
-    if (
-        not isinstance(raw_actions, list)
-        or not raw_actions
-        or not all(isinstance(action, str) and action for action in raw_actions)
-    ):
-        raise TransitionProgramSearchError("transition program has no legal root actions")
-    if not isinstance(raw_worlds, list) or not raw_worlds:
-        raise TransitionProgramSearchError("posterior has no hidden-world support")
-
-    world_ids = list(raw_world_ids)
-    actions = list(raw_actions)
+    world_ids = list(mechanics.world_ids)
+    actions = list(mechanics.legal_actions)
     if len(set(world_ids)) != len(world_ids):
         raise TransitionProgramSearchError("transition-program world ids must be unique")
     if len(set(actions)) != len(actions):
         raise TransitionProgramSearchError("transition-program actions must be unique")
 
+    semantic_worlds = {world.semantic_identity: world for world in belief.model_worlds}
     worlds_by_id: dict[str, dict[str, Any]] = {}
     raw_weights: dict[str, float] = {}
-    for raw_world in raw_worlds:
-        if not isinstance(raw_world, Mapping):
-            raise TransitionProgramSearchError("posterior world must be an object")
-        world_id = str(raw_world.get("world_id"))
-        if world_id in worlds_by_id:
-            raise TransitionProgramSearchError("posterior world ids must be unique")
-        hidden = raw_world.get("hidden")
-        if not isinstance(hidden, Mapping):
+    semantic_by_transport: dict[str, str] = {}
+    for world_id in world_ids:
+        semantic_identity = transport_index.semantic_identity_for(world_id)
+        weight = transport_index.weight_for(world_id)
+        semantic_world = semantic_worlds.get(str(semantic_identity))
+        if semantic_world is None or weight is None:
             raise TransitionProgramSearchError(
-                f"{world_id}: posterior must retain correlated hidden state"
+                "posterior support differs from transition-program support"
             )
-        weight = raw_world.get("weight")
-        if (
-            not isinstance(weight, (int, float))
-            or isinstance(weight, bool)
-            or not math.isfinite(float(weight))
-            or float(weight) <= 0
-        ):
-            raise TransitionProgramSearchError(
-                f"{world_id}: posterior weight must be positive and finite"
-            )
-        worlds_by_id[world_id] = copy.deepcopy(dict(raw_world))
-        raw_weights[world_id] = float(weight)
+        row = semantic_world.to_record()
+        row["world_id"] = world_id
+        worlds_by_id[world_id] = row
+        raw_weights[world_id] = weight
+        semantic_by_transport[world_id] = semantic_world.semantic_identity
 
     if set(world_ids) != set(worlds_by_id):
         raise TransitionProgramSearchError(
             "posterior support differs from transition-program support"
         )
 
-    total = sum(raw_weights.values())
+    total = math.fsum(raw_weights.values())
+    if not math.isfinite(total) or total <= 0:
+        raise TransitionProgramSearchError("posterior has no finite positive mass")
     weights = {world_id: raw_weights[world_id] / total for world_id in world_ids}
     for world_id, weight in weights.items():
         worlds_by_id[world_id]["weight"] = weight
 
-    return actions, worlds_by_id, weights
+    program_set = mechanics.program_set.to_record()
+    raw_programs: list[dict[str, object]] = []
+    try:
+        for action in actions:
+            execution = mechanics.execute(
+                MechanicsExecutionRequest(
+                    mechanics_identity=mechanics.identity,
+                    action=action,
+                )
+            )
+            raw_programs.append(execution.program.to_record())
+    except MechanicsContractError as error:
+        raise TransitionProgramSearchError(str(error)) from error
+    program_set["programs"] = raw_programs
+    return actions, worlds_by_id, weights, semantic_by_transport, program_set
 
 
 def _validated_classes(
@@ -242,6 +238,8 @@ def _leaf_value(
     *,
     weight_key: str,
     worlds_by_id: Mapping[str, Mapping[str, Any]],
+    semantic_by_transport: Mapping[str, str],
+    belief: BeliefInput,
     evaluator: _EvaluatorMeter,
 ) -> float:
     if not members:
@@ -273,24 +271,27 @@ def _leaf_value(
             "successor information set has no common legal action"
         )
 
-    world_mass: dict[str, float] = defaultdict(float)
+    semantic_mass: dict[str, float] = defaultdict(float)
     for member in members:
         world_id = str(member["world_id"])
         if world_id not in worlds_by_id:
             raise TransitionProgramSearchError(
                 f"successor references unknown hidden world {world_id}"
             )
-        world_mass[world_id] += float(member[weight_key])
+        semantic_identity = semantic_by_transport.get(world_id)
+        if semantic_identity is None:
+            raise TransitionProgramSearchError("successor references unknown semantic world")
+        semantic_mass[semantic_identity] += float(member[weight_key])
 
-    posterior_worlds: list[dict[str, Any]] = []
-    for world_id in sorted(world_mass):
-        row = copy.deepcopy(dict(worlds_by_id[world_id]))
-        row["weight"] = world_mass[world_id] / total
-        posterior_worlds.append(row)
+    try:
+        public_successor = PublicSuccessorState.from_record(successor)
+        posterior = belief.reweighted(semantic_mass)
+    except ResearchContractError as error:
+        raise TransitionProgramSearchError(str(error)) from error
 
     return evaluator.value(
-        public_state=successor,
-        posterior_worlds=posterior_worlds,
+        public_state=public_successor,
+        posterior=posterior,
         legal_actions=sorted(common_legal),
     )
 
@@ -301,6 +302,8 @@ def _determinization_values(
     actions: Sequence[str],
     worlds_by_id: Mapping[str, Mapping[str, Any]],
     weights: Mapping[str, float],
+    semantic_by_transport: Mapping[str, str],
+    belief: BeliefInput,
     evaluator: _EvaluatorMeter,
 ) -> tuple[dict[str, float], int]:
     values: dict[str, float] = {}
@@ -341,6 +344,8 @@ def _determinization_values(
                     members,
                     weight_key="chance",
                     worlds_by_id=worlds_by_id,
+                    semantic_by_transport=semantic_by_transport,
+                    belief=belief,
                     evaluator=evaluator,
                 )
             total += weights[world_id] * world_value
@@ -355,6 +360,8 @@ def _information_set_values(
     actions: Sequence[str],
     worlds_by_id: Mapping[str, Mapping[str, Any]],
     weights: Mapping[str, float],
+    semantic_by_transport: Mapping[str, str],
+    belief: BeliefInput,
     evaluator: _EvaluatorMeter,
 ) -> tuple[dict[str, float], int]:
     values: dict[str, float] = {}
@@ -392,6 +399,8 @@ def _information_set_values(
                 members,
                 weight_key="mass",
                 worlds_by_id=worlds_by_id,
+                semantic_by_transport=semantic_by_transport,
+                belief=belief,
                 evaluator=evaluator,
             )
         values[action] = total
@@ -401,18 +410,20 @@ def _information_set_values(
 
 def search_transition_program(
     *,
-    program_set: Mapping[str, Any],
-    posterior: Mapping[str, Any],
+    mechanics: MechanicsExecutor,
+    belief: BeliefInput,
+    transport_index: BeliefTransportIndex,
     method: str,
-    evaluator: Any,
+    evaluator: SearchEvaluator,
 ) -> dict[str, Any]:
     """Evaluate a verified mechanics program without consuming an exhaustive oracle."""
 
     if method not in METHODS:
         raise TransitionProgramSearchError(f"unknown search method {method!r}")
-    actions, worlds_by_id, weights = _normalized_inputs(
-        program_set=program_set,
-        posterior=posterior,
+    actions, worlds_by_id, weights, semantic_by_transport, program_set = _normalized_inputs(
+        mechanics=mechanics,
+        belief=belief,
+        transport_index=transport_index,
     )
 
     meter = _EvaluatorMeter(evaluator)
@@ -422,6 +433,8 @@ def search_transition_program(
             actions=actions,
             worlds_by_id=worlds_by_id,
             weights=weights,
+            semantic_by_transport=semantic_by_transport,
+            belief=belief,
             evaluator=meter,
         )
     else:
@@ -430,6 +443,8 @@ def search_transition_program(
             actions=actions,
             worlds_by_id=worlds_by_id,
             weights=weights,
+            semantic_by_transport=semantic_by_transport,
+            belief=belief,
             evaluator=meter,
         )
 
@@ -441,7 +456,8 @@ def search_transition_program(
         "schema": SEARCH_SCHEMA,
         "schema_version": SEARCH_SCHEMA_VERSION,
         "method": method,
-        "transition_program_digest": sha256_json(program_set),
+        "transition_program_digest": mechanics.transition_program_digest,
+        "mechanics_evidence_digest": mechanics.semantic_evidence_digest,
         "transition_evaluations": transition_evaluations,
         "evaluator_calls": meter.calls,
         "chosen_action": chosen_action,

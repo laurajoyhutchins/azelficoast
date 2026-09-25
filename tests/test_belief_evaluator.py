@@ -77,6 +77,28 @@ def test_world_transport_ids_are_not_model_features() -> None:
     assert abs(sum(first.world_weights) - 1.0) < 1e-12
 
 
+def test_equivalent_support_splitting_does_not_change_evaluator_input() -> None:
+    posterior = _posterior()
+    worlds = posterior["worlds"]
+    worlds[0] = {**worlds[0], "weight": 0.2}
+    worlds.append({**worlds[0], "world_id": "scarf-world-copy", "weight": 0.2})
+
+    original = _posterior()
+    first = build_evaluator_input(
+        public_state={"turn": 12},
+        posterior=original,
+        legal_actions=["attack", "switch"],
+    )
+    split = build_evaluator_input(
+        public_state={"turn": 12},
+        posterior=posterior,
+        legal_actions=["attack", "switch"],
+    )
+
+    assert first.world_features == split.world_features
+    assert first.world_weights == split.world_weights
+
+
 def test_evaluator_identity_declares_public_belief_observability() -> None:
     identity = evaluator_identity(
         checkpoint_digest_value="sha256:" + "a" * 64,

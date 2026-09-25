@@ -25,6 +25,8 @@ jobs:
         uses: ./.github/actions/setup-python-environment
       - name: Lint
         run: uv run ruff check .
+      - name: Type check research boundaries
+        run: uv run mypy
       - name: Check Showdown probe syntax
         run: node --check scripts/probe_real_belief_trace.cjs
       - name: Test
