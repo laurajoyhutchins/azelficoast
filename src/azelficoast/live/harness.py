@@ -395,6 +395,15 @@ def _build_parser() -> argparse.ArgumentParser:
     training_auto.add_argument("--generations", type=_positive_int, default=1)
     training_auto.add_argument("--battles-per-generation", type=_positive_int, default=12)
     training_auto.add_argument("--concurrency", type=_positive_int, default=1)
+    training_auto.add_argument(
+        "--battle-search-policy-margin",
+        type=_unit_float,
+        default=0.0,
+        help=(
+            "exact-search routing threshold while generating battles; defaults to 0 "
+            "because mined teacher states are searched offline after generation"
+        ),
+    )
     training_auto.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_auto.add_argument(
         "--max-teacher-fixtures",
@@ -650,7 +659,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             showdown_root=args.showdown_root,
             belief_timeout=args.belief_timeout,
             evaluator_checkpoint=current_checkpoint,
-            search_policy_margin=args.search_policy_margin,
+            search_policy_margin=args.battle_search_policy_margin,
         )
         traces.append(decisions)
 
@@ -689,6 +698,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             "schema_version": 1,
             "generation": index + 1,
             "battle_count": args.battles_per_generation,
+            "battle_search_policy_margin": args.battle_search_policy_margin,
             "trace": str(decisions),
             "trace_digest": _file_sha256(decisions),
             "results": str(results),
