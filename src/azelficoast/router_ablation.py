@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, Sequence
+from typing import Any, Literal, Mapping, Sequence
+
+from azelficoast.belief_evaluator import build_evaluator_input
+from azelficoast.transition_program_search import (
+    TransitionProgramSearchError,
+    search_transition_program,
+)
 
 
 Route = Literal["direct", "search", "fallback"]
@@ -167,3 +173,103 @@ def threshold_sweep(
             }
         )
     return output
+
+
+def evaluate_admitted_counterfactual(
+    *,
+    case_id: str,
+    public_state: Mapping[str, Any],
+    legal_actions: Sequence[str],
+    posterior: Mapping[str, Any],
+    transition_program: Mapping[str, Any],
+    evaluator: Any,
+    search_gate: Any,
+    fallback_action: str | None = None,
+) -> RouterCase:
+    """Evaluate direct and always-search choices on the same admitted support.
+
+    The information-set search root values are the counterfactual value authority.
+    This measures routing regret without changing the posterior, evaluator, mechanics
+    program, or legal-action surface between the direct and searched routes.
+    """
+
+    actions = tuple(str(action) for action in legal_actions)
+    if not actions or len(set(actions)) != len(actions):
+        raise RouterAblationError("legal_actions must be unique non-empty strings")
+    try:
+        inputs = build_evaluator_input(
+            public_state=public_state,
+            posterior=posterior,
+            legal_actions=actions,
+            spec=evaluator.spec,
+        )
+        prediction = evaluator.predict(inputs)
+    except Exception as error:
+        raise RouterAblationError(f"root evaluator failed: {error}") from error
+    if prediction.selected_action not in set(actions):
+        raise RouterAblationError("direct evaluator returned a nonlegal action")
+
+    search = None
+    try:
+        search = search_transition_program(
+            program_set=transition_program,
+            posterior=posterior,
+            method="information_set",
+            evaluator=evaluator,
+        )
+    except TransitionProgramSearchError:
+        search = None
+
+    if search is None:
+        if fallback_action is None:
+            actual_route: Route = "fallback" if search_gate.should_search(prediction) else "direct"
+            fallback_regret = 0.0
+        else:
+            if fallback_action not in set(actions):
+                raise RouterAblationError("fallback_action must be legal")
+            actual_route = "fallback" if search_gate.should_search(prediction) else "direct"
+            fallback_regret = 0.0
+        return RouterCase(
+            case_id=case_id,
+            policy_margin=float(prediction.policy_margin),
+            direct_regret=0.0,
+            search_regret=None,
+            fallback_regret=fallback_regret,
+            actual_route=actual_route,
+        )
+
+    raw_values = search.get("root_values")
+    if not isinstance(raw_values, Mapping) or set(map(str, raw_values)) != set(actions):
+        raise RouterAblationError("search root values do not cover legal actions")
+    values = {str(action): float(value) for action, value in raw_values.items()}
+    if any(not math.isfinite(value) for value in values.values()):
+        raise RouterAblationError("search root values must be finite")
+    best = max(values.values())
+
+    def regret(action: str) -> float:
+        return max(0.0, best - values[action])
+
+    direct_regret = regret(str(prediction.selected_action))
+    searched_action = search.get("chosen_action")
+    if not isinstance(searched_action, str) or searched_action not in values:
+        raise RouterAblationError("search returned a nonlegal action")
+    search_regret = regret(searched_action)
+
+    if fallback_action is None:
+        fallback_regret = direct_regret
+    else:
+        if fallback_action not in values:
+            raise RouterAblationError("fallback_action must be legal")
+        fallback_regret = regret(fallback_action)
+
+    actual_route = (
+        "search" if bool(search_gate.should_search(prediction)) else "direct"
+    )
+    return RouterCase(
+        case_id=case_id,
+        policy_margin=float(prediction.policy_margin),
+        direct_regret=direct_regret,
+        search_regret=search_regret,
+        fallback_regret=fallback_regret,
+        actual_route=actual_route,
+    )
