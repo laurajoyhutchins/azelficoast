@@ -15,6 +15,10 @@ from poke_env.data import GenData
 
 from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.live.corpus import DecisionFixture
+from azelficoast.live.showdown_probe import (
+    PersistentShowdownProbe,
+    ShowdownProbeRuntimeError,
+)
 from azelficoast.core.decision_relevance import DecisionRelevanceError
 from azelficoast.research.verification.real_belief_trace import BeliefTraceError, analyze_quotiented_oracle
 from azelficoast.core.mechanics import (
@@ -591,6 +595,11 @@ class PinnedShowdownBeliefPolicy:
         self.learned_evaluator = learned_evaluator
         self.search_gate = search_gate
         self._configuration_error = self._validate_showdown_root()
+        self._probe_runtime = (
+            PersistentShowdownProbe(self.showdown_root)
+            if self._configuration_error is None and learned_evaluator is not None
+            else None
+        )
 
     def _validate_showdown_root(self) -> str | None:
         try:
@@ -616,6 +625,13 @@ class PinnedShowdownBeliefPolicy:
     @property
     def configured(self) -> bool:
         return self._configuration_error is None
+
+    def close(self) -> None:
+        """Release the optional persistent Showdown worker."""
+
+        runtime = getattr(self, "_probe_runtime", None)
+        if runtime is not None:
+            runtime.close()
 
     def _probe_document(
         self,
@@ -656,7 +672,12 @@ class PinnedShowdownBeliefPolicy:
         return self._probe_document(source)
 
     def _probe_posterior(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
-        document = self._probe_document(source, posterior_only=True)
+        runtime = getattr(self, "_probe_runtime", None)
+        document = (
+            runtime.posterior(source, timeout_seconds=self.timeout_seconds)
+            if runtime is not None
+            else self._probe_document(source, posterior_only=True)
+        )
         if (
             document.get("schema") != "azelficoast.live-belief-posterior"
             or document.get("schema_version") != 1
@@ -668,13 +689,32 @@ class PinnedShowdownBeliefPolicy:
         self,
         source: Mapping[str, Any],
     ) -> Mapping[str, Any]:
-        document = self._probe_document(source, transition_program_only=True)
+        runtime = getattr(self, "_probe_runtime", None)
+        document = (
+            runtime.transition_program(source, timeout_seconds=self.timeout_seconds)
+            if runtime is not None
+            else self._probe_document(source, transition_program_only=True)
+        )
         if (
             document.get("schema") != PROGRAM_SET_SCHEMA
             or document.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
         ):
             raise LiveBeliefPolicyError("unexpected transition-program probe schema")
         return document
+
+    def _release_probe_session(self, source: Mapping[str, Any]) -> None:
+        runtime = getattr(self, "_probe_runtime", None)
+        if runtime is None:
+            return
+        try:
+            runtime.release(
+                source,
+                timeout_seconds=min(self.timeout_seconds, 1.0),
+            )
+        except Exception:
+            # This is only memory cleanup for a high-confidence route. The selected
+            # action must not depend on whether an optimization session can be released.
+            pass
 
     def choose(self, fixture: DecisionFixture) -> LiveDecisionResult:
         if self._configuration_error is not None:
@@ -713,8 +753,12 @@ class PinnedShowdownBeliefPolicy:
                     search_gate=self.search_gate,
                 )
                 if route.action is not None:
+                    self._release_probe_session(source)
                     return route
             except Exception as error:
+                if posterior is not None:
+                    self._release_probe_session(source)
+                posterior = None
                 route = LiveDecisionResult(
                     action=None,
                     status="search",
@@ -730,6 +774,8 @@ class PinnedShowdownBeliefPolicy:
 
         opponent_policy = source.get("opponent_policy")
         if not isinstance(opponent_policy, Mapping):
+            if posterior is not None:
+                self._release_probe_session(source)
             return LiveDecisionResult(
                 action=None,
                 status="fallback",
@@ -784,6 +830,7 @@ class PinnedShowdownBeliefPolicy:
                 subprocess.CalledProcessError,
                 json.JSONDecodeError,
                 LiveBeliefPolicyError,
+                ShowdownProbeRuntimeError,
             ) as error:
                 detail = str(error)
                 if isinstance(error, subprocess.CalledProcessError):
