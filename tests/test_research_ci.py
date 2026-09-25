@@ -54,3 +54,21 @@ def test_candidate_experiment_names_and_artifacts_are_unique() -> None:
     artifacts = [experiment.artifact_name for experiment in EXPERIMENTS]
     assert len(names) == len(set(names))
     assert len(artifacts) == len(set(artifacts))
+
+def test_host_performance_does_not_override_semantic_candidate_certification() -> None:
+    attack = next(
+        experiment for experiment in EXPERIMENTS if experiment.name == "attack-transition"
+    )
+
+    assert attack.allow_nonzero_module_results is True
+    assert any(
+        check.path == ("semantic_passed",)
+        and check.operator == "eq"
+        and check.expected is True
+        for check in attack.checks
+    )
+    assert all(
+        not experiment.allow_nonzero_module_results
+        for experiment in EXPERIMENTS
+        if experiment.name != "attack-transition"
+    )

@@ -49,6 +49,7 @@ class CandidateExperiment:
     artifact_name: str
     simulator: bool = True
     showdown: bool = True
+    allow_nonzero_module_results: bool = False
     generators: tuple[Generator, ...] = ()
     tests: tuple[str, ...] = ()
     modules: tuple[ModuleRun, ...] = ()
@@ -66,6 +67,7 @@ def _spec(
     checks: tuple[Check, ...] = (),
     simulator: bool = True,
     showdown: bool = True,
+    allow_nonzero_module_results: bool = False,
 ) -> CandidateExperiment:
     return CandidateExperiment(
         name=name,
@@ -73,6 +75,7 @@ def _spec(
         artifact_name=artifact,
         simulator=simulator,
         showdown=showdown,
+        allow_nonzero_module_results=allow_nonzero_module_results,
         generators=() if generator is None else (Generator(*generator),),
         tests=tests,
         modules=tuple(ModuleRun(*module) for module in modules),
@@ -134,6 +137,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "README.md",
         ),
         artifact="attack-transition-evidence",
+        allow_nonzero_module_results=True,
         generator=(
             "scripts/generate_showdown_attack_fixtures.cjs",
             "showdown-attack-fixtures.json",
@@ -151,6 +155,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             ),
         ),
         checks=(
+            Check(
+                "attack-transition-experiment.json",
+                ("semantic_passed",),
+                "eq",
+                True,
+            ),
             Check(
                 "attack-transition-experiment.json",
                 ("projection", "execution_classes"),
@@ -563,17 +573,27 @@ def _changed_paths(base: str, head: str) -> tuple[str, ...]:
     return tuple(line for line in process.stdout.splitlines() if line)
 
 
-def _run(command: Sequence[str], *, stdout: Path | None = None) -> None:
+def _run(
+    command: Sequence[str],
+    *,
+    stdout: Path | None = None,
+    check: bool = True,
+) -> int:
     print("+", " ".join(command), flush=True)
     if stdout is None:
-        subprocess.run(command, check=True)
-        return
+        return subprocess.run(command, check=check).returncode
     try:
         with stdout.open("w", encoding="utf-8") as handle:
-            subprocess.run(command, check=True, text=True, stdout=handle)
+            process = subprocess.run(
+                command,
+                check=check,
+                text=True,
+                stdout=handle,
+            )
     finally:
         if stdout.is_file():
             print(stdout.read_text(encoding="utf-8"), end="", flush=True)
+    return process.returncode
 
 
 def _read_path(record: object, path: Sequence[str | int]) -> object:
@@ -633,6 +653,17 @@ def _receipt(experiment: CandidateExperiment, work: Path) -> None:
         for path in sorted(work.iterdir())
         if path.is_file() and path.name != "receipt.json"
     ]
+    module_outcomes = []
+    for module in experiment.modules:
+        document = json.loads((work / module.output).read_text(encoding="utf-8"))
+        if isinstance(document, Mapping) and isinstance(document.get("passed"), bool):
+            module_outcomes.append(
+                {
+                    "path": module.output,
+                    "passed": document["passed"],
+                }
+            )
+
     (work / "receipt.json").write_text(
         json.dumps(
             {
@@ -643,7 +674,8 @@ def _receipt(experiment: CandidateExperiment, work: Path) -> None:
                     SHOWDOWN_REVISION if experiment.showdown else None
                 ),
                 "outputs": outputs,
-                "passed": True,
+                "module_outcomes": module_outcomes,
+                "certified": True,
             },
             sort_keys=True,
             indent=2,
@@ -689,7 +721,11 @@ def run_experiment(
         command = [sys.executable, "-m", module.module]
         if module.input is not None:
             command.append(str(work / module.input))
-        _run(command, stdout=work / module.output)
+        _run(
+            command,
+            stdout=work / module.output,
+            check=not experiment.allow_nonzero_module_results,
+        )
 
     for check in experiment.checks:
         _check(check, work)

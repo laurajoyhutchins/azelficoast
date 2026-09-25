@@ -533,7 +533,7 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
     candidate = evaluation["candidate"]
 
     disjoint = set(TRAINING_WORLD_COUNTS).isdisjoint(CONFIRMATION_WORLD_COUNTS)
-    passed = (
+    semantic_passed = (
         correctness["python_exact"]
         and correctness["native_exact"]
         and correctness["jax_exact"]
@@ -548,13 +548,16 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         and disjoint
         and all(bool(row["score_equal"]) for row in training)
         and all(bool(row["score_equal"]) for row in candidate["rows"])
-        and candidate["choice_accuracy"] >= 0.75
+    )
+    performance_passed = (
+        candidate["choice_accuracy"] >= 0.75
         and candidate["adaptive_over_oracle"] <= 1.10
         and candidate["worst_case_over_oracle"] <= 1.20
         and candidate["chosen_paths"] == ["direct", "projected"]
         and candidate["speedup_vs_always_direct"] > 1.0
         and candidate["speedup_vs_always_projected"] > 1.0
     )
+    passed = semantic_passed and performance_passed
 
     return {
         "schema": "azelficoast.attack-transition-experiment",
@@ -577,6 +580,8 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         "profile": _profile_record(profile),
         "model_selection": model_selection,
         "held_out": evaluation,
+        "semantic_passed": semantic_passed,
+        "performance_passed": performance_passed,
         "passed": passed,
         "non_claims": [
             "the transition is one ordinary single-target attack, not a complete turn scheduler",
