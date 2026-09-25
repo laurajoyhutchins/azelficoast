@@ -35,6 +35,25 @@ class NativeBuild:
     c_source: str
 
 
+_NATIVE_C_PRELUDE = """#include <stdint.h>
+#include <stddef.h>
+
+static int64_t az_floor_div(int64_t a, int64_t b) {
+    int64_t q = a / b;
+    int64_t r = a % b;
+    if (r != 0 && ((r > 0) != (b > 0))) {
+        q -= 1;
+    }
+    return q;
+}
+
+"""
+
+
+def _emit_native_c(body: str, wrappers: str) -> str:
+    return _NATIVE_C_PRELUDE + body + wrappers
+
+
 def _annotation_is_array(annotation: ast.expr | None) -> bool:
     if not isinstance(annotation, ast.Subscript):
         return False
@@ -225,20 +244,7 @@ def emit_damage_c(source: str, *, context_width: int = 18) -> str:
     emitter = _Emitter(set(KERNEL_FUNCTIONS))
     body = "".join(emitter.function(function) for function in functions)
 
-    return f"""#include <stdint.h>
-#include <stddef.h>
-
-static int64_t az_floor_div(int64_t a, int64_t b) {{
-    int64_t q = a / b;
-    int64_t r = a % b;
-    if (r != 0 && ((r > 0) != (b > 0))) {{
-        q -= 1;
-    }}
-    return q;
-}}
-
-{body}
-int32_t az_damage_one(const int32_t *params, int32_t roll) {{
+    return _emit_native_c(body, f"""int32_t az_damage_one(const int32_t *params, int32_t roll) {{
     return (int32_t)damage_numeric(params, roll);
 }}
 
@@ -281,7 +287,7 @@ int64_t az_weighted_damage_score(
     }}
     return total;
 }}
-"""
+""")
 
 
 def _link_flags() -> tuple[str, ...]:
@@ -292,25 +298,18 @@ def _link_flags() -> tuple[str, ...]:
     return ("-shared", "-fPIC")
 
 
-def build_damage_library(
-    source_path: str | Path,
+def _build_shared_library(
+    c_source: str,
     output_path: str | Path,
     *,
-    context_width: int = 18,
+    source_name: str,
     cc: str = "cc",
     extra_cflags: Iterable[str] = (),
 ) -> NativeBuild:
-    """Compile the selected Python kernel functions into one native shared library."""
-    source_path = Path(source_path)
     output_path = Path(output_path)
-    c_source = emit_damage_c(
-        source_path.read_text(encoding="utf-8"),
-        context_width=context_width,
-    )
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="azelficoast-native-") as temp_dir:
-        c_path = Path(temp_dir) / "damage_kernel.c"
+        c_path = Path(temp_dir) / source_name
         c_path.write_text(c_source, encoding="utf-8")
         command = [
             cc,
@@ -329,8 +328,32 @@ def build_damage_library(
                 + completed.stderr
                 + ("\n" + completed.stdout if completed.stdout else "")
             )
-
     return NativeBuild(library=output_path, c_source=c_source)
+
+
+def build_damage_library(
+    source_path: str | Path,
+    output_path: str | Path,
+    *,
+    context_width: int = 18,
+    cc: str = "cc",
+    extra_cflags: Iterable[str] = (),
+) -> NativeBuild:
+    """Compile the selected Python kernel functions into one native shared library."""
+    source_path = Path(source_path)
+    output_path = Path(output_path)
+    c_source = emit_damage_c(
+        source_path.read_text(encoding="utf-8"),
+        context_width=context_width,
+    )
+
+    return _build_shared_library(
+        c_source,
+        output_path,
+        source_name="damage_kernel.c",
+        cc=cc,
+        extra_cflags=extra_cflags,
+    )
 
 
 def emit_attack_c(
@@ -349,20 +372,7 @@ def emit_attack_c(
     attack_functions = _selected_functions(attack_source, ATTACK_KERNEL_FUNCTIONS)
     body = "".join(emitter.function(function) for function in (*damage_functions, *attack_functions))
 
-    return f"""#include <stdint.h>
-#include <stddef.h>
-
-static int64_t az_floor_div(int64_t a, int64_t b) {{
-    int64_t q = a / b;
-    int64_t r = a % b;
-    if (r != 0 && ((r > 0) != (b > 0))) {{
-        q -= 1;
-    }}
-    return q;
-}}
-
-{body}
-int32_t az_attack_one(
+    return _emit_native_c(body, f"""int32_t az_attack_one(
     const int32_t *params,
     int32_t accuracy_roll,
     int32_t damage_roll
@@ -385,7 +395,7 @@ void az_attack_batch(
         );
     }}
 }}
-"""
+""")
 
 
 def build_attack_library(
@@ -407,26 +417,10 @@ def build_attack_library(
         context_width=context_width,
     )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix="azelficoast-native-") as temp_dir:
-        c_path = Path(temp_dir) / "attack_kernel.c"
-        c_path.write_text(c_source, encoding="utf-8")
-        command = [
-            cc,
-            "-std=c99",
-            "-O3",
-            *extra_cflags,
-            *_link_flags(),
-            str(c_path),
-            "-o",
-            str(output_path),
-        ]
-        completed = subprocess.run(command, capture_output=True, text=True, check=False)
-        if completed.returncode != 0:
-            raise NativeKernelCompileError(
-                "C compiler failed:\n"
-                + completed.stderr
-                + ("\n" + completed.stdout if completed.stdout else "")
-            )
-
-    return NativeBuild(library=output_path, c_source=c_source)
+    return _build_shared_library(
+        c_source,
+        output_path,
+        source_name="attack_kernel.c",
+        cc=cc,
+        extra_cflags=extra_cflags,
+    )
