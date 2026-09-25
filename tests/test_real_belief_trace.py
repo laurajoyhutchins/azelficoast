@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 
 import pytest
 
@@ -320,3 +321,160 @@ def test_factored_hidden_field_rejects_contradictory_read_witness() -> None:
 
     with pytest.raises(BeliefTraceError, match="was read"):
         analyze_oracle(document)
+
+
+def _deep_oracle() -> dict[str, object]:
+    worlds = [
+        {
+            "world_id": "red",
+            "weight": 0.5,
+            "hidden": {"opponent.active.item": "Red"},
+        },
+        {
+            "world_id": "blue",
+            "weight": 0.5,
+            "hidden": {"opponent.active.item": "Blue"},
+        },
+    ]
+    transitions: list[dict[str, object]] = []
+    for world in worlds:
+        world_id = str(world["world_id"])
+        for action in ("safe", "trap"):
+            if action == "safe":
+                leaf = {"hold": 2.0}
+            elif world_id == "red":
+                leaf = {"red": 3.0, "blue": 0.0}
+            else:
+                leaf = {"red": 0.0, "blue": 3.0}
+            transitions.append(
+                {
+                    "world_id": world_id,
+                    "action": action,
+                    "outcomes": [
+                        {
+                            "probability": 1.0,
+                            "observation": {"root": "same"},
+                            "successor": {"public": "same"},
+                            "continuation_transitions": {
+                                "continue": [
+                                    {
+                                        "probability": 1.0,
+                                        "observation": {"second": "same"},
+                                        "continuations": leaf,
+                                    }
+                                ]
+                            },
+                        }
+                    ],
+                }
+            )
+    return {
+        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema_version": 1,
+        "source_fixture_id": "deep",
+        "showdown_commit": "pinned",
+        "worlds": worlds,
+        "legal_actions": ["safe", "trap"],
+        "dependency_candidates": ["opponent.active.item"],
+        "declared_reads": {"safe": [], "trap": []},
+        "transitions": transitions,
+    }
+
+
+def test_second_public_horizon_cannot_branch_on_hidden_world() -> None:
+    result = analyze_oracle(_deep_oracle())
+
+    assert result["continuation_decision_horizons"] == 2
+    assert result["determinization"]["root_values"] == {
+        "safe": 2.0,
+        "trap": 3.0,
+    }
+    assert result["public_belief"]["root_values"] == {
+        "safe": 2.0,
+        "trap": 1.5,
+    }
+    assert result["determinization"]["chosen_action"] == "trap"
+    assert result["public_belief"]["chosen_action"] == "safe"
+    assert result["policy_disagreement"] is True
+
+
+def test_deeper_information_set_rejects_mixed_horizon_evidence() -> None:
+    document = _deep_oracle()
+    transitions = document["transitions"]
+    assert isinstance(transitions, list)
+    trap = next(
+        transition
+        for transition in transitions
+        if transition["world_id"] == "blue" and transition["action"] == "trap"
+    )
+    outcomes = trap["outcomes"]
+    assert isinstance(outcomes, list)
+    outcome = outcomes[0]
+    assert isinstance(outcome, dict)
+    outcome.pop("continuation_transitions")
+    outcome["continuations"] = {"continue": 1.0}
+
+    with pytest.raises(BeliefTraceError, match="mixes shallow and deeper"):
+        analyze_oracle(document)
+
+
+def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
+    document = _deep_oracle()
+    transitions = document["transitions"]
+    assert isinstance(transitions, list)
+    first = transitions[0]
+    outcomes = first["outcomes"]
+    assert isinstance(outcomes, list)
+    outcome = outcomes[0]
+    assert isinstance(outcome, dict)
+    branches = outcome["continuation_transitions"]
+    assert isinstance(branches, dict)
+    nested = branches["continue"]
+    assert isinstance(nested, list)
+    leaf = nested[0]
+    assert isinstance(leaf, dict)
+    leaf["continuation_transitions"] = {
+        "too-deep": [
+            {
+                "probability": 1.0,
+                "observation": {"third": "same"},
+                "continuations": {"finish": 0.0},
+            }
+        ]
+    }
+    leaf.pop("continuations")
+
+    with pytest.raises(BeliefTraceError, match="exceeds the supported"):
+        analyze_oracle(document)
+
+
+def test_showdown_probe_factors_only_unread_generator_variant_state() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "scripts"
+        / "probe_real_belief_trace.cjs"
+    ).read_text(encoding="utf-8")
+
+    assert "function executionClasses(variants)" in source
+    assert '"opponent.active.item": entry.set.item' in source
+    assert '"opponent.active.ability": entry.set.ability' in source
+    assert '"opponent.active.evs": entry.set.evs' in source
+    assert '"opponent.active.ivs": entry.set.ivs' in source
+    assert '"opponent.active.exact_hp": exactHp' in source
+
+    world_block = source.split("const worldById = new Map();", 1)[1].split(
+        "const worlds = [...worldById.values()];", 1
+    )[0]
+    assert '"opponent.active.moves"' not in world_block
+    assert '"opponent.active.tera_type"' not in world_block
+    assert "for (const entry of executionVariants)" in world_block
+
+    dependency_block = source.split("const DEPENDENCY_CANDIDATES = [", 1)[1].split(
+        "];", 1
+    )[0]
+    assert '"opponent.active.moves"' not in dependency_block
+    assert '"opponent.active.tera_type"' not in dependency_block
+
+    assert "hidden move fallback would be required" in source
+    assert '"hidden_fallback": "fail-closed"' not in source
+    assert 'hidden_fallback: "fail-closed"' in source
