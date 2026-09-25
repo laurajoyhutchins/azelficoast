@@ -631,14 +631,14 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
 
     for index in range(args.generations):
         generation_root = args.workspace / "generations" / f"{index + 1:04d}"
+        if generation_root.exists():
+            raise ValueError(
+                f"generation output already exists and is immutable: {generation_root}"
+            )
         decisions = generation_root / "decisions.jsonl"
         results = generation_root / "results.jsonl"
         replays = generation_root / "replays"
         manifest_path = generation_root / "generation.json"
-        if decisions.exists() or results.exists() or manifest_path.exists():
-            raise ValueError(
-                f"generation output already exists and is immutable: {generation_root}"
-            )
 
         _prepare_output_paths(results, decisions, replays)
         await _run_local(
