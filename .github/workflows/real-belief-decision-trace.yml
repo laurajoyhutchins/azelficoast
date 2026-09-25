@@ -123,7 +123,15 @@ jobs:
 
           assert oracle["showdown_commit"] == case["showdown_commit"], oracle
           assert oracle["source_fixture_id"] == case["source_fixture_id"], oracle
-          assert oracle["reconstruction"]["hidden_world_count"] >= 4, oracle
+          reconstruction = oracle["reconstruction"]
+          assert reconstruction["generator_variant_count"] == 11, reconstruction
+          assert reconstruction["mechanics_projection_variant_count"] == 2, reconstruction
+          assert reconstruction["hidden_world_count"] == expected["world_count"], reconstruction
+          assert all(
+              "opponent.active.moves" in world["hidden"]
+              and "opponent.active.tera_type" in world["hidden"]
+              for world in oracle["worlds"]
+          ), oracle["worlds"]
           assert len(oracle["legal_actions"]) == expected["legal_action_count"], oracle
           assert len(oracle["transitions"]) == (
               len(oracle["worlds"]) * expected["legal_action_count"]
