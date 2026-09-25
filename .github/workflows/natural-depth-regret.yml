@@ -2,20 +2,8 @@
 name: natural-depth-regret
 
 on:
-  pull_request:
-    types: [ready_for_review]
-    paths:
-      - "experiments/natural-depth-regret-plan.json"
-      - "src/azelficoast/depth_population.py"
-      - "src/azelficoast/depth_study.py"
-      - "src/azelficoast/real_belief_trace.py"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "tests/test_depth_population.py"
-      - "tests/test_depth_study.py"
-      - "tests/test_real_belief_trace.py"
-      - ".github/workflows/natural-depth-regret.yml"
-      - ".github/actions/setup-python-environment/action.yml"
-      - ".github/actions/setup-showdown/action.yml"
+  # Issue #55 is complete. Keep this workflow as a reproducible historical
+  # experiment without rerunning it on unrelated shared-mechanics changes.
   workflow_dispatch:
 
 permissions:

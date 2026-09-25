@@ -478,3 +478,27 @@ def test_showdown_probe_factors_only_unread_generator_variant_state() -> None:
     assert "hidden move fallback would be required" in source
     assert '"hidden_fallback": "fail-closed"' not in source
     assert 'hidden_fallback: "fail-closed"' in source
+
+
+def test_showdown_environment_reconstruction_is_bounded_and_shared() -> None:
+    root = Path(__file__).resolve().parents[1]
+    probe = (root / "scripts" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+    screen = (
+        root / "scripts" / "screen_public_belief_speed_forks.cjs"
+    ).read_text(encoding="utf-8")
+
+    for source in (probe, screen):
+        assert 'RAINDANCE: "raindance"' in source
+        assert 'SUNNYDAY: "sunnyday"' in source
+        assert 'SANDSTORM: "sandstorm"' in source
+        assert 'SNOWSCAPE: "snow"' in source
+        assert 'GRASSY_TERRAIN: "grassyterrain"' in source
+        assert 'ELECTRIC_TERRAIN: "electricterrain"' in source
+        assert 'PSYCHIC_TERRAIN: "psychicterrain"' in source
+        assert "MAX_BOUNDED_ENVIRONMENT_AGE = 1" in source
+        assert "battle.field.setWeather(id)" in source
+        assert "battle.field.setTerrain(id)" in source
+        assert "weatherState.duration = 5 - age" in source
+        assert "terrainState.duration = 5 - age" in source

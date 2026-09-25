@@ -1,0 +1,332 @@
+name: protect-environment-depth
+
+on:
+  # The natural support study completed without an estimable environment
+  # interaction. Keep this workflow for explicit reproduction only.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: protect-environment-depth-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  freeze-cohort:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+
+      - name: Setup verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - name: Start local Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          set -euo pipefail
+          cp config/config-example.js config/config.js
+          nohup node pokemon-showdown start --no-security >/tmp/showdown.log 2>&1 &
+          python - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              try:
+                  with socket.create_connection(("127.0.0.1", 8000), timeout=1):
+                      break
+              except OSError:
+                  time.sleep(0.25)
+          else:
+              raise SystemExit("Showdown did not open port 8000")
+          PY
+
+      - name: Generate fresh natural population
+        run: |
+          uv run azelficoast \
+            --results /tmp/results.jsonl \
+            --decisions /tmp/decisions.jsonl \
+            --replays /tmp/replays \
+            local --battles 1024 --concurrency 8
+
+      - name: Freeze decision corpus and source identity
+        run: |
+          uv run azelficoast corpus build \
+            /tmp/decisions.jsonl \
+            --output /tmp/corpus.jsonl \
+            | tee /tmp/corpus-summary.json
+
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          summary = json.loads(Path("/tmp/corpus-summary.json").read_text())
+          terminal_count = 0
+          with Path("/tmp/decisions.jsonl").open() as handle:
+              for line in handle:
+                  row = json.loads(line)
+                  if row.get("kind") == "terminal":
+                      terminal_count += 1
+
+          metadata = {
+              "decision_state_count": int(summary["fixture_count"]),
+              "battle_count": terminal_count,
+              "decisions_sha256": hashlib.sha256(
+                  Path("/tmp/decisions.jsonl").read_bytes()
+              ).hexdigest(),
+              "workflow_run_id": int(os.environ["GITHUB_RUN_ID"]),
+              "head_sha": os.environ["GITHUB_SHA"],
+          }
+          assert metadata["battle_count"] == 1024, metadata
+          assert metadata["decision_state_count"] >= 1024, metadata
+          Path("/tmp/source-metadata.json").write_text(
+              json.dumps(metadata, sort_keys=True) + "\n"
+          )
+          PY
+
+      - name: Mine persistent hidden-choice candidates
+        run: |
+          uv run python -m azelficoast.natural_disagreements \
+            /tmp/corpus.jsonl \
+            --showdown-root /tmp/pokemon-showdown \
+            --rounds 2048 \
+            --persistent-only \
+            | tee /tmp/candidates.json
+
+      - name: Materialize only candidate fixtures
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          candidates = json.loads(Path("/tmp/candidates.json").read_text())
+          wanted = {row["fixture_id"] for row in candidates["candidates"]}
+          with Path("/tmp/corpus.jsonl").open() as source, Path(
+              "/tmp/candidate-fixtures.jsonl"
+          ).open("w") as destination:
+              header = next(source)
+              for line in source:
+                  row = json.loads(line)
+                  if row.get("fixture_id") in wanted:
+                      destination.write(json.dumps(row, sort_keys=True) + "\n")
+          found = sum(1 for _ in Path("/tmp/candidate-fixtures.jsonl").open())
+          assert found == len(wanted), (found, len(wanted))
+          PY
+
+      - name: Screen exact mechanics
+        run: |
+          node scripts/screen_public_belief_speed_forks.cjs \
+            /tmp/pokemon-showdown \
+            /tmp/candidates.json \
+            /tmp/candidate-fixtures.jsonl \
+            512 \
+            > /tmp/mechanics.json
+
+      - name: Freeze outcome-blind Protect environment cohort
+        run: |
+          mkdir -p /tmp/environment/scratch /tmp/environment/selected
+          uv run python -m azelficoast.protect_environment_population \
+            experiments/protect-environment-depth-plan.json \
+            /tmp/source-metadata.json \
+            /tmp/candidates.json \
+            /tmp/mechanics.json \
+            /tmp/corpus.jsonl \
+            --scratch-dir /tmp/environment/scratch \
+            --output-dir /tmp/environment/selected \
+            --manifest /tmp/environment/manifest.json \
+            | tee /tmp/environment/freeze-output.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path("/tmp/environment/manifest.json").read_text())
+          selected = manifest["selected"]
+          battle_count = len({row["battle_tag"] for row in selected})
+          weather_count = sum(bool(row["environment"]["weather_present"]) for row in selected)
+          terrain_count = sum(bool(row["environment"]["terrain_present"]) for row in selected)
+
+          assert manifest["selection_uses_policy_result"] is False, manifest
+          assert manifest["selected_count"] >= 12, manifest
+          assert battle_count >= 8, manifest
+          assert manifest["environment_selected_count"] >= 6, manifest
+          assert manifest["protect_environment_selected_count"] >= 4, manifest
+          assert weather_count >= 3, manifest
+          assert terrain_count >= 3, manifest
+          assert manifest["stratum_counts"]["predictor-enriched"] > 0, manifest
+          assert manifest["stratum_counts"]["representative-lower"] > 0, manifest
+
+          print(json.dumps({
+              "source_states": manifest["source_decision_state_count"],
+              "bounded_candidates": manifest["bounded_candidate_count"],
+              "eligible": manifest["eligible_count"],
+              "selected": manifest["selected_count"],
+              "selected_battles": battle_count,
+              "environment_selected": manifest["environment_selected_count"],
+              "protect_environment_selected": manifest["protect_environment_selected_count"],
+              "weather_selected": weather_count,
+              "terrain_selected": terrain_count,
+              "strata": manifest["stratum_counts"],
+              "thresholds": manifest["thresholds"],
+          }, sort_keys=True))
+          PY
+
+      - name: Show local server log on failure
+        if: failure()
+        run: tail -200 /tmp/showdown.log || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protect-environment-depth-selection
+          path: |
+            /tmp/source-metadata.json
+            /tmp/corpus-summary.json
+            /tmp/candidates.json
+            /tmp/mechanics.json
+            /tmp/environment/manifest.json
+            /tmp/environment/selected
+          if-no-files-found: error
+
+  exact:
+    needs: freeze-cohort
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+
+      - name: Setup verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: protect-environment-depth-selection
+          path: /tmp/selection
+
+      - name: Execute paired exact shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          AZELFICOAST_ROOT_CHANCE_SAMPLES: "8"
+          AZELFICOAST_CONTINUATION_CHANCE_SAMPLES: "2"
+          AZELFICOAST_CHANCE_SEED_FAMILY: "0"
+        run: |
+          mkdir -p /tmp/results
+          python - <<'PY' > /tmp/shard.tsv
+          import json
+          import os
+          from pathlib import Path
+
+          shard = int(os.environ["SHARD"])
+          manifest = json.loads(
+              Path("/tmp/selection/environment/manifest.json").read_text()
+          )
+          for row in manifest["selected"]:
+              index = int(row["depth_index"])
+              if (index - 1) % 6 == shard:
+                  print(index, row["filename"], sep="\t")
+          PY
+
+          while IFS=$'\t' read -r index filename; do
+            test -n "$index" || continue
+            source="/tmp/selection/environment/selected/$filename"
+
+            AZELFICOAST_CONTINUATION_DECISION_HORIZONS=1 \
+              node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown "$source" \
+              > /tmp/shallow-oracle.json
+            uv run python -m azelficoast.real_belief_trace \
+              /tmp/shallow-oracle.json \
+              > /tmp/shallow-trace.json
+
+            AZELFICOAST_CONTINUATION_DECISION_HORIZONS=2 \
+              node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown "$source" \
+              > /tmp/deeper-oracle.json
+            uv run python -m azelficoast.real_belief_trace \
+              /tmp/deeper-oracle.json \
+              > /tmp/deeper-trace.json
+
+            uv run python -m azelficoast.depth_population summarize \
+              "$source" \
+              /tmp/shallow-trace.json \
+              /tmp/deeper-trace.json \
+              --output "/tmp/results/summary-$index.json"
+
+            rm -f \
+              /tmp/shallow-oracle.json /tmp/shallow-trace.json \
+              /tmp/deeper-oracle.json /tmp/deeper-trace.json
+          done < /tmp/shard.tsv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protect-environment-depth-exact-${{ matrix.shard }}
+          path: /tmp/results
+          if-no-files-found: warn
+
+  aggregate:
+    needs: exact
+    if: always() && needs.exact.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: protect-environment-depth-selection
+          path: /tmp/selection
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: protect-environment-depth-exact-*
+          path: /tmp/exact
+          merge-multiple: true
+
+      - name: Aggregate paired environment endpoints
+        run: |
+          uv run python -m azelficoast.depth_population aggregate \
+            experiments/protect-environment-depth-plan.json \
+            /tmp/selection/environment/manifest.json \
+            /tmp/exact \
+            --output /tmp/protect-environment-depth-aggregate.json \
+            | tee /tmp/aggregate-output.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/protect-environment-depth-aggregate.json").read_text()
+          )
+          assert result["cohort"]["selected_count"] >= 12, result
+          assert result["cohort"]["exact_battle_count"] >= 8, result
+          print(json.dumps({
+              "cohort": result["cohort"],
+              "deep_value_bias": result["outcomes"]["deep_value_bias"],
+              "deep_regret": result["outcomes"]["deep_regret"],
+              "value_bias_change": result["outcomes"]["value_bias_change"],
+              "regret_change": result["outcomes"]["regret_change"],
+              "deep_positive_regret_count": result["outcomes"]["deep_positive_regret_count"],
+              "deep_policy_disagreement_count": result["outcomes"]["deep_policy_disagreement_count"],
+              "by_stratum": result["by_stratum"],
+          }, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: protect-environment-depth-results
+          path: |
+            /tmp/protect-environment-depth-aggregate.json
+            /tmp/aggregate-output.json
+          if-no-files-found: error

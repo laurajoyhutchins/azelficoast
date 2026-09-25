@@ -655,3 +655,110 @@ def test_priority_mismatch_does_not_overinterpret_move_order(monkeypatch) -> Non
 
     assert result["candidate_count"] == 1
     assert result["candidates"][0]["prior_speed_order_evidence"] is None
+
+
+def _environment_fixture(
+    *,
+    weather: dict[str, int] | None = None,
+    fields: dict[str, int] | None = None,
+    fixture_id: str = "environment",
+) -> DecisionFixture:
+    fixture = _fixture()
+    state = dict(fixture.state)
+    state["weather"] = dict(weather or {})
+    state["fields"] = dict(fields or {})
+    return DecisionFixture(
+        fixture_id=fixture_id,
+        state=state,
+        protocol_prefix=fixture.protocol_prefix,
+        control_decisions=fixture.control_decisions,
+    )
+
+
+def test_recent_weather_is_admitted_for_bounded_exact_reconstruction(monkeypatch) -> None:
+    fixture = _environment_fixture(weather={"RAINDANCE": 1}, fixture_id="rain")
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [fixture],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["candidate_count"] == 1
+    candidate = result["candidates"][0]
+    assert candidate["weather"] == {"RAINDANCE": 1}
+    assert candidate["fields"] == {}
+
+
+def test_recent_terrain_is_admitted_for_bounded_exact_reconstruction(monkeypatch) -> None:
+    fixture = _environment_fixture(
+        fields={"GRASSY_TERRAIN": 1},
+        fixture_id="grassy",
+    )
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        lambda **_kwargs: _sample(),
+    )
+
+    result = mine_candidates(
+        [fixture],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["candidate_count"] == 1
+    assert result["candidates"][0]["fields"] == {"GRASSY_TERRAIN": 1}
+
+
+def test_old_terrain_is_rejected_before_sampling(monkeypatch) -> None:
+    fixture = _environment_fixture(
+        fields={"ELECTRIC_TERRAIN": 0},
+        fixture_id="old-terrain",
+    )
+
+    def should_not_sample(**_kwargs):
+        raise AssertionError("ambiguous-expiry terrain must fail before sampling")
+
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        should_not_sample,
+    )
+    result = mine_candidates(
+        [fixture],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["field-bounded-horizon-expiry-ambiguous"] == 1
+
+
+def test_trick_room_remains_fail_closed_before_sampling(monkeypatch) -> None:
+    fixture = _environment_fixture(
+        fields={"TRICK_ROOM": 1},
+        fixture_id="trick-room",
+    )
+
+    def should_not_sample(**_kwargs):
+        raise AssertionError("Trick Room must fail before sampling")
+
+    monkeypatch.setattr(
+        "azelficoast.natural_disagreements._sample_worlds",
+        should_not_sample,
+    )
+    result = mine_candidates(
+        [fixture],
+        showdown_root="/tmp/showdown",
+        rounds=100,
+        persistent_only=True,
+    )
+
+    assert result["candidate_count"] == 0
+    assert result["skipped"]["non-plain-speed-context"] == 1

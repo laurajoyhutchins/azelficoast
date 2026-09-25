@@ -1,0 +1,159 @@
+{
+  "schema": "azelficoast.natural-depth-regret-plan",
+  "schema_version": 1,
+  "source_population_evidence": {
+    "issue": 55,
+    "workflow_run_id": 36144969069,
+    "artifact_id": 10870072019,
+    "artifact_digest": "sha256:f7481d55d6d639d4cb6d4864e547fda724d04af269162a699db487adc6806b7c",
+    "result": "two-horizon search increased continuous value bias but produced zero corrected regret in 18 of 18 states"
+  },
+  "motivation": {
+    "deep_mean_value_bias": 0.0120108,
+    "paired_mean_value_bias_change": 0.0082886,
+    "corrected_root_regret_count": 0,
+    "root_policy_disagreement_count": 0,
+    "legal_action_count_deep_bias_spearman_rho": 0.4425,
+    "persistent_protect_deep_bias_mean_contrast": 0.01965,
+    "persistent_protect_paired_bias_change_contrast": 0.01355
+  },
+  "predictors_frozen_from_population_study": {
+    "numeric": [
+      {
+        "name": "legal_action_count",
+        "rationale": "strongest numeric association with deep value bias in issue #55"
+      }
+    ],
+    "binary": [
+      {
+        "name": "persistent_protect_present",
+        "rationale": "strongest measured mechanics contrast in issue #55"
+      },
+      {
+        "name": "environment_present",
+        "rationale": "new exact reconstruction frontier"
+      },
+      {
+        "name": "weather_present",
+        "rationale": "separate weather from terrain residuals"
+      },
+      {
+        "name": "terrain_present",
+        "rationale": "separate terrain from weather residuals"
+      }
+    ]
+  },
+  "fresh_population": {
+    "source": "new natural Gen 9 Random Battle decision corpus",
+    "battle_count": 1024,
+    "outcome_blind": true,
+    "source_binding": "SHA-256 of decisions.jsonl plus exact workflow head SHA",
+    "selection_frozen_before_policy_values": true,
+    "minimum_selected_states": 12,
+    "minimum_selected_battles": 8,
+    "minimum_environment_states": 6,
+    "minimum_protect_environment_states": 4,
+    "minimum_weather_states": 3,
+    "minimum_terrain_states": 3
+  },
+  "cohort_selection": {
+    "predictor_enriched": {
+      "rule": "bounded-exact weather/terrain present AND persistent Protect present AND legal_action_count at or above the fresh environment-state 75th percentile"
+    },
+    "representative_lower": {
+      "rule": "deterministic comparator priority: environment without Protect; environment at or below overall legal-action median; no-Protect plain state; lower-branch plain state; other eligible states"
+    },
+    "target_ratio": "2 enriched : 1 representative-lower when support permits",
+    "overflow_selection": "ascending sha256('protect-weather-field-v1:' + fixture_id)",
+    "selection_uses_policy_result": false
+  },
+  "paired_treatment": {
+    "shallow_continuation_decision_horizons": 1,
+    "deeper_continuation_decision_horizons": 2,
+    "same_root_actions": true,
+    "same_hidden_worlds": true,
+    "same_root_chance_seeds": true,
+    "same_mechanics_revision": true,
+    "root_chance_samples": 8,
+    "continuation_chance_samples": 2,
+    "chance_seed_family": 0,
+    "no_third_horizon": true
+  },
+  "environment_reconstruction": {
+    "supported_weather": [
+      "RAINDANCE",
+      "SUNNYDAY",
+      "SANDSTORM",
+      "SNOWSCAPE"
+    ],
+    "supported_terrain": [
+      "GRASSY_TERRAIN",
+      "ELECTRIC_TERRAIN",
+      "PSYCHIC_TERRAIN"
+    ],
+    "max_public_effect_age_turns": 1,
+    "bounded_exactness": "all supported effects have a minimum five-turn duration, so age <= 1 guarantees they remain present through the root turn plus two continuation decisions; longer duration from extender items is behaviorally equivalent inside this horizon",
+    "trick_room": "excluded because reversed ordering requires a separate exact ordering model"
+  },
+  "primary_endpoints": [
+    "deep max strategy-fusion value bias",
+    "deep corrected public-belief regret",
+    "paired deeper-minus-shallow value-bias change",
+    "paired deeper-minus-shallow corrected-regret change"
+  ],
+  "secondary_endpoints": [
+    "root-policy disagreement",
+    "Protect contrast",
+    "weather versus terrain contrast",
+    "environment versus plain comparison"
+  ],
+  "decision_rule": "if corrected regret remains zero in the Protect-rich environment stratum, stop adding generic mechanics or depth to this bounded evaluator and test the utility/opponent-policy horizon next",
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "admissibility": {
+    "generator_rounds": 2048,
+    "mechanics_screen_rounds": 512,
+    "max_exact_states": 24,
+    "requires_positive_active_hp": true,
+    "requires_live_probe_admission": true,
+    "requires_exact_item_support_match": true,
+    "requires_exact_opponent_bench_reconstruction": true,
+    "requires_public_forme_conditioning": true,
+    "requires_exact_lead_context": true,
+    "requires_public_ability_conditioning": true,
+    "requires_opponent_not_terastallized": true,
+    "requires_bounded_exact_weather_or_terrain": true,
+    "requires_generator_stat_spread_fidelity": true
+  },
+  "inference": {
+    "cluster_unit": "battle_tag",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 57721,
+    "primary_analysis": "paired state-level deeper-minus-shallow endpoints with battle-cluster bootstrap confidence intervals and preregistered Protect/environment contrasts"
+  },
+  "support_study_result": {
+    "status": "insufficient-natural-support",
+    "workflow_run_id": 36150933885,
+    "exact_head": "97b86e1be35694276796c741bd1c3e86369aaa50",
+    "outcome_values_computed": false,
+    "outcome_values_inspected": false,
+    "source": {
+      "battle_count": 1024,
+      "decision_state_count": 25715
+    },
+    "persistent_hidden_choice_candidates": {
+      "total": 26,
+      "protect_present": 5,
+      "immunity_switch_present": 22,
+      "both_present": 1,
+      "bounded_weather_or_terrain_present": 0
+    },
+    "notable_exclusions": {
+      "field_bounded_horizon_expiry_ambiguous": 447,
+      "non_plain_speed_context": 19
+    },
+    "interpretation": "Exact weather/terrain reconstruction and mechanics screening succeeded, but the preregistered natural Protect/environment interaction had zero support after the existing persistent hidden-Choice admission filters.",
+    "decision": "Do not increase the natural sample after observing zero support. Land the reconstruction capability and move the next falsifiable experiment to the utility/opponent-policy horizon."
+  },
+  "study_status": "completed-with-support-falsification",
+  "decision_rule_result": "Natural support was zero before any policy-value computation, so the planned interaction is not estimable under the current hidden-Choice model. Do not add search depth or sample until success; test the bounded utility/opponent-policy horizon next."
+}

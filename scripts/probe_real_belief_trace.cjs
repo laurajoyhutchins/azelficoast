@@ -88,6 +88,18 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.exact_hp",
 ];
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
+const PUBLIC_WEATHER = {
+  RAINDANCE: "raindance",
+  SUNNYDAY: "sunnyday",
+  SANDSTORM: "sandstorm",
+  SNOWSCAPE: "snow",
+};
+const PUBLIC_TERRAIN = {
+  GRASSY_TERRAIN: "grassyterrain",
+  ELECTRIC_TERRAIN: "electricterrain",
+  PSYCHIC_TERRAIN: "psychicterrain",
+};
+const MAX_BOUNDED_ENVIRONMENT_AGE = 1;
 
 const actualCommit = execFileSync(
   "git",
@@ -652,8 +664,39 @@ function hpSupportForVariant(variant) {
   return {maxhp, support};
 }
 
+function applyPublicEnvironment(battle) {
+  const turn = Number(fixture.state.turn);
+  const weather = fixture.state.weather || {};
+  const fields = fixture.state.fields || {};
+
+  for (const [name, rawStarted] of Object.entries(weather)) {
+    const id = PUBLIC_WEATHER[name];
+    if (!id) fail(`unsupported public weather ${name}`);
+    const started = Number(rawStarted);
+    const age = turn - started;
+    if (!Number.isSafeInteger(started) || age < 0 || age > MAX_BOUNDED_ENVIRONMENT_AGE) {
+      fail(`weather ${name} is not exact within the bounded horizon: age=${age}`);
+    }
+    if (!battle.field.setWeather(id)) fail(`could not reconstruct weather ${name}`);
+    battle.field.weatherState.duration = 5 - age;
+  }
+
+  for (const [name, rawStarted] of Object.entries(fields)) {
+    const id = PUBLIC_TERRAIN[name];
+    if (!id) fail(`unsupported public field ${name}`);
+    const started = Number(rawStarted);
+    const age = turn - started;
+    if (!Number.isSafeInteger(started) || age < 0 || age > MAX_BOUNDED_ENVIRONMENT_AGE) {
+      fail(`field ${name} is not exact within the bounded horizon: age=${age}`);
+    }
+    if (!battle.field.setTerrain(id)) fail(`could not reconstruct field ${name}`);
+    battle.field.terrainState.duration = 5 - age;
+  }
+}
+
 function applyFixtureState(battle, world) {
   battle.turn = Number(fixture.state.turn);
+  applyPublicEnvironment(battle);
   for (const view of ownOrdered) {
     const pokemon = battle.p1.pokemon.find(candidate => toID(candidate.species.name) === toID(view.species));
     pokemon.hp = Number(view.current_hp);
@@ -1276,6 +1319,9 @@ if (posteriorOnly) {
       generator_variant_count: variants.length,
       execution_variant_count: executionVariants.length,
       observed_opponent_moves: observedOpponentMoves(),
+      public_weather: stable(fixture.state.weather || {}),
+      public_fields: stable(fixture.state.fields || {}),
+      bounded_environment_age_limit: MAX_BOUNDED_ENVIRONMENT_AGE,
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
       opponent_bench_species: OPPONENT_BENCH_SPECIES,

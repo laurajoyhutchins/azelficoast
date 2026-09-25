@@ -38,6 +38,18 @@ const fixtures = new Map(
 
 const EVS = {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85};
 const IVS = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
+const PUBLIC_WEATHER = {
+  RAINDANCE: "raindance",
+  SUNNYDAY: "sunnyday",
+  SANDSTORM: "sandstorm",
+  SNOWSCAPE: "snow",
+};
+const PUBLIC_TERRAIN = {
+  GRASSY_TERRAIN: "grassyterrain",
+  ELECTRIC_TERRAIN: "electricterrain",
+  PSYCHIC_TERRAIN: "psychicterrain",
+};
+const MAX_BOUNDED_ENVIRONMENT_AGE = 1;
 
 function toID(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -114,6 +126,40 @@ function pokemonSet(snapshot, overrides = {}) {
   };
 }
 
+function applyPublicEnvironment(battle, state, fixtureId) {
+  const turn = Number(state.turn);
+  const weather = state.weather || {};
+  const fields = state.fields || {};
+
+  for (const [name, rawStarted] of Object.entries(weather)) {
+    const id = PUBLIC_WEATHER[name];
+    if (!id) fail(`${fixtureId}: unsupported public weather ${name}`);
+    const started = Number(rawStarted);
+    const age = turn - started;
+    if (!Number.isSafeInteger(started) || age < 0 || age > MAX_BOUNDED_ENVIRONMENT_AGE) {
+      fail(`${fixtureId}: weather ${name} is not exact within the bounded horizon: age=${age}`);
+    }
+    if (!battle.field.setWeather(id)) {
+      fail(`${fixtureId}: could not reconstruct weather ${name}`);
+    }
+    battle.field.weatherState.duration = 5 - age;
+  }
+
+  for (const [name, rawStarted] of Object.entries(fields)) {
+    const id = PUBLIC_TERRAIN[name];
+    if (!id) fail(`${fixtureId}: unsupported public field ${name}`);
+    const started = Number(rawStarted);
+    const age = turn - started;
+    if (!Number.isSafeInteger(started) || age < 0 || age > MAX_BOUNDED_ENVIRONMENT_AGE) {
+      fail(`${fixtureId}: field ${name} is not exact within the bounded horizon: age=${age}`);
+    }
+    if (!battle.field.setTerrain(id)) {
+      fail(`${fixtureId}: could not reconstruct field ${name}`);
+    }
+    battle.field.terrainState.duration = 5 - age;
+  }
+}
+
 function buildBattle(fixture, variant) {
   const state = fixture.state;
   const ownSnapshot = state.active;
@@ -156,6 +202,8 @@ function buildBattle(fixture, variant) {
   for (const condition of Object.keys(state.opponent_side_conditions || {})) {
     battle.p2.addSideCondition(toID(condition), "debug");
   }
+  battle.turn = Number(state.turn);
+  applyPublicEnvironment(battle, state, fixture.fixture_id);
 
   return {battle, own, opponent};
 }

@@ -57,6 +57,14 @@ PROTECT_MOVES = frozenset(
     }
 )
 
+SUPPORTED_WEATHER = frozenset(
+    {"RAINDANCE", "SUNNYDAY", "SANDSTORM", "SNOWSCAPE"}
+)
+SUPPORTED_FIELDS = frozenset(
+    {"GRASSY_TERRAIN", "ELECTRIC_TERRAIN", "PSYCHIC_TERRAIN"}
+)
+MAX_BOUNDED_ENVIRONMENT_AGE = 1
+
 TYPE_IMMUNITIES: dict[str, frozenset[str]] = {
     "normal": frozenset({"ghost"}),
     "fighting": frozenset({"ghost"}),
@@ -266,6 +274,46 @@ def _plain_speed_context(fixture: DecisionFixture) -> bool:
         fields if isinstance(fields, Mapping) else None,
         "TRICK_ROOM",
     )
+
+
+def _bounded_environment_exclusion(fixture: DecisionFixture) -> str | None:
+    turn = fixture.state.get("turn")
+    if not isinstance(turn, int):
+        return "environment-turn-unknown"
+
+    weather = fixture.state.get("weather")
+    if weather is not None and not isinstance(weather, Mapping):
+        return "weather-state-malformed"
+    for raw_name, raw_started in (weather or {}).items():
+        name = str(raw_name)
+        if name not in SUPPORTED_WEATHER:
+            return "weather-reconstruction-unsupported"
+        if not isinstance(raw_started, int):
+            return "weather-start-turn-unknown"
+        age = turn - raw_started
+        if age < 0:
+            return "weather-start-turn-invalid"
+        if age > MAX_BOUNDED_ENVIRONMENT_AGE:
+            return "weather-bounded-horizon-expiry-ambiguous"
+
+    fields = fixture.state.get("fields")
+    if fields is not None and not isinstance(fields, Mapping):
+        return "field-state-malformed"
+    for raw_name, raw_started in (fields or {}).items():
+        name = str(raw_name)
+        if name == "TRICK_ROOM":
+            return "non-plain-speed-context"
+        if name not in SUPPORTED_FIELDS:
+            return "field-reconstruction-unsupported"
+        if not isinstance(raw_started, int):
+            return "field-start-turn-unknown"
+        age = turn - raw_started
+        if age < 0:
+            return "field-start-turn-invalid"
+        if age > MAX_BOUNDED_ENVIRONMENT_AGE:
+            return "field-bounded-horizon-expiry-ambiguous"
+
+    return None
 
 
 def _apply_speed_stage(speed: int, view: Mapping[str, Any]) -> int:
@@ -721,13 +769,9 @@ def mine_candidates(
         if not _plain_speed_context(fixture):
             skip("non-plain-speed-context")
             continue
-        weather = fixture.state.get("weather")
-        if isinstance(weather, Mapping) and weather:
-            skip("weather-reconstruction-unsupported")
-            continue
-        fields = fixture.state.get("fields")
-        if isinstance(fields, Mapping) and fields:
-            skip("field-reconstruction-unsupported")
+        environment_exclusion = _bounded_environment_exclusion(fixture)
+        if environment_exclusion is not None:
+            skip(environment_exclusion)
             continue
 
         active = fixture.state.get("active")
@@ -915,6 +959,8 @@ def mine_candidates(
         candidate = {
             "fixture_id": fixture.fixture_id,
             "turn": fixture.state.get("turn"),
+            "weather": dict(fixture.state.get("weather") or {}),
+            "fields": dict(fixture.state.get("fields") or {}),
             "player": fixture.state.get("player"),
             "opponent": fixture.state.get("opponent"),
             "active_species": active.get("species"),
