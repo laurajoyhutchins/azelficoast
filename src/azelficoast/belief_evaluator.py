@@ -1,0 +1,335 @@
+"""Shared learned value/policy evaluator over public belief states.
+
+The evaluator consumes only public state, a posterior over plausible hidden worlds,
+and legal actions. It never consumes the realized hidden state. Hidden-world support is
+pooled permutation-invariantly so determinization and information-set search can share
+one learned evaluator without giving either method a private-information side channel.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+from dataclasses import dataclass
+from typing import Any, Mapping, Sequence
+
+EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
+EVALUATOR_SCHEMA_VERSION = 1
+INPUT_SCHEMA = "azelficoast.public-belief-evaluator-input"
+INPUT_SCHEMA_VERSION = 1
+
+
+class BeliefEvaluatorError(ValueError):
+    """Raised when evaluator input or checkpoint metadata violates the contract."""
+
+
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def _sha256_bytes(value: bytes) -> str:
+    return "sha256:" + hashlib.sha256(value).hexdigest()
+
+
+def _bucket(token: str, width: int) -> tuple[int, float]:
+    if width <= 0:
+        raise BeliefEvaluatorError("feature width must be positive")
+    digest = hashlib.sha256(token.encode("utf-8")).digest()
+    index = int.from_bytes(digest[:8], "big") % width
+    sign = 1.0 if digest[8] & 1 else -1.0
+    return index, sign
+
+
+def _flatten(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
+    if isinstance(value, Mapping):
+        rows: list[tuple[str, Any]] = []
+        for key in sorted(value, key=str):
+            child = f"{prefix}.{key}" if prefix else str(key)
+            rows.extend(_flatten(value[key], child))
+        return rows
+    if isinstance(value, (list, tuple)):
+        rows = []
+        for index, child_value in enumerate(value):
+            child = f"{prefix}[{index}]"
+            rows.extend(_flatten(child_value, child))
+        return rows
+    return [(prefix, value)]
+
+
+def hashed_features(value: Any, *, width: int) -> tuple[float, ...]:
+    """Map arbitrary structured public data to a stable fixed-width numeric vector."""
+    output = [0.0] * width
+    for path, scalar in _flatten(value):
+        if scalar is None:
+            index, sign = _bucket(f"{path}=<none>", width)
+            output[index] += sign
+            continue
+        if isinstance(scalar, bool):
+            index, sign = _bucket(f"{path}=bool", width)
+            output[index] += sign * (1.0 if scalar else -1.0)
+            continue
+        if isinstance(scalar, (int, float)) and not isinstance(scalar, bool):
+            numeric = float(scalar)
+            if not math.isfinite(numeric):
+                raise BeliefEvaluatorError(f"non-finite numeric feature at {path}")
+            index, sign = _bucket(f"{path}=number", width)
+            output[index] += sign * math.copysign(math.log1p(abs(numeric)), numeric)
+            continue
+        index, sign = _bucket(f"{path}={scalar}", width)
+        output[index] += sign
+    return tuple(output)
+
+
+@dataclass(frozen=True)
+class BeliefEvaluatorSpec:
+    public_width: int = 256
+    world_width: int = 192
+    action_width: int = 96
+    hidden_width: int = 256
+    world_hidden_width: int = 192
+
+    def __post_init__(self) -> None:
+        for name, value in self.as_dict().items():
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise BeliefEvaluatorError(f"{name} must be a positive integer")
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "public_width": self.public_width,
+            "world_width": self.world_width,
+            "action_width": self.action_width,
+            "hidden_width": self.hidden_width,
+            "world_hidden_width": self.world_hidden_width,
+        }
+
+
+@dataclass(frozen=True)
+class BeliefEvaluatorInput:
+    public_features: tuple[float, ...]
+    world_features: tuple[tuple[float, ...], ...]
+    world_weights: tuple[float, ...]
+    action_features: tuple[tuple[float, ...], ...]
+    legal_actions: tuple[str, ...]
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "schema": INPUT_SCHEMA,
+            "schema_version": INPUT_SCHEMA_VERSION,
+            "public_features": list(self.public_features),
+            "world_features": [list(row) for row in self.world_features],
+            "world_weights": list(self.world_weights),
+            "action_features": [list(row) for row in self.action_features],
+            "legal_actions": list(self.legal_actions),
+        }
+
+
+def build_evaluator_input(
+    *,
+    public_state: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    legal_actions: Sequence[str],
+    spec: BeliefEvaluatorSpec = BeliefEvaluatorSpec(),
+) -> BeliefEvaluatorInput:
+    """Build one evaluator input while enforcing the no-realized-state boundary."""
+    if "realized_hidden_state" in public_state:
+        raise BeliefEvaluatorError("public state may not contain realized_hidden_state")
+    if posterior.get("conditioned_on_public_history") is not True:
+        raise BeliefEvaluatorError("posterior must be conditioned on public history")
+    if posterior.get("realized_hidden_state_revealed") is not False:
+        raise BeliefEvaluatorError("evaluator may not consume a revealed hidden state")
+
+    worlds = posterior.get("worlds")
+    if not isinstance(worlds, list) or not worlds:
+        raise BeliefEvaluatorError("posterior must contain hidden-world support")
+    actions = tuple(str(action) for action in legal_actions)
+    if not actions or any(not action for action in actions):
+        raise BeliefEvaluatorError("legal actions must be non-empty strings")
+    if len(set(actions)) != len(actions):
+        raise BeliefEvaluatorError("legal actions must be unique")
+
+    world_rows: list[tuple[float, ...]] = []
+    raw_weights: list[float] = []
+    for world in worlds:
+        if not isinstance(world, Mapping):
+            raise BeliefEvaluatorError("hidden world must be an object")
+        weight = world.get("weight")
+        if not isinstance(weight, (int, float)) or isinstance(weight, bool):
+            raise BeliefEvaluatorError("hidden world weight must be numeric")
+        weight = float(weight)
+        if not math.isfinite(weight) or weight <= 0:
+            raise BeliefEvaluatorError("hidden world weight must be positive and finite")
+
+        semantic_world = {
+            str(key): value
+            for key, value in world.items()
+            if key not in {"weight", "world_id", "id"}
+        }
+        world_rows.append(hashed_features(semantic_world, width=spec.world_width))
+        raw_weights.append(weight)
+
+    total = sum(raw_weights)
+    weights = tuple(weight / total for weight in raw_weights)
+    return BeliefEvaluatorInput(
+        public_features=hashed_features(public_state, width=spec.public_width),
+        world_features=tuple(world_rows),
+        world_weights=weights,
+        action_features=tuple(
+            hashed_features({"action": action}, width=spec.action_width)
+            for action in actions
+        ),
+        legal_actions=actions,
+    )
+
+
+def checkpoint_digest(params: Mapping[str, Any], spec: BeliefEvaluatorSpec) -> str:
+    """Content-address a parameter tree independent of container serialization."""
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError("numpy is required to digest evaluator parameters") from error
+
+    chunks = [_canonical(spec.as_dict()).encode("utf-8")]
+    for name in sorted(params):
+        value = np.asarray(params[name])
+        chunks.extend(
+            (
+                name.encode("utf-8"),
+                str(value.dtype).encode("ascii"),
+                _canonical(list(value.shape)).encode("ascii"),
+                value.tobytes(order="C"),
+            )
+        )
+    return _sha256_bytes(b"\0".join(chunks))
+
+
+def evaluator_identity(
+    *,
+    checkpoint_digest_value: str,
+    spec: BeliefEvaluatorSpec,
+) -> dict[str, Any]:
+    if not (
+        checkpoint_digest_value.startswith("sha256:")
+        and len(checkpoint_digest_value) == 71
+        and all(ch in "0123456789abcdef" for ch in checkpoint_digest_value[7:])
+    ):
+        raise BeliefEvaluatorError("checkpoint digest must be sha256:<64 lowercase hex>")
+    return {
+        "schema": EVALUATOR_SCHEMA,
+        "schema_version": EVALUATOR_SCHEMA_VERSION,
+        "checkpoint_digest": checkpoint_digest_value,
+        "observability": "public_belief_only",
+        "architecture": "weighted_deep_sets_policy_value",
+        "spec": spec.as_dict(),
+    }
+
+
+def _require_jax():
+    try:
+        import jax
+        import jax.numpy as jnp
+    except ImportError as error:
+        raise BeliefEvaluatorError(
+            "JAX is required for learned evaluator initialization and inference; "
+            "install the simulator extra"
+        ) from error
+    return jax, jnp
+
+
+def _glorot(key: Any, fan_in: int, fan_out: int) -> Any:
+    jax, jnp = _require_jax()
+    limit = math.sqrt(6.0 / (fan_in + fan_out))
+    return jax.random.uniform(
+        key,
+        (fan_in, fan_out),
+        minval=-limit,
+        maxval=limit,
+        dtype=jnp.float32,
+    )
+
+
+def init_params(spec: BeliefEvaluatorSpec, *, seed: int = 0) -> dict[str, Any]:
+    """Initialize a dependency-light JAX network without Flax or Optax."""
+    jax, jnp = _require_jax()
+    keys = iter(jax.random.split(jax.random.PRNGKey(seed), 10))
+
+    def dense(name: str, fan_in: int, fan_out: int, params: dict[str, Any]) -> None:
+        params[f"{name}.weight"] = _glorot(next(keys), fan_in, fan_out)
+        params[f"{name}.bias"] = jnp.zeros((fan_out,), dtype=jnp.float32)
+
+    params: dict[str, Any] = {}
+    dense("public", spec.public_width, spec.hidden_width, params)
+    dense("world", spec.world_width, spec.world_hidden_width, params)
+    dense("world_post", spec.world_hidden_width * 2 + 2, spec.hidden_width, params)
+    dense("trunk", spec.hidden_width * 2, spec.hidden_width, params)
+    dense("action", spec.action_width, spec.hidden_width, params)
+    dense("policy_context", spec.hidden_width, spec.hidden_width, params)
+    dense("value_hidden", spec.hidden_width, spec.hidden_width, params)
+    dense("value", spec.hidden_width, 1, params)
+    return params
+
+
+def _dense(jnp: Any, x: Any, params: Mapping[str, Any], name: str) -> Any:
+    return x @ params[f"{name}.weight"] + params[f"{name}.bias"]
+
+
+def forward(
+    params: Mapping[str, Any],
+    inputs: BeliefEvaluatorInput,
+) -> tuple[Any, Any]:
+    """Return value and policy logits for one public-belief state."""
+    _, jnp = _require_jax()
+    public = jnp.asarray(inputs.public_features, dtype=jnp.float32)
+    worlds = jnp.asarray(inputs.world_features, dtype=jnp.float32)
+    weights = jnp.asarray(inputs.world_weights, dtype=jnp.float32)
+    actions = jnp.asarray(inputs.action_features, dtype=jnp.float32)
+
+    public_hidden = jnp.tanh(_dense(jnp, public, params, "public"))
+    world_hidden = jnp.tanh(_dense(jnp, worlds, params, "world"))
+    mean = jnp.sum(world_hidden * weights[:, None], axis=0)
+    centered = world_hidden - mean[None, :]
+    variance = jnp.sum(centered * centered * weights[:, None], axis=0)
+    entropy = -jnp.sum(weights * jnp.log(jnp.maximum(weights, 1e-12)))
+    effective_support = jnp.exp(entropy)
+    belief_summary = jnp.concatenate(
+        (mean, variance, jnp.asarray([entropy, effective_support], dtype=jnp.float32))
+    )
+    belief_hidden = jnp.tanh(_dense(jnp, belief_summary, params, "world_post"))
+    trunk = jnp.tanh(
+        _dense(
+            jnp,
+            jnp.concatenate((public_hidden, belief_hidden)),
+            params,
+            "trunk",
+        )
+    )
+
+    action_hidden = jnp.tanh(_dense(jnp, actions, params, "action"))
+    policy_context = jnp.tanh(_dense(jnp, trunk, params, "policy_context"))
+    logits = action_hidden @ policy_context / math.sqrt(float(policy_context.shape[-1]))
+
+    value_hidden = jnp.tanh(_dense(jnp, trunk, params, "value_hidden"))
+    value = jnp.tanh(_dense(jnp, value_hidden, params, "value"))[0]
+    return value, logits
+
+
+def loss(
+    params: Mapping[str, Any],
+    inputs: BeliefEvaluatorInput,
+    *,
+    value_target: float,
+    policy_target: Sequence[float],
+    policy_weight: float = 1.0,
+) -> Any:
+    """Joint value MSE plus policy cross-entropy objective."""
+    _, jnp = _require_jax()
+    if len(policy_target) != len(inputs.legal_actions):
+        raise BeliefEvaluatorError("policy target must cover every legal action")
+    target = jnp.asarray(policy_target, dtype=jnp.float32)
+    target = target / jnp.maximum(jnp.sum(target), 1e-12)
+    value, logits = forward(params, inputs)
+    maximum = jnp.max(logits)
+    log_probs = logits - maximum - jnp.log(jnp.sum(jnp.exp(logits - maximum)))
+    value_error = (value - jnp.asarray(value_target, dtype=jnp.float32)) ** 2
+    policy_error = -jnp.sum(target * log_probs)
+    return value_error + float(policy_weight) * policy_error

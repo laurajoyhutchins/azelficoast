@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 PLAN_SCHEMA = "azelficoast.matched-search-comparison-plan"
-PLAN_SCHEMA_VERSION = 1
+PLAN_SCHEMA_VERSION = 2
 PACKET_SCHEMA = "azelficoast.matched-search-comparison-packet"
-PACKET_SCHEMA_VERSION = 1
+PACKET_SCHEMA_VERSION = 2
 RESULT_SCHEMA = "azelficoast.matched-search-comparison-result"
-RESULT_SCHEMA_VERSION = 1
+RESULT_SCHEMA_VERSION = 2
+EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
+EVALUATOR_SCHEMA_VERSION = 1
 
 METHODS = ("determinization", "information_set")
 POSTERIOR_TREATMENTS = ("oracle", "generator_faithful", "practical")
@@ -107,6 +109,36 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise MatchedComparisonError("bootstrap seed must be an integer")
 
+    evaluator = plan.get("evaluator")
+    if not isinstance(evaluator, Mapping):
+        raise MatchedComparisonError("plan must pin one learned evaluator")
+    if (
+        evaluator.get("schema") != EVALUATOR_SCHEMA
+        or evaluator.get("schema_version") != EVALUATOR_SCHEMA_VERSION
+    ):
+        raise MatchedComparisonError("unexpected evaluator schema")
+    checkpoint_digest = evaluator.get("checkpoint_digest")
+    if not (
+        isinstance(checkpoint_digest, str)
+        and checkpoint_digest.startswith("sha256:")
+        and len(checkpoint_digest) == 71
+        and all(
+            character in "0123456789abcdef"
+            for character in checkpoint_digest[7:]
+        )
+    ):
+        raise MatchedComparisonError(
+            "evaluator checkpoint_digest must be sha256:<64 lowercase hex>"
+        )
+    if evaluator.get("observability") != "public_belief_only":
+        raise MatchedComparisonError(
+            "matched evaluator must be blind to the realized hidden state"
+        )
+    if not isinstance(evaluator.get("architecture"), str) or not evaluator["architecture"]:
+        raise MatchedComparisonError("evaluator must identify its architecture")
+    if not isinstance(evaluator.get("spec"), Mapping):
+        raise MatchedComparisonError("evaluator must pin its input/model spec")
+
     showdown_commit = plan.get("showdown_commit")
     if not isinstance(showdown_commit, str) or not showdown_commit:
         raise MatchedComparisonError("plan must pin a Showdown commit")
@@ -186,10 +218,13 @@ def freeze_packet(
         }
     )
     posterior_digest = _sha256(posterior)
+    evaluator = dict(checked_plan["evaluator"])
+    evaluator_digest = _sha256(evaluator)
     input_digest = _sha256(
         {
             "state_digest": state_digest,
             "posterior_digest": posterior_digest,
+            "evaluator_digest": evaluator_digest,
             "showdown_commit": checked_plan["showdown_commit"],
             "depth": int(depth),
         }
@@ -210,6 +245,8 @@ def freeze_packet(
         "depth": int(depth),
         "state_digest": state_digest,
         "posterior_digest": posterior_digest,
+        "evaluator": evaluator,
+        "evaluator_digest": evaluator_digest,
         "input_digest": input_digest,
         "legal_actions": list(legal_actions),
         "predictors": frozen_predictors,
@@ -218,6 +255,7 @@ def freeze_packet(
             {
                 "method": method,
                 "input_digest": input_digest,
+                "evaluator_digest": evaluator_digest,
                 "compute_budget": dict(budget),
             }
             for method in METHODS
@@ -241,11 +279,19 @@ def _validate_packet(packet: Mapping[str, Any]) -> None:
         raise MatchedComparisonError("comparison methods are missing or reordered")
     expected_digest = packet.get("input_digest")
     expected_budget = packet.get("compute_budget")
+    evaluator = packet.get("evaluator")
+    expected_evaluator_digest = packet.get("evaluator_digest")
+    if not isinstance(evaluator, Mapping):
+        raise MatchedComparisonError("comparison packet lacks evaluator identity")
+    if _sha256(evaluator) != expected_evaluator_digest:
+        raise MatchedComparisonError("comparison packet evaluator digest is invalid")
     for row in work:
         if not isinstance(row, Mapping):
             raise MatchedComparisonError("comparison work item must be an object")
         if row.get("input_digest") != expected_digest:
             raise MatchedComparisonError("comparison methods do not share one input")
+        if row.get("evaluator_digest") != expected_evaluator_digest:
+            raise MatchedComparisonError("comparison methods do not share one evaluator")
         if row.get("compute_budget") != expected_budget:
             raise MatchedComparisonError("comparison methods do not share one budget")
 
@@ -271,6 +317,8 @@ def settle_packet(
         receipt = by_method[method]
         if receipt.get("input_digest") != packet["input_digest"]:
             raise MatchedComparisonError(f"{method}: receipt used another frozen input")
+        if receipt.get("evaluator_digest") != packet["evaluator_digest"]:
+            raise MatchedComparisonError(f"{method}: receipt used another evaluator")
         budget = receipt.get("compute_budget")
         if not isinstance(budget, Mapping) or budget != packet["compute_budget"]:
             raise MatchedComparisonError(f"{method}: receipt used another authorized budget")
@@ -320,6 +368,9 @@ def settle_packet(
         "depth": packet["depth"],
         "matched_input": True,
         "matched_authorized_compute": True,
+        "matched_evaluator": True,
+        "evaluator": dict(packet["evaluator"]),
+        "evaluator_digest": packet["evaluator_digest"],
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
         "predictors": dict(packet["predictors"]),
