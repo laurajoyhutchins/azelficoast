@@ -14,6 +14,7 @@ from azelficoast.belief.improvement import (
     AdmissionPolicy,
     EvaluationMetrics,
     ImprovementError,
+    _promote,
     decide_admission,
     improve_checkpoint,
     load_training_dataset,
@@ -179,3 +180,34 @@ def test_admitted_candidate_pointer_is_loadable_and_digest_bound(tmp_path) -> No
     assert result["admitted"] is True
     _, _, manifest = load_checkpoint(promotion)
     assert manifest["evaluator"]["checkpoint_digest"] == result["candidate_checkpoint_digest"]
+
+
+
+def test_promotion_is_compare_and_swap_fenced(tmp_path) -> None:
+    promotion = tmp_path / "current.json"
+    promotion.write_text(
+        json.dumps(
+            {
+                "schema": "azelficoast.evaluator-promotion",
+                "schema_version": 1,
+                "checkpoint": "other",
+                "checkpoint_digest": "sha256:" + "b" * 64,
+            },
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    before = promotion.read_text(encoding="utf-8")
+
+    with pytest.raises(ImprovementError, match="authority changed"):
+        _promote(
+            promotion,
+            candidate_path=tmp_path / "candidate",
+            candidate_digest="sha256:" + "c" * 64,
+            incumbent_digest="sha256:" + "a" * 64,
+            dataset_digest="sha256:" + "d" * 64,
+            receipt_digest="sha256:" + "e" * 64,
+        )
+
+    assert promotion.read_text(encoding="utf-8") == before

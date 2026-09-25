@@ -214,6 +214,28 @@ checkpoint. A rejected candidate leaves the current pointer untouched. The norma
 promotion pointer, so subsequent battles consume the admitted model without copying
 or mutating checkpoint contents.
 
+
+For a completed set of battle traces, the whole evidence path can now be run as one
+transaction:
+
+~~~bash
+uv run azelficoast \
+  --showdown-root /path/to/pokemon-showdown \
+  training cycle artifacts/decisions.jsonl
+~~~
+
+The cycle reconstructs generator-faithful posteriors from each admissible frozen
+decision, compiles the verified whole-turn transition program, executes both matched
+search methods with the exact incumbent evaluator, settles their receipts, builds the
+training dataset, and runs the admission gate. Unsupported decisions are recorded as
+teacher exclusions rather than receiving guessed labels. If there are not yet
+non-empty train, validation, and test splits, the cycle returns `not-ready` and does
+not create or promote a candidate.
+
+Promotion is compare-and-swap fenced to the incumbent digest used for teaching and
+evaluation. A stale concurrent cycle therefore cannot overwrite a newer admitted
+checkpoint.
+
 ## Evidence model
 
 The repository tries to keep claims narrower than the code around them.
