@@ -1531,7 +1531,7 @@ function compileLazyWholeTurnPrograms() {
       non_claim:
         "Moves and Tera remain semantic posterior fields but are excluded from the " +
         "online execution key only under this fixed opponent-policy/no-opponent-Tera scope. " +
-        "Exact candidate CI must keep proving that nonexecution classification against direct Showdown. " +
+        "Exact candidate CI must keep proving that classification against direct Showdown. " +
         "The kernel does not generalize across another revision or policy surface.",
     },
     programs,
