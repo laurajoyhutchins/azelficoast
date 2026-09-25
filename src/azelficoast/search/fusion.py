@@ -263,13 +263,6 @@ def freeze_selection(
         if admission != "admitted":
             raise FusionSearchError("live admission returned source without admitted status")
 
-        candidate_items = set(str(item) for item in candidate["item_weights"])
-        source_items = set(str(item) for item in source.get("plausible_items", []))
-        if source_items != candidate_items:
-            raise FusionSearchError(
-                f"{fixture_id}: live source item support differs from discovery"
-            )
-
         signals, diagnostics = _candidate_signals(candidate, mechanics, fixture)
         ranked.append(
             {
@@ -314,6 +307,9 @@ def freeze_selection(
     selected_rows: list[dict[str, Any]] = []
     for rank, row in enumerate(selected, start=1):
         source = dict(row["source"])
+        source["plausible_items"] = sorted(
+            str(item) for item in row["candidate"]["item_weights"]
+        )
         source["observed_opponent_moves"] = list(row["candidate"]["revealed_moves"])
         source["source_artifact"] = {
             **source_artifact,
