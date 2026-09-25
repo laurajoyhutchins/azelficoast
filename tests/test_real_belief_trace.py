@@ -509,4 +509,5 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'hiddenReads.add("opponent.active.moves")' in source
     assert "showdown_turn_executions: showdownTurnExecutions" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
+    assert "opponent_policy: OPPONENT_POLICY" in source
     assert "marginalized_hidden" not in source
