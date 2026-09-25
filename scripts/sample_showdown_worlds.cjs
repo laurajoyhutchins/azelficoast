@@ -136,6 +136,8 @@ for (let index = 0; index < rounds; index++) {
     item,
     level: set.level,
     moves,
+    evs: {...set.evs},
+    ivs: {...set.ivs},
     role: set.role,
     teraType: set.teraType,
   };
