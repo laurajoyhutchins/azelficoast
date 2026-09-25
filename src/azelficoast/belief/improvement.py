@@ -30,6 +30,8 @@ from azelficoast.belief.evaluator import (
 from azelficoast.belief.battle_promotion import (
     BATTLE_PROMOTION_SCHEMA,
     BATTLE_PROMOTION_SCHEMA_VERSION,
+    BattlePromotionError,
+    verify_battle_panel_evidence,
 )
 from azelficoast.belief.training import TrainingExample, train_examples
 from azelficoast.research.training_records import TRAINING_SCHEMA, TRAINING_SCHEMA_VERSION
@@ -509,7 +511,11 @@ def promote_deferred_candidate(
         or battle_evidence.get("schema_version") != BATTLE_PROMOTION_SCHEMA_VERSION
     ):
         raise ImprovementError("unexpected battle promotion evidence schema")
-    if battle_evidence.get("admitted") is not True:
+    try:
+        verified_battle_evidence = verify_battle_panel_evidence(battle_evidence)
+    except BattlePromotionError as error:
+        raise ImprovementError(str(error)) from error
+    if verified_battle_evidence.get("admitted") is not True:
         raise ImprovementError("battle promotion evidence did not admit the candidate")
 
     candidate_digest = _text(
@@ -525,9 +531,9 @@ def promote_deferred_candidate(
         improvement.get("receipt_digest"),
         "improvement.receipt_digest",
     )
-    if battle_evidence.get("candidate_checkpoint_digest") != candidate_digest:
+    if verified_battle_evidence.get("candidate_checkpoint_digest") != candidate_digest:
         raise ImprovementError("battle evidence candidate checkpoint does not match")
-    if battle_evidence.get("incumbent_checkpoint_digest") != incumbent_digest:
+    if verified_battle_evidence.get("incumbent_checkpoint_digest") != incumbent_digest:
         raise ImprovementError("battle evidence incumbent checkpoint does not match")
 
     candidate_path = Path(
@@ -543,7 +549,7 @@ def promote_deferred_candidate(
         "incumbent_checkpoint_digest": incumbent_digest,
         "dataset_digest": dataset_digest,
         "improvement_receipt_digest": improvement_receipt_digest,
-        "battle_evidence": dict(battle_evidence),
+        "battle_evidence": dict(verified_battle_evidence),
         "checks": {
             "model_admission": True,
             "battle_strength": True,
@@ -572,7 +578,7 @@ def promote_deferred_candidate(
         "incumbent_checkpoint_digest": incumbent_digest,
         "receipt": str(receipt_path),
         "receipt_digest": receipt_digest,
-        "battle_evidence": dict(battle_evidence),
+        "battle_evidence": dict(verified_battle_evidence),
     }
 
 def improve_checkpoint(
