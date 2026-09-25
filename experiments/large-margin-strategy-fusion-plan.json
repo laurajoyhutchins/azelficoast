@@ -54,5 +54,87 @@
     "The bounded opponent response remains the latest publicly observed fixed-damage move.",
     "The continuation horizon remains one further decision under material utility.",
     "Six selected candidates are not claimed to represent the full competitive state distribution."
-  ]
+  ],
+  "frozen_selection": {
+    "workflow_run_id": 36077651662,
+    "artifact_id": 10840767342,
+    "artifact_name": "large-margin-selection",
+    "artifact_digest": "sha256:878a1d7f167253ccb133dd18621ac87e0c2c9b1a26a99db9015c3eef0cfa41fe",
+    "head_sha": "381c1a93f27fb7be8d963aecefe6a40e1645c7d3",
+    "frozen_before_exact_policy_results": true,
+    "selected": [
+      {
+        "selection_rank": 1,
+        "fixture_id": "30d11e4d6b7be78a61e1e14c79ba60cc93ba6fc3ab9a1e605db534d9a9c906d2",
+        "rank_key": [
+          3,
+          750000,
+          471616,
+          500000,
+          1,
+          12
+        ]
+      },
+      {
+        "selection_rank": 2,
+        "fixture_id": "85075fbced43ac4caa05ff7d3226c33f90100f87f986c57de8017c7b83b406af",
+        "rank_key": [
+          2,
+          1000000,
+          378713,
+          495593,
+          3,
+          12
+        ]
+      },
+      {
+        "selection_rank": 3,
+        "fixture_id": "ad6b735dbd06e49fbcc569d099dc5b03375485dc95ec17d0a44bc34bf58e35eb",
+        "rank_key": [
+          2,
+          0,
+          245283,
+          260021,
+          1,
+          12
+        ]
+      },
+      {
+        "selection_rank": 4,
+        "fixture_id": "35c1ef8f09d27071a6c922392248855371a013d57d77ed31eb70a59c1831ea6d",
+        "rank_key": [
+          2,
+          0,
+          200368,
+          500000,
+          1,
+          12
+        ]
+      },
+      {
+        "selection_rank": 5,
+        "fixture_id": "ac558955649d477f94001ae52f4786fe9c400bdafe308ba8911efc97c4b17b2e",
+        "rank_key": [
+          2,
+          0,
+          147273,
+          497992,
+          2,
+          12
+        ]
+      },
+      {
+        "selection_rank": 6,
+        "fixture_id": "de08724a57457389a4a0d378205f1488d44636d4049150b427125cecb9022d24",
+        "rank_key": [
+          2,
+          0,
+          46610,
+          498039,
+          1,
+          11
+        ]
+      }
+    ]
+  }
 }
