@@ -488,6 +488,9 @@ function applyFixtureState(battle, world) {
   const opponent = battle.p2.active[0];
   opponent.hp = Number(world.exactHp);
   opponent.boosts = {...fixture.state.opponent_active.boosts};
+  const opponentStatus = fixture.state.opponent_active.status;
+  opponent.status =
+    opponentStatus && opponentStatus !== "FNT" ? toID(opponentStatus) : "";
 
   for (const condition of Object.keys(fixture.state.side_conditions || {})) {
     battle.p1.addSideCondition(toID(condition), "debug");
