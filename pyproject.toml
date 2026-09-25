@@ -23,6 +23,7 @@ azelficoast = "azelficoast.live.harness:main"
 
 [dependency-groups]
 dev = [
+  "mypy==2.3.1",
   "pytest==9.1.1",
   "ruff==0.16.9",
 ]
@@ -42,3 +43,16 @@ required-version = ">=0.12.18,<0.13"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+follow_imports = "silent"
+files = [
+  "src/azelficoast/research/contracts.py",
+  "src/azelficoast/core/mechanics.py",
+  "src/azelficoast/research/matched_comparison.py",
+  "src/azelficoast/research/matched_search.py",
+  "src/azelficoast/research/typed_search.py",
+  "src/azelficoast/research/population_cohort.py",
+]

@@ -1,37 +1,64 @@
-"""Budgeted matched search over verified whole-turn TransitionPrograms."""
+"""Budgeted matched search over validated whole-turn mechanics programs."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import time
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
-from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
+from azelficoast.belief.evaluator import (
+    BeliefEvaluatorInput,
+    BeliefEvaluatorRuntime,
+    BeliefEvaluatorSpec,
+    BeliefPrediction,
+)
 from azelficoast.research.matched_comparison import (
     METHODS,
+    MatchedComparisonError,
     PACKET_SCHEMA,
     PACKET_SCHEMA_VERSION,
     RECEIPT_SCHEMA,
     RECEIPT_SCHEMA_VERSION,
+    _validate_packet,
     _sha256,
 )
-from azelficoast.transition_oracle import ORACLE_SCHEMA, ORACLE_SCHEMA_VERSION
-from azelficoast.search.transition_program import (
+from azelficoast.core.mechanics import (
+    MechanicsContractError,
+    MechanicsExecutionRequest,
+    VerifiedTransitionProgramSet,
+)
+from azelficoast.research.contracts import (
+    BeliefInput,
+    BeliefTransportIndex,
+    COMPUTE_BUDGET_UNIT_DEFINITION,
+    EVALUATOR_CALL_UNIT_DEFINITION,
+    MatchedExperimentSpec,
+    PublicDecisionInput,
+    ResearchContractError,
+    parse_belief_artifact,
+)
+from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )
-from azelficoast.whole_turn_program import (
-    PROGRAM_SET_SCHEMA,
-    PROGRAM_SET_SCHEMA_VERSION,
-    compile_whole_turn_programs,
-    program_for_action,
-)
+from azelficoast.whole_turn_program import PROGRAM_SET_SCHEMA
+
 
 class MatchedSearchExecutionError(ValueError):
     """Raised when a frozen matched-search work item cannot execute faithfully."""
+
+
+class Evaluator(Protocol):
+    spec: BeliefEvaluatorSpec
+
+    @property
+    def identity(self) -> Mapping[str, Any]:
+        """Stable evaluator identity including its checkpoint digest."""
+
+    def predict(self, inputs: BeliefEvaluatorInput) -> BeliefPrediction:
+        """Evaluate one validated public-belief input."""
 
 
 def _load_object(path: str | Path) -> dict[str, Any]:
@@ -41,21 +68,7 @@ def _load_object(path: str | Path) -> dict[str, Any]:
     return value
 
 
-def _artifact_digest(value: Mapping[str, Any]) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value,
-            sort_keys=True,
-            separators=(",", ":"),
-            ensure_ascii=True,
-        ).encode("utf-8")
-    ).hexdigest()
-
-
-def _validated_evaluator(
-    packet: Mapping[str, Any],
-    evaluator: Any,
-) -> str:
+def _validated_evaluator(packet: Mapping[str, Any], evaluator: Evaluator) -> str:
     expected = packet.get("evaluator")
     identity = getattr(evaluator, "identity", None)
     if not isinstance(expected, Mapping) or not isinstance(identity, Mapping):
@@ -68,9 +81,7 @@ def _validated_evaluator(
         )
     checkpoint_digest = identity.get("checkpoint_digest")
     if not isinstance(checkpoint_digest, str) or not checkpoint_digest:
-        raise MatchedSearchExecutionError(
-            "frozen evaluator identity lacks checkpoint digest"
-        )
+        raise MatchedSearchExecutionError("frozen evaluator identity lacks checkpoint digest")
     if getattr(evaluator, "spec", None) is None or not callable(
         getattr(evaluator, "predict", None)
     ):
@@ -80,13 +91,13 @@ def _validated_evaluator(
     return checkpoint_digest
 
 
-def _validated_program(
+def _validated_inputs(
     *,
     packet: Mapping[str, Any],
     posterior: Mapping[str, Any],
     transition_artifact: Mapping[str, Any],
     method: str,
-) -> tuple[dict[str, Any], str]:
+) -> tuple[BeliefInput, BeliefTransportIndex, MatchedExperimentSpec, VerifiedTransitionProgramSet]:
     if (
         packet.get("schema") != PACKET_SCHEMA
         or packet.get("schema_version") != PACKET_SCHEMA_VERSION
@@ -100,94 +111,72 @@ def _validated_program(
         )
     if packet.get("posterior_digest") != _sha256(posterior):
         raise MatchedSearchExecutionError("posterior artifact does not match frozen packet")
-    if posterior.get("treatment") != packet.get("posterior_treatment"):
+
+    raw_spec = packet.get("matched_spec")
+    if not isinstance(raw_spec, Mapping):
+        raise MatchedSearchExecutionError("matched packet lacks its frozen specification")
+    try:
+        spec = MatchedExperimentSpec.from_record(raw_spec)
+        belief, transport_index = parse_belief_artifact(posterior)
+    except ResearchContractError as error:
+        raise MatchedSearchExecutionError(str(error)) from error
+    if packet.get("matched_spec_digest") != spec.digest:
+        raise MatchedSearchExecutionError("matched packet specification digest is invalid")
+    if packet.get("posterior_treatment") != belief.treatment:
         raise MatchedSearchExecutionError("posterior treatment drifted after freezing")
-
-    schema = transition_artifact.get("schema")
-    schema_version = transition_artifact.get("schema_version")
-    if schema == PROGRAM_SET_SCHEMA and schema_version == PROGRAM_SET_SCHEMA_VERSION:
-        program_set = dict(transition_artifact)
-        source = "verified-transition-program"
-    elif schema == ORACLE_SCHEMA and schema_version == ORACLE_SCHEMA_VERSION:
-        raw_transitions = transition_artifact.get("transitions")
-        if not isinstance(raw_transitions, list):
-            raise MatchedSearchExecutionError(
-                "legacy transition oracle has no transition matrix"
-            )
-        for transition in raw_transitions:
-            if not isinstance(transition, Mapping):
-                raise MatchedSearchExecutionError("legacy transition must be an object")
-            outcomes = transition.get("outcomes")
-            if not isinstance(outcomes, list):
-                raise MatchedSearchExecutionError(
-                    "legacy transition has no chance outcomes"
-                )
-            if any(
-                isinstance(outcome, Mapping)
-                and "continuation_transitions" in outcome
-                for outcome in outcomes
-            ):
-                raise MatchedSearchExecutionError(
-                    "depth-1 receipt cannot consume deeper continuation evidence"
-                )
-        program_set = compile_whole_turn_programs(transition_artifact)
-        source = "compiled-legacy-oracle"
-    else:
-        raise MatchedSearchExecutionError(
-            "expected a whole-turn transition program or compatible frozen oracle"
-        )
-
-    if program_set.get("source_fixture_id") != packet.get("fixture_id"):
-        raise MatchedSearchExecutionError(
-            "transition program belongs to another fixture"
-        )
-    if program_set.get("showdown_commit") != packet.get("showdown_commit"):
-        raise MatchedSearchExecutionError(
-            "transition program used another Showdown revision"
-        )
-    legal_actions = packet.get("legal_actions")
     if (
-        not isinstance(legal_actions, list)
-        or program_set.get("legal_actions") != legal_actions
+        packet.get("posterior_semantic_digest") != belief.semantic_digest
+        or spec.posterior_semantic_digest != belief.semantic_digest
     ):
-        raise MatchedSearchExecutionError(
-            "transition-program legal actions differ from frozen packet"
-        )
+        raise MatchedSearchExecutionError("posterior semantics differ from frozen packet")
 
-    posterior_worlds = posterior.get("worlds")
-    program_world_ids = program_set.get("world_ids")
-    if not isinstance(posterior_worlds, list) or not posterior_worlds:
-        raise MatchedSearchExecutionError("posterior has no hidden-world support")
-    if not isinstance(program_world_ids, list) or not program_world_ids:
-        raise MatchedSearchExecutionError(
-            "transition program has no hidden-world support"
-        )
-    posterior_ids = [
-        str(world.get("world_id"))
-        for world in posterior_worlds
-        if isinstance(world, Mapping)
-    ]
-    if len(posterior_ids) != len(posterior_worlds) or set(posterior_ids) != set(
-        map(str, program_world_ids)
+    raw_actions = packet.get("legal_actions")
+    if (
+        not isinstance(raw_actions, list)
+        or not raw_actions
+        or not all(isinstance(action, str) and action for action in raw_actions)
+        or len(set(raw_actions)) != len(raw_actions)
     ):
-        raise MatchedSearchExecutionError(
-            "posterior and transition program have different hidden-world support"
-        )
+        raise MatchedSearchExecutionError("frozen packet legal actions are malformed")
+    if tuple(raw_actions) != spec.legal_actions:
+        raise MatchedSearchExecutionError("matched specification action set drifted")
 
-    return program_set, source
+    try:
+        public = PublicDecisionInput(
+            fixture_id=spec.fixture_id,
+            battle_tag=spec.battle_tag,
+            public_state=spec.public_state,
+            legal_actions=spec.legal_actions,
+            public_history_identity=spec.public_history_identity,
+            mechanics_identity=spec.mechanics_identity,
+        )
+        if public.state_digest != spec.public_state_digest:
+            raise ResearchContractError("matched specification public state digest is invalid")
+        mechanics = VerifiedTransitionProgramSet.from_artifact(
+            artifact=transition_artifact,
+            identity=spec.mechanics_identity,
+            fixture_id=spec.fixture_id,
+            legal_actions=spec.legal_actions,
+            belief=belief,
+            transport_index=transport_index,
+        )
+    except (MechanicsContractError, ResearchContractError) as error:
+        raise MatchedSearchExecutionError(str(error)) from error
+    return belief, transport_index, spec, mechanics
 
 
 def _required_transition_evaluations(
-    program_set: Mapping[str, Any],
-    legal_actions: Sequence[str],
+    mechanics: VerifiedTransitionProgramSet,
 ) -> int:
     total = 0
-    for action in legal_actions:
+    for action in mechanics.legal_actions:
         try:
-            program = program_for_action(program_set, action)
-        except Exception as error:
+            execution = mechanics.execute(
+                MechanicsExecutionRequest(mechanics_identity=mechanics.identity, action=action)
+            )
+        except MechanicsContractError as error:
             raise MatchedSearchExecutionError(str(error)) from error
-        classes = program.get("classes")
+        classes = execution.program.to_record().get("classes")
         if not isinstance(classes, list) or not classes:
             raise MatchedSearchExecutionError(
                 f"{action}: transition program has no execution classes"
@@ -203,10 +192,9 @@ def execute_method(
     oracle: Mapping[str, Any] | None = None,
     transition_program: Mapping[str, Any] | None = None,
     method: str,
-    evaluator: Any,
+    evaluator: Evaluator,
 ) -> dict[str, Any]:
-    """Execute one matched method using a TransitionProgram successor surface."""
-
+    """Execute one matched method through the mechanics and evaluator contracts."""
     if (oracle is None) == (transition_program is None):
         raise MatchedSearchExecutionError(
             "provide exactly one of transition_program or legacy oracle"
@@ -215,23 +203,30 @@ def execute_method(
     assert artifact is not None
 
     executor_started_ns = time.perf_counter_ns()
+    try:
+        _validate_packet(packet)
+    except MatchedComparisonError as error:
+        raise MatchedSearchExecutionError(str(error)) from error
     checkpoint_digest = _validated_evaluator(packet, evaluator)
-    program_set, source = _validated_program(
+    belief, transport_index, spec, mechanics = _validated_inputs(
         packet=packet,
         posterior=posterior,
         transition_artifact=artifact,
         method=method,
     )
+    if packet.get("mechanics_identity_digest") != spec.mechanics_identity.identity_digest:
+        raise MatchedSearchExecutionError("matched mechanics identity digest is invalid")
+    if packet.get("evaluator_digest") != spec.evaluator_identity_digest:
+        raise MatchedSearchExecutionError("matched evaluator identity differs from specification")
     prepared_ns = time.perf_counter_ns()
     budget = packet.get("compute_budget")
-    if not isinstance(budget, Mapping) or budget.get("unit") != "transition_evaluations":
-        raise MatchedSearchExecutionError(
-            "receipt executor requires transition_evaluations budget"
-        )
+    if not isinstance(budget, Mapping) or budget != spec.compute_budget.to_record():
+        raise MatchedSearchExecutionError("matched specification compute budget drifted")
+    if budget.get("unit") != "transition_evaluations":
+        raise MatchedSearchExecutionError("receipt executor requires transition_evaluations budget")
 
-    legal_actions = list(packet["legal_actions"])
-    required = _required_transition_evaluations(program_set, legal_actions)
-    authorized = int(budget.get("authorized", 0))
+    required = _required_transition_evaluations(mechanics)
+    authorized = spec.compute_budget.authorized
     if required > authorized:
         raise MatchedSearchExecutionError(
             f"{method}: requires {required} transitions but budget authorizes {authorized}"
@@ -240,8 +235,9 @@ def execute_method(
     search_started_ns = time.perf_counter_ns()
     try:
         search = search_transition_program(
-            program_set=program_set,
-            posterior=posterior,
+            mechanics=mechanics,
+            belief=belief,
+            transport_index=transport_index,
             method=method,
             evaluator=evaluator,
         )
@@ -253,6 +249,7 @@ def execute_method(
             "TransitionProgram search consumed an unexpected execution-class count"
         )
 
+    artifact_digest = mechanics.transition_artifact_digest
     receipt = {
         "schema": RECEIPT_SCHEMA,
         "schema_version": RECEIPT_SCHEMA_VERSION,
@@ -261,20 +258,22 @@ def execute_method(
         "evaluator_digest": packet["evaluator_digest"],
         "evaluator_checkpoint_digest": checkpoint_digest,
         "evaluator_calls": int(search["evaluator_calls"]),
-        "evaluator_call_unit_definition": (
-            "one learned value prediction per successor public information set"
-        ),
+        "evaluator_call_unit_definition": EVALUATOR_CALL_UNIT_DEFINITION,
         "packet_digest": packet["packet_digest"],
+        "matched_spec_digest": spec.digest,
         "posterior_digest": packet["posterior_digest"],
+        "posterior_semantic_digest": belief.semantic_digest,
+        "mechanics_identity_digest": spec.mechanics_identity.identity_digest,
+        "mechanics_evidence_digest": str(search["mechanics_evidence_digest"]),
+        "showdown_commit": spec.mechanics_identity.revision,
+        "chance_treatment": spec.chance_treatment,
+        "transition_oracle_digest": artifact_digest,
         "transition_program_digest": str(search["transition_program_digest"]),
-        "transition_program_source": source,
-        "transition_artifact_digest": _artifact_digest(artifact),
-        "showdown_commit": packet["showdown_commit"],
-        "compute_budget": dict(budget),
+        "transition_artifact_digest": artifact_digest,
+        "transition_program_source": mechanics.source,
+        "compute_budget": spec.compute_budget.to_record(),
         "consumed": required,
-        "budget_unit_definition": (
-            "one transition_evaluation per verified whole-turn execution class consumed"
-        ),
+        "budget_unit_definition": COMPUTE_BUDGET_UNIT_DEFINITION,
         "chosen_action": search["chosen_action"],
         "root_values": dict(search["root_values"]),
         "resource_accounting": {
@@ -283,7 +282,9 @@ def execute_method(
             "executor_preparation_wall_ms": (prepared_ns - executor_started_ns) / 1_000_000.0,
             "search_wall_ms": (search_finished_ns - search_started_ns) / 1_000_000.0,
             "executor_wall_ms": (search_finished_ns - executor_started_ns) / 1_000_000.0,
-            "transition_program_generation_included": source == "compiled-legacy-oracle",
+            "transition_program_generation_included": (
+                mechanics.source == "compiled-legacy-oracle"
+            ),
             "transition_program_verification_included": False,
             "posterior_construction_included": False,
             "scope_note": (
@@ -293,8 +294,6 @@ def execute_method(
             ),
         },
     }
-    if source == "compiled-legacy-oracle":
-        receipt["transition_oracle_digest"] = _artifact_digest(artifact)
     return receipt
 
 
@@ -314,7 +313,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     evaluator = BeliefEvaluatorRuntime.from_checkpoint(args.evaluator_checkpoint)
     transition_artifact = _load_object(args.transitions)
-    kwargs = {
+    kwargs: dict[str, object] = {
         "packet": _load_object(args.packet),
         "posterior": _load_object(args.posterior),
         "method": args.method,
@@ -324,7 +323,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         kwargs["transition_program"] = transition_artifact
     else:
         kwargs["oracle"] = transition_artifact
-    result = execute_method(**kwargs)
+    result = execute_method(**kwargs)  # type: ignore[arg-type]
     _write_json(args.output, result)
     print(json.dumps(result, sort_keys=True))
     return 0
