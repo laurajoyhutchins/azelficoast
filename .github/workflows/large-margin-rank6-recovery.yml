@@ -1,0 +1,157 @@
+name: large-margin-rank6-recovery
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/large-margin-rank6-recovery.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: large-margin-rank6-recovery-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-rank6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Recover immutable frozen selection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          actual_digest="$(gh api \
+            repos/${{ github.repository }}/actions/artifacts/10840767342 \
+            --jq '.digest')"
+          test "$actual_digest" = \
+            "sha256:878a1d7f167253ccb133dd18621ac87e0c2c9b1a26a99db9015c3eef0cfa41fe"
+
+          mkdir -p /tmp/selection
+          gh run download 36077651662 \
+            --name large-margin-selection \
+            --dir /tmp/selection
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          plan = json.loads(
+              Path("experiments/large-margin-strategy-fusion-plan.json").read_text()
+          )
+          selection = json.loads(Path("/tmp/selection/selection.json").read_text())
+          row = selection["selected"][5]
+          expected = plan["frozen_selection"]["selected"][5]
+
+          assert row["selection_rank"] == expected["selection_rank"] == 6, (row, expected)
+          assert row["fixture_id"] == expected["fixture_id"], (row, expected)
+          assert row["rank_key"] == expected["rank_key"], (row, expected)
+          assert row["fixture_id"] == (
+              "de08724a57457389a4a0d378205f1488d44636d4049150b427125cecb9022d24"
+          ), row
+          PY
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        run: python -m pip install uv
+
+      - name: Install Azelficoast
+        run: uv sync
+
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin \
+            https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin \
+            a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+
+      - name: Execute frozen rank 6
+        env:
+          SOURCE_FILE: /tmp/selection/selected/06-de08724a57457389a4a0d378205f1488d44636d4049150b427125cecb9022d24.json
+          AZELFICOAST_ROOT_CHANCE_SAMPLES: "16"
+          AZELFICOAST_CONTINUATION_CHANCE_SAMPLES: "16"
+          AZELFICOAST_CHANCE_SEED_FAMILY: "0"
+        run: |
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            "$SOURCE_FILE" \
+            > /tmp/oracle.json
+          uv run python -m azelficoast.real_belief_trace \
+            /tmp/oracle.json \
+            > /tmp/trace.json
+
+      - name: Summarize frozen rank 6
+        run: |
+          python - <<'PY' | tee /tmp/summary-6.json
+          import json
+          from pathlib import Path
+
+          plan = json.loads(
+              Path("experiments/large-margin-strategy-fusion-plan.json").read_text()
+          )
+          oracle = json.loads(Path("/tmp/oracle.json").read_text())
+          trace = json.loads(Path("/tmp/trace.json").read_text())
+
+          assert oracle["source_fixture_id"] == (
+              "de08724a57457389a4a0d378205f1488d44636d4049150b427125cecb9022d24"
+          ), oracle
+          assert oracle["mechanics"]["root_chance_samples"] == 16, oracle["mechanics"]
+          assert oracle["mechanics"]["continuation_chance_samples"] == 16, oracle["mechanics"]
+          assert oracle["mechanics"]["chance_seed_family"] == 0, oracle["mechanics"]
+          assert trace["experiment_valid"] is True, trace
+
+          det_values = trace["determinization"]["root_values"]
+          public_values = trace["public_belief"]["root_values"]
+          gaps = {
+              action: float(det_values[action]) - float(public_values[action])
+              for action in det_values
+          }
+          max_gap = max(gaps.values())
+          max_action = min(action for action, gap in gaps.items() if gap == max_gap)
+          threshold = float(plan["exact_treatment"]["large_margin_threshold"])
+
+          summary = {
+              "schema": "azelficoast.large-margin-strategy-fusion-result",
+              "schema_version": 1,
+              "selection_rank": 6,
+              "fixture_id": oracle["source_fixture_id"],
+              "rank_key": plan["frozen_selection"]["selected"][5]["rank_key"],
+              "world_count": trace["world_count"],
+              "legal_action_count": trace["legal_action_count"],
+              "strategy_fusion_observation_count": trace[
+                  "strategy_fusion_observation_count"
+              ],
+              "max_strategy_fusion_action": max_action,
+              "max_strategy_fusion_value_advantage": max_gap,
+              "large_margin_threshold": threshold,
+              "large_margin_supported": max_gap >= threshold,
+              "policy_disagreement": trace["policy_disagreement"],
+              "determinization_action": trace["determinization"]["chosen_action"],
+              "public_belief_action": trace["public_belief"]["chosen_action"],
+          }
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: large-margin-rank6-recovery
+          path: |
+            /tmp/oracle.json
+            /tmp/trace.json
+            /tmp/summary-6.json
+          if-no-files-found: warn
