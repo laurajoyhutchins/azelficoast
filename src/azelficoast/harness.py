@@ -195,14 +195,25 @@ def _build_parser() -> argparse.ArgumentParser:
     training_build.add_argument("traces", nargs="+", type=Path)
     training_build.add_argument("--output", type=Path, default=DEFAULT_TRAINING)
     training_build.add_argument(
-        "--search-annotation",
+        "--search-packet",
         action="append",
         type=Path,
         default=[],
-        help=(
-            "optional deeper public-belief result or search-target document; "
-            "repeat to provide multiple annotation files"
-        ),
+        help="frozen matched-search packet; repeat for multiple decisions",
+    )
+    training_build.add_argument(
+        "--search-receipt",
+        action="append",
+        type=Path,
+        default=[],
+        help="matched-search method receipt; provide both methods for each packet",
+    )
+    training_build.add_argument(
+        "--posterior",
+        action="append",
+        type=Path,
+        default=[],
+        help="posterior artifact referenced by a search packet; repeat as needed",
     )
     training_build.add_argument(
         "--split-seed",
@@ -400,7 +411,9 @@ def _run_training(args: argparse.Namespace) -> None:
     summary = build_training_dataset(
         args.traces,
         args.output,
-        search_annotation_paths=args.search_annotation,
+        search_packet_paths=args.search_packet,
+        search_receipt_paths=args.search_receipt,
+        posterior_paths=args.posterior,
         split_seed=args.split_seed,
         train_fraction=args.train_fraction,
         validation_fraction=args.validation_fraction,
