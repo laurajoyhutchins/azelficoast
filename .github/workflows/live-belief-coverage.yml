@@ -8,9 +8,13 @@ on:
       - "src/azelficoast/belief/coverage.py"
       - "src/azelficoast/live/belief.py"
       - "src/azelficoast/live/harness.py"
+      - "src/azelficoast/live/player.py"
+      - "src/azelficoast/live/timing.py"
       - "src/azelficoast/instrumentation.py"
       - "tests/test_belief_coverage.py"
       - "tests/test_harness.py"
+      - "tests/test_live_belief.py"
+      - "tests/test_live_timing.py"
       - ".github/workflows/live-belief-coverage.yml"
   workflow_dispatch:
 
