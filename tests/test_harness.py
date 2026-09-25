@@ -5,6 +5,7 @@ import argparse
 import pytest
 
 from azelficoast.live.harness import (
+    _adaptive_public_replay_count,
     _balanced_battle_allocation,
     _build_parser,
     _nonnegative_int,
@@ -223,3 +224,39 @@ def test_training_auto_has_battle_strength_gate_by_default() -> None:
 
     assert args.promotion_battles == 32
     assert args.promotion_alpha == 0.10
+
+
+def test_public_replay_acquisition_stays_full_on_cold_start() -> None:
+    assert _adaptive_public_replay_count(
+        4,
+        ledger=None,
+        generated_source_kinds=["generated-dirty-tricks"],
+    ) == 4
+
+
+def test_public_replay_acquisition_backs_off_when_generated_debt_is_higher() -> None:
+    ledger = {
+        "claims": [
+            {
+                "claim_id": "evidence-source:public-showdown-replay",
+                "evidence_count": 100,
+                "debt": 0.1,
+            },
+            {
+                "claim_id": "evidence-source:generated-dirty-tricks",
+                "evidence_count": 10,
+                "debt": 0.2,
+            },
+            {
+                "claim_id": "evidence-source-hard:generated-dirty-tricks",
+                "evidence_count": 1,
+                "debt": 2.0,
+            },
+        ]
+    }
+
+    assert _adaptive_public_replay_count(
+        4,
+        ledger=ledger,
+        generated_source_kinds=["generated-dirty-tricks"],
+    ) == 1
