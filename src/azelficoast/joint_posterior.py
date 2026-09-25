@@ -6,6 +6,8 @@ import copy
 import math
 from typing import Any, Mapping
 
+from azelficoast.posterior_validity import posterior_diagnostics
+
 SCHEMA = "azelficoast.joint-random-battle-posterior"
 SCHEMA_VERSION = 1
 
@@ -229,4 +231,44 @@ def evaluator_posterior(document: Mapping[str, Any]) -> dict[str, Any]:
             }
             for world in checked["worlds"]
         ],
+    }
+
+
+def posterior_validity_record(document: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose support quality as a first-class result for a joint posterior."""
+
+    checked = validate_joint_posterior(document, require_sufficient_support=False)
+    diagnostics = posterior_diagnostics(checked)
+    construction = checked["construction"]
+    return {
+        "schema": "azelficoast.posterior-validity",
+        "schema_version": 1,
+        "source_fixture_id": checked.get("source_fixture_id"),
+        "posterior_sha256": checked.get("posterior_sha256"),
+        "public_evidence_sha256": checked.get("public_evidence_sha256"),
+        "support_status": checked.get("support_status"),
+        "posterior_treatment": construction.get("posterior_treatment"),
+        "support": diagnostics,
+        "sampling": {
+            key: construction.get(key)
+            for key in (
+                "attempted_team_count",
+                "accepted_team_count",
+                "unique_particle_count",
+                "acceptance_rate",
+                "effective_sample_size",
+                "generation_error_count",
+                "proposal_mode",
+            )
+            if key in construction
+        },
+        "conditioning_scope": list(construction.get("conditioning_scope", [])),
+        "unmodeled_dynamic_evidence": list(
+            construction.get("dynamic_battle_evidence_not_yet_likelihood_weighted", [])
+        ),
+        "proposal_caveats": list(construction.get("proposal_caveats", [])),
+        "claim": (
+            "This record describes finite sampled support and concentration; it does "
+            "not establish that omitted posterior mass is negligible."
+        ),
     }
