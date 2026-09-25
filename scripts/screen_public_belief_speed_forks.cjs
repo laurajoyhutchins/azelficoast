@@ -49,7 +49,7 @@ function generatorSpecies(generator, requested) {
   fail(`no random-battle set for ${requested}`);
 }
 
-function compatibleVariants(candidate, rounds = 512) {
+function compatibleVariants(candidate, fixture, rounds = 512) {
   const generator = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0]);
   const species = generatorSpecies(generator, candidate.generator_species);
   const observed = new Set(candidate.revealed_moves.map(toID));
@@ -59,6 +59,7 @@ function compatibleVariants(candidate, rounds = 512) {
   for (let seed = 0; seed < rounds; seed++) {
     generator.setSeed([seed, seed, seed, seed]);
     const set = generator.randomSet(species, {}, Boolean(candidate.is_lead), false);
+    if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
     const moves = [...set.moves].map(toID);
     if (![...observed].every(move => moves.includes(move))) continue;
     if (!allowedItems.has(set.item || "")) continue;
@@ -277,7 +278,7 @@ for (const candidate of candidatesDocument.candidates) {
   const fixture = fixtures.get(candidate.fixture_id);
   if (!fixture) fail(`missing fixture ${candidate.fixture_id}`);
 
-  const variants = compatibleVariants(candidate);
+  const variants = compatibleVariants(candidate, fixture);
   const worlds = [];
   for (const variant of variants) {
     const incoming = incomingMetrics(fixture, variant, candidate.locked_move);
