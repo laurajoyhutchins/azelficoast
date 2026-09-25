@@ -31,6 +31,8 @@ jobs:
         run: node --check scripts/probe_real_belief_trace.cjs
       - name: Test
         run: uv run pytest
+      - name: Fast hostile correctness gate
+        run: uv run pytest tests/hostile -m hostile_fast
       - name: Imperfect-information reference experiment
         run: uv run python -m azelficoast.search.imperfect_information
       - name: Pokémon-shaped counterexample

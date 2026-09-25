@@ -1,0 +1,26 @@
+{
+  "schema": "azelficoast.frozen-semantic-identity-fixture",
+  "schema_version": 1,
+  "semantic_payload": {
+    "transition": {
+      "action": "/choose move protect",
+      "outcomes": [
+        {
+          "probability": 0.5,
+          "observation": {"kind": "Pokémon revealed", "side": "p2"},
+          "successor": {"hp": 17, "status": null}
+        },
+        {
+          "probability": 0.5,
+          "observation": {"kind": "attack missed", "side": "p1"},
+          "successor": {"hp": 17, "status": null}
+        }
+      ]
+    },
+    "ordered_actions": ["/choose move protect", "/choose switch 2"],
+    "numeric_forms": [1.0, 1e-7, 1e-6, 1e20, 1e21],
+    "unicode_key_order": {"\uE000": "bmp", "𐀀": "astral"},
+    "metadata_absent_from_identity": true
+  },
+  "expected_sha256": "aa16822bbe742cc354f134895f96dd4025b21007ae281444b9940c8f56725488"
+}

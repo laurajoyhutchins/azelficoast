@@ -237,7 +237,7 @@ def freeze_packet(
     input_digest = _sha256(
         {
             "state_digest": state_digest,
-            "posterior_digest": posterior_digest,
+            "posterior_semantic_digest": belief.semantic_digest,
             "evaluator_digest": evaluator_digest,
             "showdown_commit": checked_plan["showdown_commit"],
             "depth": int(depth),

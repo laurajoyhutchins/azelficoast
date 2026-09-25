@@ -73,6 +73,18 @@ def validate_transition_oracle(
 ]:
     """Validate and normalize the shared finite-support oracle surface."""
 
+    def require_finite_json(value: Any) -> None:
+        if isinstance(value, float) and not math.isfinite(value):
+            raise error_type("transition oracle JSON values must be finite")
+        if isinstance(value, Mapping):
+            for nested in value.values():
+                require_finite_json(nested)
+        elif isinstance(value, (list, tuple)):
+            for nested in value:
+                require_finite_json(nested)
+
+    require_finite_json(document)
+
     if expected_schema is not None and document.get("schema") != expected_schema:
         raise error_type("unsupported transition oracle schema")
     if (
@@ -164,4 +176,3 @@ def validate_transition_oracle(
         raise error_type(f"dependency candidates reference unknown fields: {unknown!r}")
 
     return worlds, actions, transitions, candidates
-
