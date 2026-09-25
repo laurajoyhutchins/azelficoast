@@ -270,18 +270,25 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
         source["known_opponent_item"] = str(known_item)
 
     last_move = opponent_move_from_protocol(fixture)
+    strategies: list[dict[str, object]] = [
+        {"kind": "simple-heuristics"},
+        {"kind": "max-damage"},
+        {"kind": "uniform-legal-moves"},
+    ]
     if last_move is not None:
         source["opponent_response_move"] = last_move
-        source["opponent_policy"] = {
-            "kind": "repeat-last-or-uniform-legal-moves",
-            "preferred_move": last_move,
-            "voluntary_switches": False,
-        }
-    else:
-        source["opponent_policy"] = {
-            "kind": "uniform-legal-moves",
-            "voluntary_switches": False,
-        }
+        strategies.append(
+            {
+                "kind": "repeat-observed-move",
+                "move": last_move,
+            }
+        )
+    source["opponent_policy"] = {
+        "kind": "strategy-mixture",
+        "weighting": "equal-active-strategies",
+        "strategies": strategies,
+        "voluntary_switches": False,
+    }
 
     return source, "admitted"
 
