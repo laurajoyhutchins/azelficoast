@@ -26,7 +26,14 @@ EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 
 METHODS = ("determinization", "information_set")
-POSTERIOR_TREATMENTS = ("oracle", "generator_faithful", "practical")
+POSTERIOR_TREATMENTS = (
+    "oracle",
+    "generator_faithful",
+    "practical",
+    "flattened",
+    "sharpened",
+    "widened_support",
+)
 OPPONENT_MODELS = ("fixed_observed_response", "two_sided_information_sets")
 BUDGET_UNITS = ("transition_evaluations",)
 
