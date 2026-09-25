@@ -16,12 +16,15 @@ const showdownRoot = argv[0];
 const fixturePath = argv[1];
 let benchPriorPath = null;
 let posteriorOnly = false;
+let transitionProgramOnly = false;
 for (let i = 2; i < argv.length; i++) {
   if (argv[i] === "--bench-prior") {
     benchPriorPath = argv[++i];
     if (!benchPriorPath) fail("--bench-prior requires a JSON path");
   } else if (argv[i] === "--posterior-only") {
     posteriorOnly = true;
+  } else if (argv[i] === "--transition-program-only") {
+    transitionProgramOnly = true;
   } else {
     fail("unknown argument: " + argv[i]);
   }
@@ -29,8 +32,12 @@ for (let i = 2; i < argv.length; i++) {
 if (!showdownRoot || !fixturePath) {
   fail(
     "usage: probe_real_belief_trace.cjs SHOWDOWN_ROOT SOURCE_FIXTURE_JSON " +
-    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON] [--posterior-only]"
+    "[--bench-prior CONDITIONAL_TEAM_PRIOR_JSON] " +
+    "[--posterior-only | --transition-program-only]"
   );
+}
+if (posteriorOnly && transitionProgramOnly) {
+  fail("--posterior-only and --transition-program-only are mutually exclusive");
 }
 
 const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
@@ -1269,6 +1276,189 @@ if (posteriorOnly) {
   }, null, 2) + "\n");
   process.exit(0);
 }
+function immediateWholeTurn(world, action) {
+  const base = buildBattle(world);
+  const baseSnapshot = JSON.stringify(base);
+  base.destroy();
+
+  const outcomes = [];
+  const reads = new Set();
+  for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
+    const battle = cloneBattle(
+      baseSnapshot,
+      seed(i, 1_000 + legalActions.indexOf(action))
+    );
+    const logStart = battle.log.length;
+    const readTrace = instrumentOpponentHiddenReads(battle);
+    try {
+      battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+    } finally {
+      readTrace.restore();
+    }
+    const transitionReads = readTrace.reads();
+    for (const field of transitionReads) reads.add(field);
+    outcomes.push({
+      probability: 1 / ROOT_CHANCE_SAMPLES,
+      observation: observation(battle, logStart),
+      successor: stateSummary(battle, world),
+      transition_reads: transitionReads,
+    });
+    battle.destroy();
+  }
+  const semantics = outcomes
+    .map(outcome => ({
+      probability: outcome.probability,
+      observation: outcome.observation,
+      successor: outcome.successor,
+    }))
+    .sort((left, right) =>
+      JSON.stringify(stable(left)).localeCompare(JSON.stringify(stable(right)))
+    );
+  return {
+    outcomes,
+    read_fields: [...reads].sort(),
+    semantic_hash: sha256(semantics),
+  };
+}
+
+function projectionKey(world, fields) {
+  return fields.map(field => JSON.stringify(stable(world.hidden[field])));
+}
+
+function compileLazyWholeTurnPrograms() {
+  const worldById = new Map(worlds.map(world => [world.world_id, world]));
+  const executionCache = new Map();
+  const programs = [];
+  let representativeWorldExecutions = 0;
+
+  function execute(worldId, action) {
+    const key = worldId + "\u0000" + action;
+    if (!executionCache.has(key)) {
+      const world = worldById.get(worldId);
+      if (!world) fail("transition program references unknown world " + worldId);
+      executionCache.set(key, immediateWholeTurn(world, action));
+      representativeWorldExecutions += 1;
+    }
+    return executionCache.get(key);
+  }
+
+  for (const action of legalActions) {
+    const pending = [worlds.map(world => world.world_id).sort()];
+    const classes = [];
+
+    while (pending.length) {
+      const members = pending.pop();
+      const representativeWorldId = members[0];
+      const execution = execute(representativeWorldId, action);
+      const fields = execution.read_fields;
+      const groups = new Map();
+
+      for (const worldId of members) {
+        const world = worldById.get(worldId);
+        const key = JSON.stringify(projectionKey(world, fields));
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(worldId);
+      }
+
+      if (groups.size > 1) {
+        const split = [...groups.values()]
+          .map(group => group.sort())
+          .sort((left, right) => left[0].localeCompare(right[0]));
+        for (let i = split.length - 1; i >= 0; i--) pending.push(split[i]);
+        continue;
+      }
+
+      const key = projectionKey(worldById.get(representativeWorldId), fields);
+      const classId = "transition-class-" + sha256({
+        action,
+        read_fields: fields,
+        key,
+        semantic_hash: execution.semantic_hash,
+      }).slice(0, 24);
+      classes.push({
+        class_id: classId,
+        read_fields: fields,
+        projection_key: key,
+        representative_world_id: representativeWorldId,
+        member_world_ids: members,
+        semantic_hash: execution.semantic_hash,
+        outcomes: execution.outcomes,
+      });
+    }
+
+    classes.sort((left, right) =>
+      left.representative_world_id.localeCompare(right.representative_world_id)
+    );
+    const dependencyFields = [...new Set(
+      classes.flatMap(row => row.read_fields)
+    )].sort();
+    const partitionKeyHash = sha256({
+      action,
+      partition_method: "dynamic-read-refinement",
+      fields: dependencyFields,
+      classes: classes.map(row => ({
+        class_id: row.class_id,
+        members: row.member_world_ids,
+        semantic_hash: row.semantic_hash,
+      })),
+    });
+    const effectSignature = "sha256:" + sha256({
+      showdown_commit: actualCommit,
+      source_fixture_id: fixture.fixture_id,
+      action,
+      dependency_fields: dependencyFields,
+      partition_key_hash: partitionKeyHash,
+    });
+
+    programs.push({
+      action,
+      effect_signature: effectSignature,
+      dependency_fields: dependencyFields,
+      partition_method: "dynamic-read-refinement",
+      representative_world_count: classes.length,
+      worlds_in: worlds.length,
+      classes_out: classes.length,
+      world_reduction: worlds.length - classes.length,
+      reduction_fraction: 1 - classes.length / worlds.length,
+      partition_key_hash: partitionKeyHash,
+      classes,
+    });
+  }
+
+  return {
+    schema: "azelficoast.whole-turn-transition-program-set",
+    schema_version: 1,
+    source_fixture_id: fixture.fixture_id,
+    showdown_commit: actualCommit,
+    world_ids: worlds.map(world => world.world_id).sort(),
+    legal_actions: legalActions,
+    dependency_candidates: DEPENDENCY_CANDIDATES,
+    programs,
+    producer: {
+      strategy: "lazy-representative-read-refinement",
+      root_chance_samples: ROOT_CHANCE_SAMPLES,
+      representative_world_executions: representativeWorldExecutions,
+      showdown_turn_executions:
+        representativeWorldExecutions * ROOT_CHANCE_SAMPLES,
+      exhaustive_world_action_product: worlds.length * legalActions.length,
+    },
+    claim:
+      "Each class was derived by executing one representative and refining only " +
+      "on hidden fields read by pinned Showdown on that branch.",
+    non_claim:
+      "This lazy artifact relies on the read-instrumentation contract for this " +
+      "Showdown revision. Use the exhaustive oracle path to independently verify " +
+      "instrumentation coverage before treating a new revision as certified.",
+  };
+}
+
+if (transitionProgramOnly) {
+  process.stdout.write(
+    JSON.stringify(compileLazyWholeTurnPrograms(), null, 2) + "\n"
+  );
+  process.exit(0);
+}
+
 
 const transitions = [];
 for (const world of worlds) {
