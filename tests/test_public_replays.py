@@ -79,7 +79,7 @@ def test_fetch_replay_preserves_source_revision_for_later_reconstruction(
             "id": "gen9randombattle-1",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": f">version {source_revision}\n>start {}",
+            "inputlog": f">version {source_revision}\n>start {{}}",
         },
     )
     replay = fetch_public_replay(
@@ -133,7 +133,7 @@ def test_freeze_public_replay_is_content_addressed_and_immutable(tmp_path: Path)
             "inputlog": (
                 ">version "
                 + PINNED_SHOWDOWN_COMMIT
-                + "\n>start {}"
+                + "\n>start {{}}"
             ),
         },
         rating=1500,
@@ -197,7 +197,7 @@ def test_public_import_freezes_revision_mismatch_for_later_reconstruction(
             "id": "gen9randombattle-old",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": f">version {'d' * 40}\n>start {}",
+            "inputlog": f">version {'d' * 40}\n>start {{}}",
         },
         rating=1700,
         uploadtime=1,
@@ -240,7 +240,7 @@ def test_public_import_reuses_frozen_raw_replay(
             "id": replay_id,
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": f">version {revision}\n>start {}",
+            "inputlog": f">version {revision}\n>start {{}}",
         },
         rating=1700,
         uploadtime=1,
@@ -284,7 +284,7 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
             "inputlog": (
                 ">version "
                 + PINNED_SHOWDOWN_COMMIT
-                + "\n>start {}"
+                + "\n>start {{}}"
             ),
         },
         rating=1500,
