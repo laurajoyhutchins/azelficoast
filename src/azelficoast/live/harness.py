@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from datetime import UTC, datetime
@@ -456,6 +457,14 @@ def _resolve_live_credentials(username_override: str | None) -> tuple[str, str]:
     return username, password
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return "sha256:" + digest.hexdigest()
+
+
 def _prepare_output_paths(results: Path, decisions: Path, replays: Path) -> None:
     results.parent.mkdir(parents=True, exist_ok=True)
     decisions.parent.mkdir(parents=True, exist_ok=True)
@@ -681,9 +690,13 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             "generation": index + 1,
             "battle_count": args.battles_per_generation,
             "trace": str(decisions),
+            "trace_digest": _file_sha256(decisions),
             "results": str(results),
+            "results_digest": _file_sha256(results),
             "cycle_id": receipt.get("cycle_id"),
             "cycle_status": receipt.get("status"),
+            "teacher_manifest": receipt.get("teacher_manifest"),
+            "dataset_digest": receipt.get("dataset_digest"),
             "incumbent_checkpoint_digest": (
                 receipt.get("inputs", {}).get("incumbent_checkpoint_digest")
                 if isinstance(receipt.get("inputs"), dict)
@@ -692,6 +705,11 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             "promoted_checkpoint_digest": (
                 receipt.get("improvement", {}).get("candidate_checkpoint_digest")
                 if promoted and isinstance(receipt.get("improvement"), dict)
+                else None
+            ),
+            "improvement_receipt_digest": (
+                receipt.get("improvement", {}).get("receipt_digest")
+                if isinstance(receipt.get("improvement"), dict)
                 else None
             ),
         }
