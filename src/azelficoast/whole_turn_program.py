@@ -41,16 +41,22 @@ def _successor_legal_actions(outcome: Mapping[str, Any]) -> list[str]:
     if isinstance(raw, list) and all(isinstance(action, str) and action for action in raw):
         return sorted(dict.fromkeys(raw))
 
+    successor = outcome.get("successor")
+    if isinstance(successor, Mapping) and successor.get("ended") is True:
+        return ["<terminal>"]
+
+    observation = outcome.get("observation")
+    if isinstance(observation, Mapping):
+        request = observation.get("request")
+        if isinstance(request, Mapping) and request.get("wait") is True:
+            return ["<wait>"]
+
     continuations = outcome.get("continuations")
     if isinstance(continuations, Mapping) and continuations:
         return sorted(str(action) for action in continuations)
 
     terminal = outcome.get("terminal_utility")
     if isinstance(terminal, (int, float)) and not isinstance(terminal, bool):
-        return ["<terminal>"]
-
-    successor = outcome.get("successor")
-    if isinstance(successor, Mapping) and successor.get("ended") is True:
         return ["<terminal>"]
 
     return []
