@@ -528,6 +528,7 @@ def transition_program_belief_result(
             "transition_program_digest": search.get("transition_program_digest"),
             "transition_evaluations": search.get("transition_evaluations"),
             "evaluator_calls": search.get("evaluator_calls"),
+            "evaluator_batches": search.get("evaluator_batches"),
             "public_belief_root_values": dict(search.get("root_values", {})),
         },
     )

@@ -875,6 +875,7 @@ class ResourceAccounting:
 
     verified_execution_classes_consumed: int
     evaluator_calls: int
+    evaluator_batches: int
     executor_preparation_wall_ms: float
     search_wall_ms: float
     executor_wall_ms: float
@@ -892,6 +893,16 @@ class ResourceAccounting:
             if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise ResearchContractError(f"resource accounting lacks valid {name}")
             counts[name] = value
+        evaluator_batches = record.get("evaluator_batches", counts["evaluator_calls"])
+        if (
+            not isinstance(evaluator_batches, int)
+            or isinstance(evaluator_batches, bool)
+            or evaluator_batches < 0
+            or evaluator_batches > counts["evaluator_calls"]
+        ):
+            raise ResearchContractError(
+                "resource accounting lacks valid evaluator_batches"
+            )
         timings: dict[str, float] = {}
         for name in (
             "executor_preparation_wall_ms",
@@ -925,6 +936,7 @@ class ResourceAccounting:
                 "verified_execution_classes_consumed"
             ],
             evaluator_calls=counts["evaluator_calls"],
+            evaluator_batches=evaluator_batches,
             executor_preparation_wall_ms=timings["executor_preparation_wall_ms"],
             search_wall_ms=timings["search_wall_ms"],
             executor_wall_ms=timings["executor_wall_ms"],
@@ -942,6 +954,7 @@ class ResourceAccounting:
         return {
             "verified_execution_classes_consumed": self.verified_execution_classes_consumed,
             "evaluator_calls": self.evaluator_calls,
+            "evaluator_batches": self.evaluator_batches,
             "executor_preparation_wall_ms": self.executor_preparation_wall_ms,
             "search_wall_ms": self.search_wall_ms,
             "executor_wall_ms": self.executor_wall_ms,
@@ -977,6 +990,7 @@ class ComputeReceipt:
     evaluator_call_unit_definition: str
     consumed: int
     evaluator_calls: int
+    evaluator_batches: int
     chosen_action: str
     root_values: tuple[tuple[str, float], ...]
     resource_accounting: ResourceAccounting | None
@@ -1031,6 +1045,7 @@ class ComputeReceipt:
             raise ResearchContractError("receipt lacks a compute budget")
         consumed = record.get("consumed")
         evaluator_calls = record.get("evaluator_calls")
+        evaluator_batches = record.get("evaluator_batches", evaluator_calls)
         if not isinstance(consumed, int) or isinstance(consumed, bool) or consumed < 0:
             raise ResearchContractError("receipt consumed must be a non-negative integer")
         if (
@@ -1040,6 +1055,15 @@ class ComputeReceipt:
         ):
             raise ResearchContractError(
                 "receipt evaluator call count must be a non-negative integer"
+            )
+        if (
+            not isinstance(evaluator_batches, int)
+            or isinstance(evaluator_batches, bool)
+            or evaluator_batches < 0
+            or evaluator_batches > evaluator_calls
+        ):
+            raise ResearchContractError(
+                "receipt evaluator batch count must be between zero and evaluator calls"
             )
         raw_values = record.get("root_values")
         if not isinstance(raw_values, Mapping) or not raw_values:
@@ -1065,6 +1089,7 @@ class ComputeReceipt:
         if resources is not None and (
             resources.verified_execution_classes_consumed != consumed
             or resources.evaluator_calls != evaluator_calls
+            or resources.evaluator_batches != evaluator_batches
         ):
             raise ResearchContractError("receipt resource accounting disagrees with measured counts")
         return cls(
@@ -1089,6 +1114,7 @@ class ComputeReceipt:
             evaluator_call_unit_definition=values["evaluator_call_unit_definition"],
             consumed=consumed,
             evaluator_calls=evaluator_calls,
+            evaluator_batches=evaluator_batches,
             chosen_action=values["chosen_action"],
             root_values=tuple(sorted(root_values)),
             resource_accounting=resources,

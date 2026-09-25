@@ -262,6 +262,10 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
         "determinization": 7,
         "information_set": 7,
     }
+    assert result["evaluator_batches"] == {
+        "determinization": 7,
+        "information_set": 7,
+    }
     assert abs(result["max_determinization_value_optimism"] - 0.20) < 1e-12
     assert abs(result["information_set_regret_of_determinization_action"] - 0.05) < 1e-12
     assert result["policy_disagreement"] is True

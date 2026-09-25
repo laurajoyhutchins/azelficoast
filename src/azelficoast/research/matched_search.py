@@ -258,6 +258,7 @@ def execute_method(
         "evaluator_digest": packet["evaluator_digest"],
         "evaluator_checkpoint_digest": checkpoint_digest,
         "evaluator_calls": int(search["evaluator_calls"]),
+        "evaluator_batches": int(search.get("evaluator_batches", search["evaluator_calls"])),
         "evaluator_call_unit_definition": EVALUATOR_CALL_UNIT_DEFINITION,
         "packet_digest": packet["packet_digest"],
         "matched_spec_digest": spec.digest,
@@ -279,6 +280,9 @@ def execute_method(
         "resource_accounting": {
             "verified_execution_classes_consumed": required,
             "evaluator_calls": int(search["evaluator_calls"]),
+            "evaluator_batches": int(
+                search.get("evaluator_batches", search["evaluator_calls"])
+            ),
             "executor_preparation_wall_ms": (prepared_ns - executor_started_ns) / 1_000_000.0,
             "search_wall_ms": (search_finished_ns - search_started_ns) / 1_000_000.0,
             "executor_wall_ms": (search_finished_ns - executor_started_ns) / 1_000_000.0,

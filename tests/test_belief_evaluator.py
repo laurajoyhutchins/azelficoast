@@ -14,6 +14,7 @@ from azelficoast.belief.evaluator import (
     load_checkpoint,
     loss,
     predict,
+    predict_values,
     write_checkpoint,
 )
 
@@ -195,6 +196,59 @@ def test_prediction_exposes_policy_margin_and_deterministic_action() -> None:
     assert 0.0 <= prediction.policy_margin <= 1.0
     assert abs(sum(prediction.probabilities) - 1.0) < 1e-6
     assert math.isfinite(prediction.value)
+
+
+def test_batched_values_match_scalar_across_shape_buckets() -> None:
+    pytest.importorskip("jax")
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=19)
+    first = build_evaluator_input(
+        public_state={"turn": 3},
+        posterior=_posterior(),
+        legal_actions=["attack", "switch"],
+        spec=spec,
+    )
+
+    wider = _posterior()
+    worlds = wider["worlds"]
+    assert isinstance(worlds, list)
+    worlds[0]["weight"] = 0.2
+    worlds[1]["weight"] = 0.5
+    worlds.append(
+        {
+            "world_id": "boots-world",
+            "weight": 0.3,
+            "opponent": {
+                "species": "Rotom-Wash",
+                "item": "heavydutyboots",
+                "moves": ["hydropump", "thunderwave"],
+            },
+        }
+    )
+    second = build_evaluator_input(
+        public_state={"turn": 4, "weather": "rain"},
+        posterior=wider,
+        legal_actions=["attack", "switch", "tera"],
+        spec=spec,
+    )
+    third = build_evaluator_input(
+        public_state={"turn": 5, "weather": "rain"},
+        posterior=_posterior(),
+        legal_actions=["attack"],
+        spec=spec,
+    )
+
+    inputs = (first, second, third)
+    scalar = tuple(float(forward(params, row)[0]) for row in inputs)
+    batched = predict_values(params, inputs)
+
+    assert batched == pytest.approx(scalar, abs=1e-6)
 
 
 def test_checkpoint_roundtrip_recomputes_content_identity(tmp_path) -> None:
