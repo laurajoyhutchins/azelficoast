@@ -196,7 +196,7 @@ def test_freeze_selection_rejects_item_support_drift(tmp_path) -> None:
 
     with pytest.raises(
         FusionSearchError,
-        match="live source item support differs from discovery",
+        match="candidate and mechanics item supports disagree",
     ):
         freeze_selection(
             plan=_plan(top_k=1),

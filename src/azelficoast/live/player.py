@@ -20,12 +20,13 @@ from azelficoast.search.selective import PolicyMarginSearchGate
 
 
 class AzelficoastPlayer(SimpleHeuristicsPlayer):
-    """Live player with bounded public-belief search and heuristic fallback.
+    """Live player with learned public-belief policy, exact search, and fallback.
 
-    The public-belief path is enabled only when a pinned, built Pokémon Showdown
-    checkout is configured. It currently admits the hidden-Choice slice covered
-    by the exact natural public-belief experiments. Every unsupported state or
-    failed search falls back to poke-env's simple heuristics rather than guessing.
+    A pinned, built Pokémon Showdown checkout provides posterior reconstruction and
+    complete-turn mechanics. Reconstructable states may use the learned public-belief
+    policy even when no bounded opponent-response model is available. Exact search is
+    attempted only when that additional model is present; unsupported boundaries fall
+    back to poke-env's simple heuristics rather than inventing semantics.
     """
 
     def __init__(

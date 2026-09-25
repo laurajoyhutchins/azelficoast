@@ -66,7 +66,7 @@ def test_live_fixture_uses_information_state_identity_and_drops_battle_tag() -> 
     assert first.protocol_prefix == _protocol()
 
 
-def test_probe_source_admits_hidden_choice_from_either_showdown_side() -> None:
+def test_probe_source_reconstructs_general_posterior_from_either_showdown_side() -> None:
     p1_fixture = live_fixture(_state(), _protocol(own_side="p1"))
     p2_fixture = live_fixture(_state(), _protocol(own_side="p2"))
 
@@ -76,16 +76,21 @@ def test_probe_source_admits_hidden_choice_from_either_showdown_side() -> None:
     assert p1_reason == p2_reason == "admitted"
     assert p1_source is not None
     assert p2_source is not None
-    assert p1_source["plausible_items"] == ["Choice Band", "Choice Scarf"]
+    assert "plausible_items" not in p1_source
     assert p2_source["opponent_response_move"] == "U-turn"
+    assert p2_source["opponent_policy"] == {
+        "kind": "repeat-last-observed-move",
+        "move": "U-turn",
+    }
 
 
-def test_probe_source_rejects_known_opponent_item() -> None:
+def test_probe_source_uses_known_opponent_item_as_public_evidence() -> None:
     fixture = live_fixture(_state(opponent_item="leftovers"), _protocol())
     source, reason = build_probe_source(fixture)
 
-    assert source is None
-    assert reason == "opponent-item-known"
+    assert reason == "admitted"
+    assert source is not None
+    assert source["known_opponent_item"] == "leftovers"
 
 
 def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None:
@@ -102,8 +107,28 @@ def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None
 
     source, reason = build_probe_source(fixture)
 
-    assert source is None
-    assert reason == "opponent-side-or-last-move-unresolved"
+    assert reason == "admitted"
+    assert source is not None
+    assert "opponent_response_move" not in source
+    assert "opponent_policy" not in source
+
+
+def test_probe_source_allows_status_move_as_bounded_response() -> None:
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+            ("", "move", "p2a: Zapdos-Galar", "Bulk Up"),
+        ),
+    )
+    fixture = live_fixture(_state(), protocol)
+
+    source, reason = build_probe_source(fixture)
+
+    assert reason == "admitted"
+    assert source is not None
+    assert source["opponent_response_move"] == "Bulk Up"
+    assert "plausible_items" not in source
 
 
 def test_probe_source_can_reuse_current_species_move_after_switching_back() -> None:
@@ -600,6 +625,119 @@ def test_live_high_margin_route_skips_transition_oracle_probe() -> None:
     assert result.reason == "learned-public-belief"
     assert result.diagnostics["learned_route"] == "direct-policy"
 
+
+
+def test_live_high_margin_route_does_not_require_opponent_response_model() -> None:
+    class LiveEvaluator:
+        spec = BeliefEvaluatorSpec(
+            public_width=8,
+            world_width=8,
+            action_width=8,
+            hidden_width=8,
+            world_hidden_width=8,
+        )
+        identity = {
+            "checkpoint_digest": "sha256:" + "d" * 64,
+            "observability": "public_belief_only",
+        }
+
+        def predict(self, inputs) -> BeliefPrediction:
+            return BeliefPrediction(
+                value=0.4,
+                legal_actions=inputs.legal_actions,
+                probabilities=(0.95, 0.05),
+                selected_action=inputs.legal_actions[0],
+                policy_margin=0.90,
+                policy_entropy_bits=0.29,
+            )
+
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+        ),
+    )
+    fixture = live_fixture(_state(), protocol)
+    policy = object.__new__(PinnedShowdownBeliefPolicy)
+    policy._configuration_error = None
+    policy.learned_evaluator = LiveEvaluator()
+    policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
+    policy._probe_posterior = lambda source: {
+        "schema": "azelficoast.live-belief-posterior",
+        "schema_version": 1,
+        "source_fixture_id": fixture.fixture_id,
+        "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "legal_actions": list(fixture.legal_actions),
+        "worlds": [
+            {"world_id": "a", "weight": 0.5, "hidden": {"item": "band"}},
+            {"world_id": "b", "weight": 0.5, "hidden": {"item": "scarf"}},
+        ],
+    }
+
+    def unexpected_exact_probe(source):
+        raise AssertionError("learned-only decision requested an opponent transaction")
+
+    policy._probe_transition_program = unexpected_exact_probe
+    policy._probe = unexpected_exact_probe
+
+    result = policy.choose(fixture)
+
+    assert result.action == fixture.legal_actions[0]
+    assert result.reason == "learned-public-belief"
+
+
+def test_live_low_margin_route_reports_missing_opponent_model_before_exact_probe() -> None:
+    protocol = (
+        (
+            ("", "player", "p1", "Azelficoast"),
+            ("", "player", "p2", "Rival"),
+        ),
+    )
+    fixture = live_fixture(_state(), protocol)
+
+    class LiveEvaluator(_PosteriorSpreadEvaluator):
+        def predict(self, inputs) -> BeliefPrediction:
+            return BeliefPrediction(
+                value=0.0,
+                legal_actions=inputs.legal_actions,
+                probabilities=(0.55, 0.45),
+                selected_action=inputs.legal_actions[0],
+                policy_margin=0.10,
+                policy_entropy_bits=0.99,
+            )
+
+    policy = object.__new__(PinnedShowdownBeliefPolicy)
+    policy._configuration_error = None
+    policy.learned_evaluator = LiveEvaluator()
+    policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
+    policy._probe_posterior = lambda source: {
+        "schema": "azelficoast.live-belief-posterior",
+        "schema_version": 1,
+        "source_fixture_id": fixture.fixture_id,
+        "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "legal_actions": list(fixture.legal_actions),
+        "worlds": [
+            {"world_id": "a", "weight": 0.5, "hidden": {"item": "band"}},
+            {"world_id": "b", "weight": 0.5, "hidden": {"item": "scarf"}},
+        ],
+    }
+
+    def unexpected_exact_probe(source):
+        raise AssertionError("missing opponent model should stop before exact search")
+
+    policy._probe_transition_program = unexpected_exact_probe
+    policy._probe = unexpected_exact_probe
+
+    result = policy.choose(fixture)
+
+    assert result.action is None
+    assert result.reason == "opponent-model-unavailable"
+    assert result.diagnostics["posterior_available"] is True
+    assert result.diagnostics["learned_route"] == "exact-public-belief-search"
 
 
 def test_live_low_margin_route_uses_transition_program_without_full_oracle() -> None:

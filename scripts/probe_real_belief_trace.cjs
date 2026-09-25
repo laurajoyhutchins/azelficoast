@@ -357,10 +357,12 @@ function generatorVariants() {
 
     const moves = [...set.moves].map(toID).sort();
     if (![...observed].every(move => moves.includes(move))) continue;
-    const plausibleItems = Array.isArray(source.plausible_items)
-      ? new Set(source.plausible_items)
-      : null;
-    if (plausibleItems && !plausibleItems.has(set.item)) continue;
+    const plausibleItemIds = Array.isArray(source.plausible_items)
+      ? new Set(source.plausible_items.map(toID))
+      : source.known_opponent_item
+        ? new Set([toID(source.known_opponent_item)])
+        : null;
+    if (plausibleItemIds && !plausibleItemIds.has(toID(set.item))) continue;
 
     matched++;
     itemCounts.set(set.item, (itemCounts.get(set.item) || 0) + 1);
@@ -379,7 +381,7 @@ function generatorVariants() {
     prior.count++;
     variants.set(key, prior);
   }
-  if (!matched) fail("generator sweep produced no Choice worlds compatible with public moves");
+  if (!matched) fail("generator sweep produced no hidden worlds compatible with public evidence");
   return {
     matched,
     itemCounts: Object.fromEntries(
@@ -1230,6 +1232,8 @@ if (posteriorOnly) {
       mechanics_projection_scope:
         "execution optimization only; semantic posterior support retains every generator variant",
       observed_opponent_moves: observedOpponentMoves(),
+      known_opponent_item: source.known_opponent_item || null,
+      opponent_policy: source.opponent_policy || null,
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
       opponent_bench_species: OPPONENT_BENCH_SPECIES,

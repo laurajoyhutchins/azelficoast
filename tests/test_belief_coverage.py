@@ -132,12 +132,14 @@ def test_coverage_reports_static_admission_and_observed_routing(tmp_path) -> Non
 
     admission = report["static_admission"]
     assert admission["decision_count"] == 2
-    assert admission["admitted_decision_count"] == 1
-    assert admission["fallback_decision_count"] == 1
-    assert admission["admission_rate"] == 0.5
-    assert admission["fallback_reason_counts"] == [
-        {"reason": "opponent-item-known", "count": 1}
-    ]
+    assert admission["admitted_decision_count"] == 2
+    assert admission["fallback_decision_count"] == 0
+    assert admission["admission_rate"] == 1.0
+    assert admission["fallback_reason_counts"] == []
+    assert admission["exact_search_ready_decision_count"] == 2
+    assert admission["exact_search_blocked_decision_count"] == 0
+    assert admission["exact_search_ready_rate"] == 1.0
+    assert admission["exact_search_blocker_counts"] == []
 
 
 def test_coverage_handles_legacy_trace_without_decision_metadata(tmp_path) -> None:

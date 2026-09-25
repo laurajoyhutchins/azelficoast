@@ -1,4 +1,4 @@
-"""Measure how often live decisions reach the bounded public-belief engine."""
+"""Measure live posterior reconstruction, exact-search readiness, and observed routing."""
 
 from __future__ import annotations
 
@@ -60,6 +60,8 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
     reason_fixtures: Counter[str] = Counter()
     opponent_species_by_reason: dict[str, Counter[str]] = defaultdict(Counter)
     opponent_move_by_reason: dict[str, Counter[str]] = defaultdict(Counter)
+    exact_search_ready = 0
+    exact_search_blockers: Counter[str] = Counter()
     decision_count = 0
 
     for fixture in fixture_list:
@@ -69,6 +71,13 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
         decision_count += weight
         reason_decisions[category] += weight
         reason_fixtures[category] += 1
+
+        if source is None:
+            exact_search_blockers[f"reconstruction:{reason}"] += weight
+        elif isinstance(source.get("opponent_response_move"), str):
+            exact_search_ready += weight
+        else:
+            exact_search_blockers["opponent-model-unavailable"] += weight
 
         opponent = fixture.state.get("opponent_active")
         species = (
@@ -91,6 +100,12 @@ def summarize_fixtures(fixtures: Iterable[DecisionFixture]) -> dict[str, Any]:
         "admitted_decision_count": admitted,
         "fallback_decision_count": fallback,
         "admission_rate": (admitted / decision_count) if decision_count else None,
+        "exact_search_ready_decision_count": exact_search_ready,
+        "exact_search_blocked_decision_count": decision_count - exact_search_ready,
+        "exact_search_ready_rate": (
+            exact_search_ready / decision_count if decision_count else None
+        ),
+        "exact_search_blocker_counts": _ranked(exact_search_blockers),
         "decision_reason_counts": _ranked(reason_decisions),
         "fixture_reason_counts": _ranked(reason_fixtures),
         "fallback_reason_counts": _ranked(fallback_reasons),

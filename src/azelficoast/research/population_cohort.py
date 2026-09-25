@@ -310,9 +310,6 @@ def freeze_population(
         weights = candidate.get("item_weights")
         if not isinstance(weights, Mapping):
             raise PopulationStudyError(f"{fixture_id}: candidate item weights missing")
-        if set(map(str, weights)) != set(map(str, source.get("plausible_items", []))):
-            exclude("item-support-mismatch")
-            continue
 
         try:
             signals, diagnostics = _candidate_signals(candidate, mechanics, fixture)
@@ -351,6 +348,9 @@ def freeze_population(
     for index, row in enumerate(selected, start=1):
         source = dict(row["source"])
         candidate = row["candidate"]
+        source["plausible_items"] = sorted(
+            str(item) for item in candidate["item_weights"]
+        )
         source["observed_opponent_moves"] = list(candidate["revealed_moves"])
         source["opponent_is_lead"] = bool(candidate["is_lead"])
         source["expected_item_counts"] = {

@@ -146,14 +146,17 @@ itself does not walk the old world-by-action matrix.
 
 ## Live policy path
 
-When a learned evaluator and pinned Showdown checkout are configured, the admitted live
-path is:
+Live execution separates three different capabilities that used to be hidden behind one
+narrow admission gate:
 
 ```text
 DecisionFixture
       |
       v
-hidden-world posterior
+Showdown state reconstruction
+      |
+      v
+generator-faithful hidden-world posterior
       |
       v
 learned policy/value model
@@ -161,17 +164,33 @@ learned policy/value model
 confident      uncertain
    |             |
    v             v
- action     TransitionProgram
-                 |
-                 v
-       information-set search
-                 |
-                 v
-               action
+ action     opponent model available?
+                    |             |
+                   no            yes
+                    |             |
+                    v             v
+              fail closed   TransitionProgram
+                                  |
+                                  v
+                        information-set search
+                                  |
+                                  v
+                                action
 ```
 
-A high-margin learned decision can bypass exact search. An uncertain decision probes a
-whole-turn program and searches that program directly.
+Posterior reconstruction does not require an opponent-response policy. A high-margin
+learned decision may therefore use a reconstructable posterior even before the exact
+search path has enough evidence to model the opponent's next choice.
+
+Exact search is stricter. The current bounded opponent model repeats the latest move
+observed from the current opposing active Pokémon. When that evidence is absent,
+Azelficoast reports an explicit opponent-model gap rather than treating posterior
+reconstruction, mechanics execution, and opponent behavior as one failure.
+
+The posterior is generator-faithful: known public item evidence constrains the generated
+set support, while unknown items remain uncertain instead of being restricted to Choice
+items. Once an opponent response is available, pinned Showdown executes the complete
+turn, including mechanics that do not have a hand-written Azelficoast kernel.
 
 If program production or program search cannot be validated, the existing exhaustive
 analysis path remains available as a compatibility/recovery boundary. Unsupported
