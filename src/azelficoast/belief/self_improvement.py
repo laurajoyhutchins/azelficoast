@@ -171,7 +171,7 @@ def _mine_informative_fixtures(
     *,
     max_fixtures: int | None,
 ) -> tuple[list[DecisionFixture], dict[str, Any]]:
-    """Select a bounded, battle-diverse curriculum without consulting hidden truth."""
+    """Select at most one informative public decision from each battle."""
 
     if max_fixtures is not None and (
         not isinstance(max_fixtures, int)
@@ -180,58 +180,84 @@ def _mine_informative_fixtures(
     ):
         raise TeacherEvidenceError("max teacher fixtures must be a positive integer")
 
-    scored = [(fixture, _fixture_mining_signals(fixture)) for fixture in fixtures]
+    candidates: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
+    for fixture in fixtures:
+        for control in fixture.control_decisions:
+            battle_tag = control.get("battle_tag")
+            if not isinstance(battle_tag, str) or not battle_tag:
+                continue
+            scoped = DecisionFixture(
+                fixture_id=fixture.fixture_id,
+                state=fixture.state,
+                protocol_prefix=fixture.protocol_prefix,
+                control_decisions=(control,),
+            )
+            candidates.append((fixture, control, _fixture_mining_signals(scoped)))
+
     ranked = sorted(
-        scored,
+        candidates,
         key=lambda item: (
-            -int(item[1]["search_count"]),
-            -float(item[1]["uncertainty"]),
-            -float(item[1]["policy_entropy_bits"]),
-            -int(item[1]["legal_action_count"]),
-            -int(item[1]["fallback_count"]),
+            -int(item[2]["search_count"]),
+            -float(item[2]["uncertainty"]),
+            -float(item[2]["policy_entropy_bits"]),
+            -int(item[2]["legal_action_count"]),
+            -int(item[2]["fallback_count"]),
+            str(item[1].get("battle_tag")),
+            int(item[1].get("event_index", -1)),
             item[0].fixture_id,
         ),
     )
-    limit = len(ranked) if max_fixtures is None else min(max_fixtures, len(ranked))
 
-    selected: list[tuple[DecisionFixture, dict[str, Any]]] = []
-    selected_ids: set[str] = set()
+    selected: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
     represented_battles: set[str] = set()
-
-    # First spend budget on distinct battles so one long battle cannot monopolize
-    # the curriculum. Then fill remaining slots by evidence-debt/uncertainty rank.
-    for fixture, signals in ranked:
-        if len(selected) >= limit:
-            break
-        battle_tags = set(signals["battle_tags"])
-        if battle_tags and battle_tags <= represented_battles:
+    for fixture, control, signals in ranked:
+        battle_tag = str(control["battle_tag"])
+        if battle_tag in represented_battles:
             continue
-        selected.append((fixture, signals))
-        selected_ids.add(fixture.fixture_id)
-        represented_battles.update(battle_tags)
-
-    for fixture, signals in ranked:
-        if len(selected) >= limit:
+        selected.append((fixture, control, signals))
+        represented_battles.add(battle_tag)
+        if max_fixtures is not None and len(selected) >= max_fixtures:
             break
-        if fixture.fixture_id in selected_ids:
-            continue
-        selected.append((fixture, signals))
-        selected_ids.add(fixture.fixture_id)
+
+    controls_by_fixture: dict[str, list[Mapping[str, Any]]] = {}
+    fixture_by_id: dict[str, DecisionFixture] = {}
+    fixture_order: list[str] = []
+    for fixture, control, _ in selected:
+        if fixture.fixture_id not in controls_by_fixture:
+            fixture_order.append(fixture.fixture_id)
+            controls_by_fixture[fixture.fixture_id] = []
+            fixture_by_id[fixture.fixture_id] = fixture
+        controls_by_fixture[fixture.fixture_id].append(control)
+
+    selected_fixtures = [
+        DecisionFixture(
+            fixture_id=fixture_id,
+            state=fixture_by_id[fixture_id].state,
+            protocol_prefix=fixture_by_id[fixture_id].protocol_prefix,
+            control_decisions=tuple(controls_by_fixture[fixture_id]),
+        )
+        for fixture_id in fixture_order
+    ]
 
     selection = {
         "kind": "public-evidence-debt-curriculum",
         "candidate_fixture_count": len(fixtures),
+        "candidate_decision_count": len(candidates),
         "max_fixtures": max_fixtures,
-        "selected_fixture_count": len(selected),
+        "selected_fixture_count": len(selected_fixtures),
+        "selected_decision_count": len(selected),
+        "one_decision_per_battle": True,
         "selected": [
             {
                 "fixture_id": fixture.fixture_id,
+                "battle_tag": str(control["battle_tag"]),
+                "event_index": control.get("event_index"),
                 "signals": signals,
             }
-            for fixture, signals in selected
+            for fixture, control, signals in selected
         ],
     }
-    return [fixture for fixture, _ in selected], selection
+    return selected_fixtures, selection
 
 
 class PinnedShowdownTeacherSource:
