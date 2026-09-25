@@ -48,8 +48,13 @@ const maxTransitionExecutions = environmentInteger(
   "AZELFICOAST_SHOWDOWN_TRANSITION_CACHE_ENTRIES",
   512
 );
+const maxProjectionExecutions = environmentInteger(
+  "AZELFICOAST_SHOWDOWN_PUBLIC_PROJECTION_CACHE_ENTRIES",
+  512
+);
 const sessions = new Map();
 const transitionExecutionCache = new Map();
+const transitionProjectionCache = new Map();
 
 class ProbeExit extends Error {
   constructor(code) {
@@ -142,7 +147,9 @@ function createSession(sessionKey, source) {
     process: fakeProcess,
     require: sharedRequire,
     __azelficoastTransitionExecutionCache: transitionExecutionCache,
+    __azelficoastTransitionProjectionCache: transitionProjectionCache,
     __azelficoastTransitionExecutionCacheMaxEntries: maxTransitionExecutions,
+    __azelficoastTransitionProjectionCacheMaxEntries: maxProjectionExecutions,
   });
 
   try {
