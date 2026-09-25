@@ -2,16 +2,25 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from azelficoast.corpus import build_fixtures
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.training_records import build_training_records
+from azelficoast.matched_comparison import freeze_packet
+from azelficoast.training_records import TrainingRecordError, build_training_records
 
 
-def _record(*, event: int, kind: str, **extra: object) -> dict[str, object]:
+def _record(
+    *,
+    run: str = "run",
+    event: int,
+    kind: str,
+    **extra: object,
+) -> dict[str, object]:
     return {
         "schema": TRACE_SCHEMA,
         "schema_version": TRACE_SCHEMA_VERSION,
-        "run_id": "run",
+        "run_id": run,
         "event_index": event,
         "observed_at": "2026-09-25T00:00:00+00:00",
         "kind": kind,
@@ -19,9 +28,9 @@ def _record(*, event: int, kind: str, **extra: object) -> dict[str, object]:
     }
 
 
-def _state(turn: int) -> dict[str, object]:
+def _state(battle_tag: str, turn: int = 4) -> dict[str, object]:
     return {
-        "battle_tag": "battle-one",
+        "battle_tag": battle_tag,
         "turn": turn,
         "player": "azelficoast",
         "opponent": "opponent",
@@ -42,30 +51,112 @@ def _state(turn: int) -> dict[str, object]:
     }
 
 
-def _search_metadata(
-    *,
-    action: str = "/choose move psychic",
-    psychic: float = 0.7,
-    thunderbolt: float = 0.2,
-) -> dict[str, object]:
-    values = {
-        "/choose move psychic": psychic,
-        "/choose move thunderbolt": thunderbolt,
-    }
+def _plan() -> dict[str, object]:
     return {
-        "selected_policy": "public-belief",
-        "belief": {
-            "status": "selected",
-            "reason": "bounded-public-belief",
-            "action": action,
-            "diagnostics": {
-                "showdown_commit": "pinned",
-                "public_belief_value": values[action],
-                "public_belief_root_values": values,
-                "public_belief_search_horizons": 2,
-            },
+        "schema": "azelficoast.matched-search-comparison-plan",
+        "schema_version": 2,
+        "posterior_treatments": ["generator_faithful"],
+        "compute_budget": {
+            "unit": "transition_evaluations",
+            "per_method_limit": 4096,
+        },
+        "opponent_model": "fixed_observed_response",
+        "depths": [1],
+        "confirmatory_predictors": ["entropy", "branch_count"],
+        "cluster_unit": "battle_tag",
+        "showdown_commit": "pinned",
+        "evaluator": {
+            "schema": "azelficoast.belief-policy-value-evaluator",
+            "schema_version": 1,
+            "checkpoint_digest": "sha256:" + "a" * 64,
+            "observability": "public_belief_only",
+            "architecture": "weighted_deep_sets_policy_value",
+            "spec": {"hidden_width": 256},
+        },
+        "inference": {
+            "bootstrap_replicates": 20,
+            "bootstrap_seed": 1729,
         },
     }
+
+
+def _posterior() -> dict[str, object]:
+    return {
+        "treatment": "generator_faithful",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": [
+            {
+                "world_id": "band",
+                "weight": 0.6,
+                "hidden": {"opponent.active.item": "Choice Band"},
+            },
+            {
+                "world_id": "scarf",
+                "weight": 0.4,
+                "hidden": {"opponent.active.item": "Choice Scarf"},
+            },
+        ],
+    }
+
+
+def _search_evidence(
+    fixture,
+    battle_tag: str,
+    *,
+    posterior: dict[str, object] | None = None,
+    info_values: dict[str, float] | None = None,
+):
+    posterior = posterior or _posterior()
+    info_values = info_values or {
+        "/choose move psychic": 0.9,
+        "/choose move thunderbolt": 0.2,
+    }
+    state = {
+        "fixture_id": fixture.fixture_id,
+        "battle_tag": battle_tag,
+        "public_state": dict(fixture.state),
+        "legal_actions": list(fixture.legal_actions),
+        "predictors": {"entropy": 1.0, "branch_count": 2},
+    }
+    packet = freeze_packet(
+        plan=_plan(),
+        state=state,
+        posterior=posterior,
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+
+    def receipt(method: str, values: dict[str, float]) -> dict[str, object]:
+        best = max(values.values())
+        chosen = min(action for action, value in values.items() if value == best)
+        return {
+            "packet_digest": packet["packet_digest"],
+            "method": method,
+            "input_digest": packet["input_digest"],
+            "evaluator_digest": packet["evaluator_digest"],
+            "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+            "evaluator_calls": 7,
+            "compute_budget": packet["compute_budget"],
+            "consumed": 16,
+            "chosen_action": chosen,
+            "root_values": values,
+        }
+
+    det_values = {
+        "/choose move psychic": 0.8,
+        "/choose move thunderbolt": 0.7,
+    }
+    return (
+        packet,
+        receipt("determinization", det_values),
+        receipt("information_set", info_values),
+        posterior,
+    )
+
+
+def _write_json(path, document: object) -> None:
+    path.write_text(json.dumps(document, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def _write_trace(path, records: list[dict[str, object]]) -> None:
@@ -75,7 +166,31 @@ def _write_trace(path, records: list[dict[str, object]]) -> None:
     )
 
 
-def test_training_records_keep_all_decisions_from_one_battle_in_one_split(tmp_path) -> None:
+def _write_evidence(tmp_path, evidence_rows):
+    packet_paths = []
+    receipt_paths = []
+    posterior_paths = []
+    seen_posteriors = set()
+    for index, (packet, det, info, posterior) in enumerate(evidence_rows):
+        packet_path = tmp_path / f"packet-{index}.json"
+        det_path = tmp_path / f"det-{index}.json"
+        info_path = tmp_path / f"info-{index}.json"
+        _write_json(packet_path, packet)
+        _write_json(det_path, det)
+        _write_json(info_path, info)
+        packet_paths.append(packet_path)
+        receipt_paths.extend((det_path, info_path))
+
+        encoded = json.dumps(posterior, sort_keys=True)
+        if encoded not in seen_posteriors:
+            posterior_path = tmp_path / f"posterior-{len(posterior_paths)}.json"
+            _write_json(posterior_path, posterior)
+            posterior_paths.append(posterior_path)
+            seen_posteriors.add(encoded)
+    return packet_paths, receipt_paths, posterior_paths
+
+
+def test_training_record_is_joined_from_real_outcome_and_settled_search(tmp_path) -> None:
     trace = tmp_path / "trace.jsonl"
     _write_trace(
         trace,
@@ -92,81 +207,8 @@ def test_training_records_keep_all_decisions_from_one_battle_in_one_split(tmp_pa
                 kind="decision",
                 battle_tag="battle-one",
                 decision_index=0,
-                state=_state(4),
-                chosen_action="/choose move psychic",
-                decision_metadata=_search_metadata(),
-            ),
-            _record(
-                event=2,
-                kind="protocol",
-                room="battle-one",
-                protocol_index=1,
-                messages=[["", "turn", "5"]],
-            ),
-            _record(
-                event=3,
-                kind="decision",
-                battle_tag="battle-one",
-                decision_index=1,
-                state=_state(5),
-                chosen_action="/choose move psychic",
-                decision_metadata=_search_metadata(psychic=0.6, thunderbolt=0.4),
-            ),
-            _record(
-                event=4,
-                kind="terminal",
-                battle_tag="battle-one",
-                won=True,
-                lost=False,
-                tied=False,
-                final_state={},
-            ),
-        ],
-    )
-
-    records, summary = build_training_records([trace])
-
-    assert len(records) == 2
-    assert len({record["battle_id"] for record in records}) == 1
-    assert len({record["split"] for record in records}) == 1
-    assert summary["battle_count"] == 1
-    assert all(
-        record["targets"]["value"]["eventual_battle_outcome"] == 1.0
-        for record in records
-    )
-    assert records[0]["targets"]["value"]["public_belief_search_return"] == 0.7
-    assert records[0]["targets"]["policy"]["action_probabilities"] == {
-        "/choose move psychic": 1.0,
-        "/choose move thunderbolt": 0.0,
-    }
-
-
-def test_stronger_search_annotation_relabels_policy_without_using_behavior_action(
-    tmp_path,
-) -> None:
-    trace = tmp_path / "trace.jsonl"
-    _write_trace(
-        trace,
-        [
-            _record(
-                event=0,
-                kind="protocol",
-                room="battle-one",
-                protocol_index=0,
-                messages=[["", "turn", "4"]],
-            ),
-            _record(
-                event=1,
-                kind="decision",
-                battle_tag="battle-one",
-                decision_index=0,
-                state=_state(4),
+                state=_state("battle-one"),
                 chosen_action="/choose move thunderbolt",
-                decision_metadata=_search_metadata(
-                    action="/choose move thunderbolt",
-                    psychic=0.1,
-                    thunderbolt=0.5,
-                ),
             ),
             _record(
                 event=2,
@@ -180,38 +222,204 @@ def test_stronger_search_annotation_relabels_policy_without_using_behavior_actio
         ],
     )
     [fixture] = build_fixtures([trace])
-    annotation = tmp_path / "search.json"
-    annotation.write_text(
-        json.dumps(
-            {
-                "schema": "azelficoast.public-belief-search-target",
-                "schema_version": 1,
-                "fixture_id": fixture.fixture_id,
-                "chosen_action": "/choose move psychic",
-                "value": 0.9,
-                "root_values": {
-                    "/choose move psychic": 0.9,
-                    "/choose move thunderbolt": 0.1,
-                },
-                "search_depth": 5,
-            }
-        ),
-        encoding="utf-8",
+    paths = _write_evidence(
+        tmp_path,
+        [_search_evidence(fixture, "battle-one")],
     )
 
     records, summary = build_training_records(
         [trace],
-        search_annotation_paths=[annotation],
+        search_packet_paths=paths[0],
+        search_receipt_paths=paths[1],
+        posterior_paths=paths[2],
     )
 
     [record] = records
-    assert record["provenance"]["behavior_action"] == "/choose move thunderbolt"
-    assert record["provenance"]["behavior_matches_policy_target"] is False
-    assert record["targets"]["policy"]["selected_action"] == "/choose move psychic"
     assert record["targets"]["value"] == {
         "eventual_battle_outcome": -1.0,
         "public_belief_search_return": 0.9,
     }
-    assert summary["search_target_sources"] == {
-        "public-belief-search-annotation": 1
-    }
+    assert record["targets"]["policy"]["selected_action"] == "/choose move psychic"
+    assert record["provenance"]["behavior_action"] == "/choose move thunderbolt"
+    assert record["provenance"]["behavior_matches_policy_target"] is False
+    assert record["provenance"]["search"]["kind"] == (
+        "settled-matched-information-set-search"
+    )
+    assert record["provenance"]["search"]["evaluator_checkpoint_digest"] == (
+        "sha256:" + "a" * 64
+    )
+    assert record["input"]["posterior"] == _posterior()
+    assert summary["search_target_source"] == (
+        "settled-matched-information-set-search"
+    )
+
+
+def test_same_battle_never_crosses_splits(tmp_path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    _write_trace(
+        trace,
+        [
+            _record(
+                event=0,
+                kind="protocol",
+                room="battle-one",
+                protocol_index=0,
+                messages=[["", "turn", "4"]],
+            ),
+            _record(
+                event=1,
+                kind="decision",
+                battle_tag="battle-one",
+                decision_index=0,
+                state=_state("battle-one", 4),
+                chosen_action="/choose move psychic",
+            ),
+            _record(
+                event=2,
+                kind="protocol",
+                room="battle-one",
+                protocol_index=1,
+                messages=[["", "turn", "5"]],
+            ),
+            _record(
+                event=3,
+                kind="decision",
+                battle_tag="battle-one",
+                decision_index=1,
+                state=_state("battle-one", 5),
+                chosen_action="/choose move psychic",
+            ),
+            _record(
+                event=4,
+                kind="terminal",
+                battle_tag="battle-one",
+                won=True,
+                lost=False,
+                tied=False,
+                final_state={},
+            ),
+        ],
+    )
+    fixtures = build_fixtures([trace])
+    evidence = []
+    for fixture in fixtures:
+        battle_tag = fixture.control_decisions[0]["battle_tag"]
+        evidence.append(_search_evidence(fixture, battle_tag))
+    paths = _write_evidence(tmp_path, evidence)
+
+    records, _ = build_training_records(
+        [trace],
+        search_packet_paths=paths[0],
+        search_receipt_paths=paths[1],
+        posterior_paths=paths[2],
+    )
+
+    assert len(records) == 2
+    assert len({row["battle_id"] for row in records}) == 1
+    assert len({row["split"] for row in records}) == 1
+    assert len({row["split_group_id"] for row in records}) == 1
+
+
+def test_repeated_fixture_across_battles_is_grouped_into_one_split(tmp_path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    rows = []
+    for run, battle_tag, offset, won in (
+        ("run-a", "battle-a", 0, True),
+        ("run-b", "battle-b", 10, False),
+    ):
+        rows.extend(
+            [
+                _record(
+                    run=run,
+                    event=offset,
+                    kind="protocol",
+                    room=battle_tag,
+                    protocol_index=0,
+                    messages=[["", "turn", "4"]],
+                ),
+                _record(
+                    run=run,
+                    event=offset + 1,
+                    kind="decision",
+                    battle_tag=battle_tag,
+                    decision_index=0,
+                    state=_state(battle_tag),
+                    chosen_action="/choose move psychic",
+                ),
+                _record(
+                    run=run,
+                    event=offset + 2,
+                    kind="terminal",
+                    battle_tag=battle_tag,
+                    won=won,
+                    lost=not won,
+                    tied=False,
+                    final_state={},
+                ),
+            ]
+        )
+    _write_trace(trace, rows)
+    [fixture] = build_fixtures([trace])
+    evidence = [
+        _search_evidence(fixture, control["battle_tag"])
+        for control in fixture.control_decisions
+    ]
+    paths = _write_evidence(tmp_path, evidence)
+
+    records, summary = build_training_records(
+        [trace],
+        search_packet_paths=paths[0],
+        search_receipt_paths=paths[1],
+        posterior_paths=paths[2],
+    )
+
+    assert len(records) == 2
+    assert len({row["input"]["fixture_id"] for row in records}) == 1
+    assert len({row["split"] for row in records}) == 1
+    assert len({row["split_group_id"] for row in records}) == 1
+    assert summary["split_group_count"] == 1
+
+
+def test_training_rejects_receipt_from_another_packet(tmp_path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    _write_trace(
+        trace,
+        [
+            _record(
+                event=0,
+                kind="protocol",
+                room="battle-one",
+                protocol_index=0,
+                messages=[["", "turn", "4"]],
+            ),
+            _record(
+                event=1,
+                kind="decision",
+                battle_tag="battle-one",
+                decision_index=0,
+                state=_state("battle-one"),
+                chosen_action="/choose move psychic",
+            ),
+            _record(
+                event=2,
+                kind="terminal",
+                battle_tag="battle-one",
+                won=True,
+                lost=False,
+                tied=False,
+                final_state={},
+            ),
+        ],
+    )
+    [fixture] = build_fixtures([trace])
+    packet, det, info, posterior = _search_evidence(fixture, "battle-one")
+    info["packet_digest"] = "wrong-packet"
+    paths = _write_evidence(tmp_path, [(packet, det, info, posterior)])
+
+    with pytest.raises(TrainingRecordError, match="another frozen packet|not supplied"):
+        build_training_records(
+            [trace],
+            search_packet_paths=paths[0],
+            search_receipt_paths=paths[1],
+            posterior_paths=paths[2],
+        )
