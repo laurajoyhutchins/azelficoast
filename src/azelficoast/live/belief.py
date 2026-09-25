@@ -157,18 +157,6 @@ def opponent_move_from_protocol(fixture: DecisionFixture) -> str | None:
     return last_move_by_species.get(current_species)
 
 
-def _choice_items_for_move(move_name: str) -> tuple[str, str] | None:
-    move = GenData.from_gen(9).moves.get(_to_id(move_name))
-    if not isinstance(move, Mapping):
-        return None
-    category = move.get("category")
-    if category == "Physical":
-        return ("Choice Band", "Choice Scarf")
-    if category == "Special":
-        return ("Choice Scarf", "Choice Specs")
-    return None
-
-
 def _own_active_tera_type(fixture: DecisionFixture) -> str | None:
     active = fixture.state.get("active")
     if not isinstance(active, Mapping):
@@ -239,25 +227,22 @@ def _own_active_tera_type(fixture: DecisionFixture) -> str | None:
 
 
 def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None, str]:
-    """Admit only the hidden-Choice slice supported by current live evidence."""
+    """Build the broadest live reconstruction source justified by public evidence.
+
+    Posterior reconstruction does not require an opponent-response model. When the
+    current opponent has an observed move, that move is carried separately as the
+    bounded exact-search policy. Otherwise the learned policy may still consume the
+    reconstructed posterior, while exact transaction search remains unavailable.
+    """
 
     opponent = fixture.state.get("opponent_active")
     active = fixture.state.get("active")
     if not isinstance(opponent, Mapping) or not isinstance(active, Mapping):
         return None, "missing-active-state"
-    if opponent.get("item") not in (None, GenData.UNKNOWN_ITEM):
-        return None, "opponent-item-known"
     if not isinstance(opponent.get("species"), str) or not isinstance(opponent.get("level"), int):
         return None, "opponent-generator-identity-incomplete"
     if not fixture.legal_actions:
         return None, "no-legal-actions"
-
-    last_move = opponent_move_from_protocol(fixture)
-    if last_move is None:
-        return None, "opponent-side-or-last-move-unresolved"
-    plausible_items = _choice_items_for_move(last_move)
-    if plausible_items is None:
-        return None, "last-opponent-move-not-fixed-damage-category"
 
     tera_type = _own_active_tera_type(fixture)
     if tera_type is None:
@@ -273,13 +258,26 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
         "fixture_id": fixture.fixture_id,
         "showdown_commit": PINNED_SHOWDOWN_COMMIT,
         "fixture": fixture.as_record(),
-        "plausible_items": list(plausible_items),
-        "opponent_response_move": last_move,
         "own_active_tera_type": tera_type,
-        "source_projection": "live hidden-Choice bounded public-belief decision",
+        "source_projection": (
+            "live generator-faithful active-set posterior with a separately bounded "
+            "opponent-response model"
+        ),
     }
-    return source, "admitted"
 
+    known_item = opponent.get("item")
+    if known_item not in (None, GenData.UNKNOWN_ITEM):
+        source["known_opponent_item"] = str(known_item)
+
+    last_move = opponent_move_from_protocol(fixture)
+    if last_move is not None:
+        source["opponent_response_move"] = last_move
+        source["opponent_policy"] = {
+            "kind": "repeat-last-observed-move",
+            "move": last_move,
+        }
+
+    return source, "admitted"
 
 def public_belief_result(
     oracle: Mapping[str, Any],
@@ -714,6 +712,19 @@ class PinnedShowdownBeliefPolicy:
                         },
                     },
                 )
+
+        opponent_response_move = source.get("opponent_response_move")
+        if not isinstance(opponent_response_move, str) or not opponent_response_move:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="opponent-model-unavailable",
+                diagnostics={
+                    "posterior_available": posterior is not None,
+                    "exact_search_blocker": "no-current-opponent-response-policy",
+                    **(dict(route.diagnostics) if route is not None else {}),
+                },
+            )
 
         if (
             self.learned_evaluator is not None
