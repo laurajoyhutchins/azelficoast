@@ -477,6 +477,10 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
         / "probe_real_belief_trace.cjs"
     ).read_text(encoding="utf-8")
 
+    assert '"--historical-showdown-commit"' in source
+    assert 'historicalShowdownCommit && !posteriorOnly' in source
+    assert 'historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT' in source
+
     assert "function mechanicsProjectionVariantCount(variants)" in source
     assert '"opponent.active.item": entry.set.item' in source
     assert '"opponent.active.ability": entry.set.ability' in source

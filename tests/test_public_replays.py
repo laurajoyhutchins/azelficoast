@@ -9,11 +9,14 @@ from azelficoast import public_replays
 from azelficoast.public_replays import (
     PublicReplay,
     PublicReplayError,
+    _input_choices,
+    _input_players,
     _recorded_action,
     discover_public_replays,
     fetch_public_replay,
     freeze_public_replay,
 )
+from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 
 def test_discovery_uses_51st_row_only_as_pagination_signal(monkeypatch) -> None:
@@ -65,7 +68,10 @@ def test_fetch_replay_requires_reconstructible_random_battle_inputlog(monkeypatc
         )
 
 
-def test_fetch_replay_rejects_generator_revision_drift(monkeypatch) -> None:
+def test_fetch_replay_preserves_source_revision_for_later_reconstruction(
+    monkeypatch,
+) -> None:
+    source_revision = "d" * 40
     monkeypatch.setattr(
         public_replays,
         "_get_json",
@@ -73,13 +79,48 @@ def test_fetch_replay_rejects_generator_revision_drift(monkeypatch) -> None:
             "id": "gen9randombattle-1",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": ">version deadbeef\n>start {}",
+            "inputlog": f">version {source_revision}\n>start {{}}",
         },
     )
-    with pytest.raises(PublicReplayError, match="does not match pinned"):
-        fetch_public_replay(
-            {"id": "gen9randombattle-1", "rating": 1500, "uploadtime": 1}
+    replay = fetch_public_replay(
+        {"id": "gen9randombattle-1", "rating": "1500", "uploadtime": 1}
+    )
+
+    assert replay.source_showdown_version == source_revision
+    assert replay.rating == 1500
+
+
+def test_input_players_preserve_side_specific_ratings() -> None:
+    inputlog = "\n".join(
+        (
+            '>player p1 {"name":"Alice","rating":1801}',
+            '>player p2 {"name":"Bob","rating":"1664"}',
         )
+    )
+
+    assert _input_players(inputlog) == {
+        "p1": {"name": "Alice", "rating": 1801},
+        "p2": {"name": "Bob", "rating": 1664},
+    }
+
+
+def test_input_choices_remove_cancelled_choice_on_undo() -> None:
+    inputlog = "\n".join(
+        (
+            ">p1 move 1",
+            ">p1 undo",
+            ">p1 move 2",
+            ">p2 move 1",
+            ">p1 switch 3",
+        )
+    )
+
+    assert _input_choices(inputlog, "p1") == ["move 2", "switch 3"]
+
+
+def test_input_choices_reject_orphan_undo() -> None:
+    with pytest.raises(PublicReplayError, match="undo has no prior choice"):
+        _input_choices(">p1 undo", "p1")
 
 
 def test_freeze_public_replay_is_content_addressed_and_immutable(tmp_path: Path) -> None:
@@ -91,8 +132,8 @@ def test_freeze_public_replay_is_content_addressed_and_immutable(tmp_path: Path)
             "log": "|win|Alice",
             "inputlog": (
                 ">version "
-                + public_replays.PINNED_SHOWDOWN_COMMIT
-                + "\n>start {}"
+                + PINNED_SHOWDOWN_COMMIT
+                + "\n>start {{}}"
             ),
         },
         rating=1500,
@@ -146,6 +187,90 @@ def test_recorded_numeric_switch_maps_through_request_identity() -> None:
     assert _recorded_action("switch 2", request, legal) == "/choose switch Great Tusk"
 
 
+def test_public_import_freezes_revision_mismatch_for_later_reconstruction(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    replay = PublicReplay(
+        replay_id="gen9randombattle-old",
+        payload={
+            "id": "gen9randombattle-old",
+            "format": "[Gen 9] Random Battle",
+            "log": "|win|Alice",
+            "inputlog": f">version {'d' * 40}\n>start {{}}",
+        },
+        rating=1700,
+        uploadtime=1,
+    )
+    metadata = [{"id": replay.replay_id, "rating": 1700, "uploadtime": 1}]
+    monkeypatch.setattr(
+        public_replays,
+        "_showdown_revision",
+        lambda _root: public_replays._input_version(
+            f">version {'a' * 40}"
+        ),
+    )
+    monkeypatch.setattr(public_replays, "discover_public_replays", lambda **_kwargs: metadata)
+    monkeypatch.setattr(public_replays, "fetch_public_replay", lambda _metadata: replay)
+
+    result = public_replays.import_public_replays(
+        showdown_root=tmp_path / "showdown",
+        output_root=tmp_path / "corpus",
+        max_battles=1,
+    )
+
+    manifest = json.loads(Path(result["manifest"]).read_text(encoding="utf-8"))
+    assert result["admitted_count"] == 0
+    assert result["excluded_count"] == 1
+    assert manifest["excluded"][0]["reason"] == "PublicReplayRevisionMismatch"
+    assert manifest["excluded"][0]["source_showdown_version"] == "d" * 40
+    assert Path(manifest["excluded"][0]["raw_path"]).is_file()
+
+
+def test_public_import_reuses_frozen_raw_replay(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    replay_id = "gen9randombattle-cached"
+    revision = "a" * 40
+    root = tmp_path / "corpus"
+    replay = PublicReplay(
+        replay_id=replay_id,
+        payload={
+            "id": replay_id,
+            "format": "[Gen 9] Random Battle",
+            "log": "|win|Alice",
+            "inputlog": f">version {revision}\n>start {{}}",
+        },
+        rating=1700,
+        uploadtime=1,
+    )
+    public_replays.freeze_public_replay(replay, root)
+    metadata = [{"id": replay_id, "rating": "1700", "uploadtime": 1}]
+
+    monkeypatch.setattr(public_replays, "_showdown_revision", lambda _root: revision)
+    monkeypatch.setattr(public_replays, "discover_public_replays", lambda **_kwargs: metadata)
+    monkeypatch.setattr(
+        public_replays,
+        "fetch_public_replay",
+        lambda _metadata: (_ for _ in ()).throw(AssertionError("network fetch should be skipped")),
+    )
+
+    async def fake_reconstruct(_replay, *, showdown_root):
+        return []
+
+    monkeypatch.setattr(public_replays, "_reconstruct_replay_trace", fake_reconstruct)
+
+    result = public_replays.import_public_replays(
+        showdown_root=tmp_path / "showdown",
+        output_root=root,
+        max_battles=1,
+    )
+
+    assert result["admitted_count"] == 1
+    assert result["excluded_count"] == 0
+
+
 def test_public_import_manifest_marks_identifiers_and_human_actions_non_authoritative(
     monkeypatch,
     tmp_path: Path,
@@ -158,8 +283,8 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
             "log": "|win|Alice",
             "inputlog": (
                 ">version "
-                + public_replays.PINNED_SHOWDOWN_COMMIT
-                + "\n>start {}"
+                + PINNED_SHOWDOWN_COMMIT
+                + "\n>start {{}}"
             ),
         },
         rating=1500,
@@ -186,7 +311,7 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
     ]
 
     monkeypatch.setattr(
-        public_replays, "_showdown_revision", lambda _root: public_replays.PINNED_SHOWDOWN_COMMIT
+        public_replays, "_showdown_revision", lambda _root: PINNED_SHOWDOWN_COMMIT
     )
     monkeypatch.setattr(public_replays, "discover_public_replays", lambda **_kwargs: metadata)
     monkeypatch.setattr(public_replays, "fetch_public_replay", lambda _metadata: replay)
@@ -194,7 +319,7 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
     async def fake_reconstruct(_replay, *, showdown_root):
         return rows
 
-    monkeypatch.setattr(public_replays, "reconstruct_replay_trace", fake_reconstruct)
+    monkeypatch.setattr(public_replays, "_reconstruct_replay_trace", fake_reconstruct)
 
     result = public_replays.import_public_replays(
         showdown_root=tmp_path / "showdown",

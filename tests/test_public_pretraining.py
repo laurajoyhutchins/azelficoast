@@ -89,6 +89,7 @@ def _write_public_trace(path: Path) -> None:
                         "source_replay_id": replay_id,
                         "source_side": side,
                         "source_rating": 1700,
+                        "source_showdown_version": FakePosteriorSource.showdown_commit,
                     },
                 ),
                 _record(
@@ -136,6 +137,24 @@ def test_public_pretraining_keeps_both_replay_perspectives_in_one_split(
         for row in rows
     )
     assert summary["policy_target_source"] == "public-human-imitation"
+
+
+def test_public_pretraining_excludes_controls_from_another_showdown_revision(
+    tmp_path: Path,
+) -> None:
+    trace = tmp_path / "public.jsonl"
+    _write_public_trace(trace)
+    text = trace.read_text(encoding="utf-8").replace(
+        FakePosteriorSource.showdown_commit,
+        "other-showdown-commit",
+    )
+    trace.write_text(text, encoding="utf-8")
+
+    with pytest.raises(PublicPretrainingError, match="no public human decisions"):
+        build_public_pretraining_records(
+            [trace],
+            posterior_source=FakePosteriorSource(),
+        )
 
 
 def test_public_pretraining_refuses_to_replace_existing_promoted_evaluator(
