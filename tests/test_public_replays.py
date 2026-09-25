@@ -57,7 +57,6 @@ def test_fetch_replay_requires_reconstructible_random_battle_inputlog(monkeypatc
             "id": "gen9randombattle-1",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
-            "inputlog": ">version old-showdown\n>start {}",
         },
     )
     with pytest.raises(PublicReplayError, match="inputlog"):
