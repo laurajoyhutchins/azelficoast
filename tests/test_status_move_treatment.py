@@ -104,7 +104,6 @@ def test_freeze_source_binds_exact_current_active_move(tmp_path) -> None:
     assert source["fixture_id"] == fixture_id
     assert source["opponent_response_move"] == "Roost"
     assert source["plausible_items"] == ["Heavy-Duty Boots"]
-    assert source["fixture"]["state"]["battle_tag"] if False else True
     assert "battle_tag" not in source["fixture"]["state"]
 
 
