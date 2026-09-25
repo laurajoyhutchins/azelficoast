@@ -2,6 +2,7 @@ name: simulator-native-damage-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/gen9_damage.py"
       - "src/azelficoast/native_damage_compiler.py"
@@ -15,6 +16,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   native-damage:

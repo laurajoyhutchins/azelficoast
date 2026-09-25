@@ -2,6 +2,7 @@ name: simulator-attack-transition-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/gen9_attack.py"
       - "src/azelficoast/gen9_damage.py"
@@ -19,6 +20,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   attack-transition:

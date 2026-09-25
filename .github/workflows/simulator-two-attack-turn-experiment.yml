@@ -1,0 +1,86 @@
+name: simulator-two-attack-turn-experiment
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - "src/azelficoast/gen9_two_attack_turn.py"
+      - "src/azelficoast/jax_gen9_two_attack_turn.py"
+      - "src/azelficoast/two_attack_turn_belief.py"
+      - "src/azelficoast/two_attack_turn_compiler.py"
+      - "src/azelficoast/two_attack_turn_experiment.py"
+      - "scripts/generate_showdown_two_attack_turn_fixtures.cjs"
+      - "tests/test_gen9_two_attack_turn.py"
+      - ".github/workflows/simulator-two-attack-turn-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  two-attack-turn:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: python -m pip install uv
+      - name: Install simulator dependencies
+        run: uv sync --extra simulator
+      - name: Fetch pinned Pokémon Showdown
+        run: |
+          git init /tmp/pokemon-showdown
+          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
+          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
+          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
+      - name: Build Pokémon Showdown
+        working-directory: /tmp/pokemon-showdown
+        run: |
+          npm ci --omit=optional --no-audit --no-fund
+          npm run build
+      - name: Generate two-attack turn oracle fixtures
+        run: |
+          node scripts/generate_showdown_two_attack_turn_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/showdown-two-attack-turn-fixtures.json
+      - name: Test two-attack turn reference semantics
+        run: uv run pytest tests/test_gen9_two_attack_turn.py
+      - name: Run two-attack adaptive experiment
+        run: |
+          uv run python -m azelficoast.two_attack_turn_experiment             /tmp/showdown-two-attack-turn-fixtures.json             | tee /tmp/two-attack-turn-experiment.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(Path("/tmp/two-attack-turn-experiment.json").read_text())
+          assert result["passed"] is True, result
+          assert result["correctness"]["python_exact"] is True, result
+          assert result["correctness"]["native_exact"] is True, result
+          assert result["correctness"]["jax_exact"] is True, result
+          assert result["semantics"]["p1_ko_cancels_p2"] is True, result
+          assert result["semantics"]["p2_ko_cancels_p1"] is True, result
+          assert result["semantics"]["pre_attack_drop_changes_later_damage"] is True, result
+          assert result["semantics"]["post_attack_drop_not_retroactive"] is True, result
+          assert result["projection"]["direct_equals_projected"] is True, result
+          assert result["projection"]["missing_order_tie_changes_result"] is True, result
+          assert result["projection"]["missing_secondary_changes_result"] is True, result
+          assert set(result["confirmation"]["candidate"]["chosen_paths"]) == {"direct", "projected"}, result
+          assert result["profile"]["effect_signature"] == result["effect_signature"], result
+          quotient = result["preexecution_quotient"]
+          assert quotient["successor_histogram_exact"] is True, result
+          assert quotient["adaptive_histogram_exact"] is True, result
+          assert (
+              quotient["projected_transition_evaluations"]
+              < quotient["direct_transition_evaluations"]
+          ), result
+          assert quotient["effect_signature"] == result["effect_signature"], result
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: two-attack-turn-evidence
+          path: /tmp/two-attack-turn-experiment.json
+          if-no-files-found: error

@@ -2,6 +2,7 @@ name: simulator-showdown-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/simulator_ir.py"
       - "src/azelficoast/showdown_transition_corpus.py"
@@ -12,6 +13,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   showdown-oracle:

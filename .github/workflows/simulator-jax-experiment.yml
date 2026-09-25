@@ -2,6 +2,7 @@ name: simulator-jax-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "pyproject.toml"
       - "src/azelficoast/simulator_ir.py"
@@ -13,6 +14,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   jax-cpu:

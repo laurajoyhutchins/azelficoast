@@ -2,6 +2,7 @@ name: simulator-class-native-belief-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/class_native_belief.py"
       - "src/azelficoast/class_native_belief_experiment.py"
@@ -12,6 +13,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   class-native-belief:

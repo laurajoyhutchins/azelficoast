@@ -2,6 +2,7 @@ name: protect-continuation-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/harness.py"
       - "src/azelficoast/protect_continuations.py"
@@ -14,6 +15,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   search:

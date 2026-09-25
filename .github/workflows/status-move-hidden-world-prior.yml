@@ -2,6 +2,7 @@ name: status-move-hidden-world-prior
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "experiments/status-move-prior-selection.json"
       - "scripts/sample_showdown_worlds.cjs"

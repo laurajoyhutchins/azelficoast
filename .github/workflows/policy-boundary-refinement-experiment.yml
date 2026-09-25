@@ -3,6 +3,7 @@ name: policy-boundary-refinement-experiment
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "scripts/policy_boundary_refinement_experiment.py"
       - "experiments/policy-boundary-refinement-results.json"
@@ -12,6 +13,10 @@ on:
 permissions:
   actions: read
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   falsification:
