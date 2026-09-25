@@ -503,5 +503,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
         "execution optimization only; semantic posterior support retains every "
         "generator variant"
     ) in source
-    assert "hidden move fallback would be required" in source
+    assert "function opponentActionDistribution(" in source
+    assert '"uniform-legal-moves"' in source
+    assert 'hiddenReads.add("opponent.active.moves")' in source
     assert "marginalized_hidden" not in source
