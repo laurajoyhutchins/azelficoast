@@ -1,6 +1,6 @@
 {
   "schema": "azelficoast.matched-search-comparison-plan",
-  "schema_version": 1,
+  "schema_version": 2,
   "posterior_treatments": [
     "generator_faithful",
     "practical"
@@ -20,6 +20,30 @@
   ],
   "cluster_unit": "battle_tag",
   "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "evaluator": {
+    "schema": "azelficoast.belief-policy-value-evaluator",
+    "schema_version": 1,
+    "checkpoint_digest": "sha256:a06c3ee1bf8c30954b46236f14236cdeaefdf835cecaa50fc6011fa10d27d823",
+    "observability": "public_belief_only",
+    "architecture": "weighted_deep_sets_policy_value",
+    "spec": {
+      "public_width": 128,
+      "world_width": 128,
+      "action_width": 64,
+      "hidden_width": 96,
+      "world_hidden_width": 96
+    }
+  },
+  "evaluator_checkpoint": {
+    "artifact_id": 10875025443,
+    "artifact_name": "matched-pilot-frozen-evaluator",
+    "training_source": "experiments/matched-pilot-evaluator-source.json",
+    "training_example_count": 1,
+    "training_battle_tag": "battle-gen9randombattle-373",
+    "training_fixture_id": "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a",
+    "build_workflow": ".github/workflows/matched-pilot-evaluator-checkpoint.yml",
+    "purpose": "pipeline-validating frozen evaluator; not a model-strength claim"
+  },
   "inference": {
     "bootstrap_replicates": 2000,
     "bootstrap_seed": 1729
@@ -27,6 +51,7 @@
   "provenance": {
     "cohort": "canonical 10-state outcome-blind population from PR #46",
     "predictor_selection": "top three prior numeric Spearman associations with value bias from PR #46: legal action count rho 0.8002, KO-roll gap rho 0.7028, opponent public HP fraction rho 0.6789",
-    "purpose": "pipeline-validating matched-compute posterior-stratified pilot; not the final large population claim"
+    "evaluator_training": "one leakage-safe real decision from battle-gen9randombattle-373, disjoint from all pilot cohort battles; policy target from exact public-belief search, value target from eventual battle outcome plus normalized exact searched return",
+    "purpose": "pipeline-validating matched-compute posterior-stratified pilot; not the final population or learned-model-strength claim"
   }
 }
