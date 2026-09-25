@@ -2,7 +2,7 @@ name: real-belief-decision-trace
 
 on:
   pull_request:
-    types: [ready_for_review]
+    types: [ready_for_review, synchronize]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/real_belief_trace.py"
