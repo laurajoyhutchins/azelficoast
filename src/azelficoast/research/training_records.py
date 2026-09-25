@@ -189,7 +189,7 @@ def _load_settled_targets(
             )
         receipts_by_packet[packet_digest].append(receipt)
 
-    targets: dict[tuple[str, str], dict[str, Any]] = {}
+    targets: dict[tuple[str, str, str | None], dict[str, Any]] = {}
     for packet in packets:
         if (
             packet.get("schema") != PACKET_SCHEMA
@@ -221,9 +221,12 @@ def _load_settled_targets(
 
         fixture_id = packet.get("fixture_id")
         battle_tag = packet.get("battle_tag")
+        run_id = packet.get("run_id")
         if not isinstance(fixture_id, str) or not isinstance(battle_tag, str):
             raise TrainingRecordError("settled search target lacks fixture/battle identity")
-        key = (fixture_id, battle_tag)
+        if run_id is not None and (not isinstance(run_id, str) or not run_id):
+            raise TrainingRecordError("settled search target has malformed run identity")
+        key = (fixture_id, battle_tag, run_id if isinstance(run_id, str) else None)
         if key in targets:
             raise TrainingRecordError(
                 f"multiple settled search targets for fixture/battle {key!r}; "
@@ -262,6 +265,7 @@ def _load_settled_targets(
 
 def _validate_target_for_fixture(
     fixture: DecisionFixture,
+    run_id: str,
     battle_tag: str,
     target: Mapping[str, Any],
 ) -> None:
@@ -272,6 +276,11 @@ def _validate_target_for_fixture(
     if packet.get("battle_tag") != battle_tag:
         raise TrainingRecordError(
             f"fixture {fixture.fixture_id}: search packet belongs to another battle"
+        )
+    packet_run_id = packet.get("run_id")
+    if packet_run_id is not None and packet_run_id != run_id:
+        raise TrainingRecordError(
+            f"fixture {fixture.fixture_id}: search packet belongs to another run"
         )
     if packet.get("legal_actions") != legal_actions:
         raise TrainingRecordError(
@@ -417,7 +426,7 @@ def build_training_records(
     rows: list[dict[str, Any]] = []
     source_decisions = 0
     skipped_without_search = 0
-    used_targets: set[tuple[str, str]] = set()
+    used_targets: set[tuple[str, str, str | None]] = set()
 
     for fixture in fixtures:
         for control in fixture.control_decisions:
@@ -439,12 +448,16 @@ def build_training_records(
                     f"battle {(run_id, battle_tag)!r} has a decision but no terminal outcome"
                 )
 
-            target_key = (fixture.fixture_id, battle_tag)
+            target_key = (fixture.fixture_id, battle_tag, run_id)
             target = targets.get(target_key)
             if target is None:
-                skipped_without_search += 1
-                continue
-            _validate_target_for_fixture(fixture, battle_tag, target)
+                legacy_key = (fixture.fixture_id, battle_tag, None)
+                target = targets.get(legacy_key)
+                if target is None:
+                    skipped_without_search += 1
+                    continue
+                target_key = legacy_key
+            _validate_target_for_fixture(fixture, run_id, battle_tag, target)
             used_targets.add(target_key)
 
             selected_action = target["selected_action"]

@@ -6,8 +6,10 @@ import json
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.belief.self_improvement import (
     TeacherArtifacts,
+    _mine_informative_fixtures,
     generate_teacher_evidence,
 )
+from azelficoast.corpus import DecisionFixture
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 from azelficoast.whole_turn_program import compile_whole_turn_programs
 
@@ -208,6 +210,8 @@ def test_teacher_evidence_is_reproducible_and_settled(tmp_path) -> None:
     assert "resource_accounting" not in info
     assert det["packet_digest"] == info["packet_digest"]
     assert det["evaluator_checkpoint_digest"] == _FakeEvaluator.identity["checkpoint_digest"]
+    packet = json.loads(first.packet_paths[0].read_text(encoding="utf-8"))
+    assert packet["run_id"] == "run"
 
     settled = json.loads(
         (first.packet_paths[0].parent / "settled.json").read_text(encoding="utf-8")
@@ -233,3 +237,75 @@ def test_duplicate_trace_content_does_not_double_weight_teacher_data(tmp_path) -
 
     assert len(evidence.trace_paths) == 1
     assert evidence.admitted_decision_count == 1
+
+
+def _mining_fixture(
+    fixture_id: str,
+    battle_tag: str,
+    *,
+    status: str,
+    margin: float,
+) -> DecisionFixture:
+    return DecisionFixture(
+        fixture_id=fixture_id,
+        state={"turn": 8, "legal_actions": ["move a", "move b"]},
+        protocol_prefix=(),
+        control_decisions=(
+            {
+                "run_id": f"run-{battle_tag}",
+                "battle_tag": battle_tag,
+                "event_index": 1,
+                "decision_metadata": {
+                    "belief": {
+                        "status": status,
+                        "reason": (
+                            "learned-policy-uncertain"
+                            if status == "search"
+                            else "learned-public-belief"
+                        ),
+                        "diagnostics": {
+                            "learned_prediction": {
+                                "policy_margin": margin,
+                                "policy_entropy_bits": 0.75,
+                            }
+                        },
+                    }
+                },
+            },
+        ),
+    )
+
+
+def test_state_mining_spends_budget_across_battles_before_refilling() -> None:
+    fixtures = [
+        _mining_fixture("a-hard", "battle-a", status="search", margin=0.0),
+        _mining_fixture("a-second", "battle-a", status="search", margin=0.01),
+        _mining_fixture("b-state", "battle-b", status="selected", margin=0.9),
+    ]
+
+    selected, manifest = _mine_informative_fixtures(fixtures, max_fixtures=3)
+
+    assert [fixture.fixture_id for fixture in selected] == ["a-hard", "b-state"]
+    assert manifest["candidate_fixture_count"] == 3
+    assert manifest["candidate_decision_count"] == 3
+    assert manifest["selected_fixture_count"] == 2
+    assert manifest["selected_decision_count"] == 2
+    assert manifest["one_decision_per_battle"] is True
+    assert manifest["kind"] == "public-evidence-debt-curriculum"
+
+
+
+def test_unbounded_state_mining_preserves_existing_cycle_population() -> None:
+    fixtures = [
+        _mining_fixture("a-one", "battle-a", status="search", margin=0.0),
+        _mining_fixture("a-two", "battle-a", status="search", margin=0.1),
+        _mining_fixture("b-one", "battle-b", status="selected", margin=0.9),
+    ]
+
+    selected, manifest = _mine_informative_fixtures(fixtures, max_fixtures=None)
+
+    assert selected == fixtures
+    assert manifest["kind"] == "all-public-decisions"
+    assert manifest["selected_fixture_count"] == 3
+    assert manifest["selected_decision_count"] == 3
+    assert manifest["one_decision_per_battle"] is False

@@ -6,6 +6,7 @@ import pytest
 
 from azelficoast.belief.evaluator import (
     BeliefEvaluatorSpec,
+    BeliefPrediction,
     init_params,
     load_checkpoint,
     write_checkpoint,
@@ -16,6 +17,7 @@ from azelficoast.belief.improvement import (
     ImprovementError,
     _promote,
     decide_admission,
+    evaluate_hostile_invariants,
     improve_checkpoint,
     load_training_dataset,
 )
@@ -211,3 +213,39 @@ def test_promotion_is_compare_and_swap_fenced(tmp_path) -> None:
         )
 
     assert promotion.read_text(encoding="utf-8") == before
+
+
+def test_hostile_gate_rejects_action_order_sensitive_candidate(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_path = tmp_path / "training.jsonl"
+    _write(dataset_path, _records())
+    dataset = load_training_dataset(dataset_path, spec=_spec())
+
+    def order_sensitive_predict(params, inputs):
+        del params
+        probabilities = tuple(
+            1.0 if index == 0 else 0.0
+            for index, _ in enumerate(inputs.legal_actions)
+        )
+        return BeliefPrediction(
+            value=0.0,
+            legal_actions=inputs.legal_actions,
+            probabilities=probabilities,
+            selected_action=inputs.legal_actions[0],
+            policy_margin=1.0,
+            policy_entropy_bits=0.0,
+        )
+
+    monkeypatch.setattr(
+        "azelficoast.belief.improvement.predict",
+        order_sensitive_predict,
+    )
+    result = evaluate_hostile_invariants({}, dataset.examples("validation"))
+
+    assert result["passed"] is False
+    assert result["failure_count"] >= 1
+    assert {
+        failure["mutation"] for failure in result["failures"]
+    } >= {"reverse-legal-action-order"}

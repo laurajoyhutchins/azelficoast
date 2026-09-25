@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 from datetime import UTC, datetime
@@ -413,6 +414,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     training_cycle.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_cycle.add_argument(
+        "--max-teacher-fixtures",
+        type=_positive_int,
+        help="mine at most this many battle-diverse informative fixtures per cycle",
+    )
+    training_cycle.add_argument(
         "--split-seed",
         default="azelficoast.training-records",
     )
@@ -442,6 +448,85 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.0,
     )
 
+    training_auto = training_commands.add_parser(
+        "auto",
+        help="generate local battles and repeat the evidence-gated improvement cycle",
+    )
+    training_auto.add_argument(
+        "--incumbent",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+        help="initial checkpoint directory or digest-bound promotion pointer",
+    )
+    training_auto.add_argument(
+        "--workspace",
+        type=Path,
+        default=DEFAULT_SELF_IMPROVEMENT,
+    )
+    training_auto.add_argument(
+        "--models-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_MODELS,
+    )
+    training_auto.add_argument(
+        "--receipts-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_RECEIPTS,
+    )
+    training_auto.add_argument(
+        "--promotion",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+    )
+    training_auto.add_argument("--generations", type=_positive_int, default=1)
+    training_auto.add_argument("--battles-per-generation", type=_positive_int, default=12)
+    training_auto.add_argument("--concurrency", type=_positive_int, default=1)
+    training_auto.add_argument(
+        "--battle-search-policy-margin",
+        type=_unit_float,
+        default=0.0,
+        help=(
+            "exact-search routing threshold while generating battles; defaults to 0 "
+            "because mined teacher states are searched offline after generation"
+        ),
+    )
+    training_auto.add_argument("--teacher-budget", type=_positive_int, default=4096)
+    training_auto.add_argument(
+        "--max-teacher-fixtures",
+        type=_positive_int,
+        default=64,
+        help="battle-diverse curriculum budget per candidate generation",
+    )
+    training_auto.add_argument(
+        "--split-seed",
+        default="azelficoast.training-records",
+    )
+    training_auto.add_argument("--train-fraction", type=_unit_float, default=0.8)
+    training_auto.add_argument("--validation-fraction", type=_unit_float, default=0.1)
+    training_auto.add_argument("--epochs", type=_positive_int, default=1)
+    training_auto.add_argument("--learning-rate", type=_positive_float, default=3e-4)
+    training_auto.add_argument("--policy-weight", type=_nonnegative_float, default=1.0)
+    training_auto.add_argument(
+        "--value-target",
+        choices=VALUE_TARGET_SOURCES,
+        default="public_belief_search_return",
+    )
+    training_auto.add_argument(
+        "--min-validation-improvement",
+        type=_nonnegative_float,
+        default=1e-6,
+    )
+    training_auto.add_argument(
+        "--max-validation-value-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_auto.add_argument(
+        "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+
     coverage = subparsers.add_parser(
         "belief-coverage",
         help="summarize live public-belief routing and static admission coverage",
@@ -465,6 +550,14 @@ def _resolve_live_credentials(username_override: str | None) -> tuple[str, str]:
     if missing:
         raise ValueError("missing live Showdown credentials: " + ", ".join(missing))
     return username, password
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return "sha256:" + digest.hexdigest()
 
 
 def _prepare_output_paths(results: Path, decisions: Path, replays: Path) -> None:
@@ -632,6 +725,119 @@ def _run_corpus(args: argparse.Namespace) -> None:
     print(json.dumps(summary, sort_keys=True))
 
 
+async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str, object]:
+    """Generate fresh Random Battles, mine them, and attempt bounded promotions."""
+
+    if args.showdown_root is None:
+        raise ValueError(
+            "automatic training requires --showdown-root or AZELFICOAST_SHOWDOWN_ROOT"
+        )
+
+    traces: list[Path] = []
+    current_checkpoint = args.incumbent
+    generations: list[dict[str, object]] = []
+
+    for index in range(args.generations):
+        generation_root = args.workspace / "generations" / f"{index + 1:04d}"
+        if generation_root.exists():
+            raise ValueError(
+                f"generation output already exists and is immutable: {generation_root}"
+            )
+        decisions = generation_root / "decisions.jsonl"
+        results = generation_root / "results.jsonl"
+        replays = generation_root / "replays"
+        manifest_path = generation_root / "generation.json"
+
+        _prepare_output_paths(results, decisions, replays)
+        await _run_local(
+            args.battles_per_generation,
+            args.concurrency,
+            results,
+            decisions,
+            replays,
+            showdown_root=args.showdown_root,
+            belief_timeout=args.belief_timeout,
+            evaluator_checkpoint=current_checkpoint,
+            search_policy_margin=args.battle_search_policy_margin,
+        )
+        traces.append(decisions)
+
+        receipt = run_self_improvement_cycle(
+            traces,
+            showdown_root=args.showdown_root,
+            incumbent_checkpoint=current_checkpoint,
+            workspace=args.workspace,
+            models_dir=args.models_dir,
+            receipts_dir=args.receipts_dir,
+            promotion_file=args.promotion,
+            teacher_compute_budget=args.teacher_budget,
+            max_teacher_fixtures=args.max_teacher_fixtures,
+            teacher_timeout_seconds=args.belief_timeout,
+            split_seed=args.split_seed,
+            train_fraction=args.train_fraction,
+            validation_fraction=args.validation_fraction,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            policy_weight=args.policy_weight,
+            value_target_source=args.value_target,
+            admission_policy=AdmissionPolicy(
+                min_validation_total_improvement=args.min_validation_improvement,
+                max_validation_value_mse_regression=args.max_validation_value_regression,
+                max_validation_policy_cross_entropy_regression=(
+                    args.max_validation_policy_regression
+                ),
+            ),
+        )
+        promoted = receipt.get("status") == "promoted"
+        if promoted:
+            current_checkpoint = args.promotion
+
+        generation = {
+            "schema": "azelficoast.self-improvement-generation",
+            "schema_version": 1,
+            "generation": index + 1,
+            "battle_count": args.battles_per_generation,
+            "battle_search_policy_margin": args.battle_search_policy_margin,
+            "trace": str(decisions),
+            "trace_digest": _file_sha256(decisions),
+            "results": str(results),
+            "results_digest": _file_sha256(results),
+            "cycle_id": receipt.get("cycle_id"),
+            "cycle_status": receipt.get("status"),
+            "teacher_manifest": receipt.get("teacher_manifest"),
+            "dataset_digest": receipt.get("dataset_digest"),
+            "incumbent_checkpoint_digest": (
+                receipt.get("inputs", {}).get("incumbent_checkpoint_digest")
+                if isinstance(receipt.get("inputs"), dict)
+                else None
+            ),
+            "promoted_checkpoint_digest": (
+                receipt.get("improvement", {}).get("candidate_checkpoint_digest")
+                if promoted and isinstance(receipt.get("improvement"), dict)
+                else None
+            ),
+            "improvement_receipt_digest": (
+                receipt.get("improvement", {}).get("receipt_digest")
+                if isinstance(receipt.get("improvement"), dict)
+                else None
+            ),
+        }
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(generation, sort_keys=True, separators=(",", ":")) + "\n",
+            encoding="utf-8",
+        )
+        generations.append(generation)
+
+    return {
+        "schema": "azelficoast.self-improvement-run",
+        "schema_version": 1,
+        "generation_count": len(generations),
+        "generations": generations,
+        "final_checkpoint": str(current_checkpoint),
+    }
+
+
 def _run_training(args: argparse.Namespace) -> None:
     if args.training_command == "build":
         summary = build_training_dataset(
@@ -705,6 +911,7 @@ def _run_training(args: argparse.Namespace) -> None:
             receipts_dir=args.receipts_dir,
             promotion_file=args.promotion,
             teacher_compute_budget=args.teacher_budget,
+            max_teacher_fixtures=args.max_teacher_fixtures,
             teacher_timeout_seconds=args.belief_timeout,
             split_seed=args.split_seed,
             train_fraction=args.train_fraction,
@@ -721,6 +928,8 @@ def _run_training(args: argparse.Namespace) -> None:
                 ),
             ),
         )
+    elif args.training_command == "auto":
+        summary = asyncio.run(_run_automatic_self_improvement(args))
     else:
         raise AssertionError(f"unsupported training command: {args.training_command}")
     print(json.dumps(summary, sort_keys=True))

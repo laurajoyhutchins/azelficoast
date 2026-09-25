@@ -28,7 +28,7 @@ from azelficoast.research.training_records import (
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
-TEACHER_MANIFEST_SCHEMA_VERSION = 1
+TEACHER_MANIFEST_SCHEMA_VERSION = 2
 CYCLE_RECEIPT_SCHEMA = "azelficoast.self-improvement-cycle"
 CYCLE_RECEIPT_SCHEMA_VERSION = 1
 
@@ -107,6 +107,187 @@ def _normalized_trace_paths(paths: Sequence[str | Path]) -> tuple[Path, ...]:
         digest = _file_digest(path)
         by_digest.setdefault(digest, path)
     return tuple(by_digest[digest] for digest in sorted(by_digest))
+
+
+def _fixture_mining_signals(fixture: DecisionFixture) -> dict[str, Any]:
+    """Extract deterministic curriculum signals from public live-decision evidence."""
+
+    fallback = 0
+    searched = 0
+    margins: list[float] = []
+    entropies: list[float] = []
+    battle_tags: set[str] = set()
+
+    for control in fixture.control_decisions:
+        battle_tag = control.get("battle_tag")
+        if isinstance(battle_tag, str) and battle_tag:
+            battle_tags.add(battle_tag)
+        metadata = control.get("decision_metadata")
+        if not isinstance(metadata, Mapping):
+            continue
+        belief = metadata.get("belief")
+        if not isinstance(belief, Mapping):
+            continue
+        status = belief.get("status")
+        fallback += int(status == "fallback")
+        diagnostics = belief.get("diagnostics")
+        if not isinstance(diagnostics, Mapping):
+            continue
+        learned_route = diagnostics.get("learned_route")
+        searched += int(
+            status == "search"
+            or belief.get("reason") == "learned-policy-uncertain"
+            or learned_route in {
+                "exact-public-belief-search",
+                "transition-program-search",
+                "search-after-evaluator-error",
+                "search-after-posterior-probe-error",
+            }
+        )
+        prediction = diagnostics.get("learned_prediction")
+        if not isinstance(prediction, Mapping):
+            continue
+        margin = prediction.get("policy_margin")
+        entropy = prediction.get("policy_entropy_bits")
+        if isinstance(margin, (int, float)) and not isinstance(margin, bool):
+            margins.append(float(margin))
+        if isinstance(entropy, (int, float)) and not isinstance(entropy, bool):
+            entropies.append(float(entropy))
+
+    min_margin = min(margins) if margins else 1.0
+    max_entropy = max(entropies) if entropies else 0.0
+    return {
+        "fallback_count": fallback,
+        "search_count": searched,
+        "uncertainty": max(0.0, min(1.0, 1.0 - min_margin)),
+        "policy_entropy_bits": max_entropy,
+        "legal_action_count": len(fixture.legal_actions),
+        "battle_tags": sorted(battle_tags),
+    }
+
+
+def _mine_informative_fixtures(
+    fixtures: Sequence[DecisionFixture],
+    *,
+    max_fixtures: int | None,
+) -> tuple[list[DecisionFixture], dict[str, Any]]:
+    """Select at most one informative public decision from each battle."""
+
+    if max_fixtures is not None and (
+        not isinstance(max_fixtures, int)
+        or isinstance(max_fixtures, bool)
+        or max_fixtures <= 0
+    ):
+        raise TeacherEvidenceError("max teacher fixtures must be a positive integer")
+
+    if max_fixtures is None:
+        selected_rows = [
+            {
+                "fixture_id": fixture.fixture_id,
+                "run_id": str(control.get("run_id")),
+                "battle_tag": str(control.get("battle_tag")),
+                "event_index": control.get("event_index"),
+            }
+            for fixture in fixtures
+            for control in fixture.control_decisions
+        ]
+        return list(fixtures), {
+            "kind": "all-public-decisions",
+            "candidate_fixture_count": len(fixtures),
+            "candidate_decision_count": len(selected_rows),
+            "max_fixtures": None,
+            "selected_fixture_count": len(fixtures),
+            "selected_decision_count": len(selected_rows),
+            "one_decision_per_battle": False,
+            "selected": selected_rows,
+        }
+
+    candidates: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
+    for fixture in fixtures:
+        for control in fixture.control_decisions:
+            run_id = control.get("run_id")
+            battle_tag = control.get("battle_tag")
+            if (
+                not isinstance(run_id, str)
+                or not run_id
+                or not isinstance(battle_tag, str)
+                or not battle_tag
+            ):
+                continue
+            scoped = DecisionFixture(
+                fixture_id=fixture.fixture_id,
+                state=fixture.state,
+                protocol_prefix=fixture.protocol_prefix,
+                control_decisions=(control,),
+            )
+            candidates.append((fixture, control, _fixture_mining_signals(scoped)))
+
+    ranked = sorted(
+        candidates,
+        key=lambda item: (
+            -int(item[2]["search_count"]),
+            -float(item[2]["uncertainty"]),
+            -float(item[2]["policy_entropy_bits"]),
+            -int(item[2]["legal_action_count"]),
+            -int(item[2]["fallback_count"]),
+            str(item[1].get("run_id")),
+            str(item[1].get("battle_tag")),
+            int(item[1].get("event_index", -1)),
+            item[0].fixture_id,
+        ),
+    )
+
+    selected: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
+    represented_battles: set[tuple[str, str]] = set()
+    for fixture, control, signals in ranked:
+        battle_key = (str(control["run_id"]), str(control["battle_tag"]))
+        if battle_key in represented_battles:
+            continue
+        selected.append((fixture, control, signals))
+        represented_battles.add(battle_key)
+        if max_fixtures is not None and len(selected) >= max_fixtures:
+            break
+
+    controls_by_fixture: dict[str, list[Mapping[str, Any]]] = {}
+    fixture_by_id: dict[str, DecisionFixture] = {}
+    fixture_order: list[str] = []
+    for fixture, control, _ in selected:
+        if fixture.fixture_id not in controls_by_fixture:
+            fixture_order.append(fixture.fixture_id)
+            controls_by_fixture[fixture.fixture_id] = []
+            fixture_by_id[fixture.fixture_id] = fixture
+        controls_by_fixture[fixture.fixture_id].append(control)
+
+    selected_fixtures = [
+        DecisionFixture(
+            fixture_id=fixture_id,
+            state=fixture_by_id[fixture_id].state,
+            protocol_prefix=fixture_by_id[fixture_id].protocol_prefix,
+            control_decisions=tuple(controls_by_fixture[fixture_id]),
+        )
+        for fixture_id in fixture_order
+    ]
+
+    selection = {
+        "kind": "public-evidence-debt-curriculum",
+        "candidate_fixture_count": len(fixtures),
+        "candidate_decision_count": len(candidates),
+        "max_fixtures": max_fixtures,
+        "selected_fixture_count": len(selected_fixtures),
+        "selected_decision_count": len(selected),
+        "one_decision_per_battle": True,
+        "selected": [
+            {
+                "fixture_id": fixture.fixture_id,
+                "run_id": str(control["run_id"]),
+                "battle_tag": str(control["battle_tag"]),
+                "event_index": control.get("event_index"),
+                "signals": signals,
+            }
+            for fixture, control, signals in selected
+        ],
+    }
+    return selected_fixtures, selection
 
 
 class PinnedShowdownTeacherSource:
@@ -204,11 +385,16 @@ def generate_teacher_evidence(
     source: TeacherSource,
     output_root: str | Path,
     compute_budget: int = 4096,
+    max_teacher_fixtures: int | None = None,
 ) -> TeacherEvidence:
     """Generate settled search teacher artifacts from completed real traces."""
 
     traces = _normalized_trace_paths(trace_paths)
-    fixtures = build_fixtures(traces)
+    all_fixtures = build_fixtures(traces)
+    fixtures, selection = _mine_informative_fixtures(
+        all_fixtures,
+        max_fixtures=max_teacher_fixtures,
+    )
     evaluator_identity = getattr(evaluator, "identity", None)
     if not isinstance(evaluator_identity, Mapping):
         raise TeacherEvidenceError("teacher evaluator lacks an immutable identity")
@@ -224,6 +410,7 @@ def generate_teacher_evidence(
             "evaluator": dict(evaluator_identity),
             "showdown_commit": source.showdown_commit,
             "compute_budget": compute_budget,
+            "selection": selection,
         }
     )
     root = Path(output_root) / run_digest.removeprefix("sha256:")
@@ -267,11 +454,18 @@ def generate_teacher_evidence(
         _write_immutable_json(program_path, transition_program)
 
         for control in fixture.control_decisions:
+            run_id = control.get("run_id")
             battle_tag = control.get("battle_tag")
-            if not isinstance(battle_tag, str) or not battle_tag:
+            if (
+                not isinstance(run_id, str)
+                or not run_id
+                or not isinstance(battle_tag, str)
+                or not battle_tag
+            ):
                 raise TeacherEvidenceError("fixture control lacks battle identity")
             state = {
                 "fixture_id": fixture.fixture_id,
+                "run_id": run_id,
                 "battle_tag": battle_tag,
                 "public_state": dict(fixture.state),
                 "legal_actions": list(fixture.legal_actions),
@@ -318,6 +512,7 @@ def generate_teacher_evidence(
             admitted_rows.append(
                 {
                     "fixture_id": fixture.fixture_id,
+                    "run_id": run_id,
                     "battle_tag": battle_tag,
                     "packet_digest": packet_digest,
                     "posterior_digest": posterior_digest,
@@ -340,6 +535,7 @@ def generate_teacher_evidence(
         "showdown_commit": source.showdown_commit,
         "evaluator": dict(evaluator_identity),
         "plan": plan,
+        "selection": selection,
         "admitted_decision_count": len(admitted_rows),
         "excluded_decision_count": sum(
             int(row["decision_count"]) for row in excluded_rows
@@ -378,6 +574,7 @@ def run_self_improvement_cycle(
     receipts_dir: str | Path,
     promotion_file: str | Path,
     teacher_compute_budget: int = 4096,
+    max_teacher_fixtures: int | None = None,
     teacher_timeout_seconds: float = 20.0,
     split_seed: str = "azelficoast.training-records",
     train_fraction: float = 0.8,
@@ -401,10 +598,12 @@ def run_self_improvement_cycle(
         ),
         output_root=Path(workspace) / "teachers",
         compute_budget=teacher_compute_budget,
+        max_teacher_fixtures=max_teacher_fixtures,
     )
     cycle_inputs = {
         "teacher_manifest_digest": teacher.manifest_digest,
         "incumbent_checkpoint_digest": incumbent_digest,
+        "max_teacher_fixtures": max_teacher_fixtures,
         "split_seed": split_seed,
         "train_fraction": train_fraction,
         "validation_fraction": validation_fraction,
