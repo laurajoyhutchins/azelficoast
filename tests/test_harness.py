@@ -147,4 +147,5 @@ def test_training_auto_parsing() -> None:
     assert args.training_command == "auto"
     assert args.generations == 3
     assert args.battles_per_generation == 20
+    assert args.battle_search_policy_margin == 0.0
     assert args.max_teacher_fixtures == 48
