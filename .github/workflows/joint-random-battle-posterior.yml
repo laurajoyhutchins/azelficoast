@@ -9,6 +9,8 @@ on:
       - "src/azelficoast/belief/validity.py"
       - "src/azelficoast/belief/evaluator.py"
       - "src/azelficoast/live/belief.py"
+      - "src/azelficoast/belief/self_improvement.py"
+      - "scripts/probe_real_belief_trace.cjs"
       - "tests/test_joint_posterior.py"
       - "tests/test_joint_posterior_sampler.py"
       - "tests/test_belief_evaluator.py"
@@ -139,10 +141,76 @@ jobs:
           )
           PY
 
+      - name: Prove joint posterior composes with exact teacher mechanics
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          source_path = Path("/tmp/joint-source-path").read_text().strip()
+          raw = json.loads(Path(source_path).read_text())
+          fixture = raw.get("fixture", raw)
+          if not isinstance(fixture, dict) or not fixture.get("fixture_id"):
+              raise SystemExit("selected joint fixture is malformed")
+          source = (
+              dict(raw)
+              if raw.get("schema") == "azelficoast.real-belief-source-fixture"
+              else {
+                  "schema": "azelficoast.real-belief-source-fixture",
+                  "schema_version": 1,
+                  "fixture_id": fixture["fixture_id"],
+                  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+                  "fixture": fixture,
+              }
+          )
+          source["joint_opponent_posterior"] = json.loads(
+              Path("/tmp/joint-posterior.json").read_text()
+          )
+          Path("/tmp/joint-teacher-source.json").write_text(
+              json.dumps(source, sort_keys=True) + "\n"
+          )
+          PY
+
+          node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             /tmp/joint-teacher-source.json             --posterior-only             > /tmp/joint-teacher-posterior.json
+
+          node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             /tmp/joint-teacher-source.json             --transition-program-only             > /tmp/joint-teacher-program.json
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          posterior = json.loads(Path("/tmp/joint-teacher-posterior.json").read_text())
+          program = json.loads(Path("/tmp/joint-teacher-program.json").read_text())
+
+          assert posterior["treatment"] in {
+              "generator_faithful_joint_empirical",
+              "practical_joint_completion",
+          }
+          assert posterior["reconstruction"]["kind"] == "joint-team-particles-with-dynamic-hp"
+          assert posterior["reconstruction"]["preserves_joint_team_set_correlations"] is True
+          assert posterior["worlds"]
+          assert all(
+              isinstance(world["hidden"].get("opponent.bench"), list)
+              and world["hidden"]["opponent.bench"]
+              for world in posterior["worlds"]
+          )
+          assert "opponent.bench" in program["dependency_candidates"]
+          assert set(program["world_ids"]) == {
+              world["world_id"] for world in posterior["worlds"]
+          }
+          print(
+              "treatment=", posterior["treatment"],
+              "worlds=", len(posterior["worlds"]),
+              "programs=", len(program["programs"]),
+          )
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: joint-random-battle-posterior
           path: |
             /tmp/joint-posterior.json
             /tmp/joint-posterior-validity.json
+            /tmp/joint-teacher-posterior.json
+            /tmp/joint-teacher-program.json
           if-no-files-found: error
