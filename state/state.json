@@ -1,0 +1,19 @@
+{
+  "current_evaluator": null,
+  "last_run_id": "36201889863",
+  "last_run_status": "bootstrap-not-ready",
+  "policy": {
+    "auto_battles_per_generation": 24,
+    "auto_concurrency": 4,
+    "auto_generations": 1,
+    "auto_max_teacher_fixtures": 64,
+    "auto_promotion_battles": 32,
+    "auto_public_replays_per_generation": 4,
+    "bootstrap_max_pages": 4,
+    "bootstrap_min_admitted_battles": 12,
+    "bootstrap_page_battles": 24,
+    "public_replay_min_rating": 1500
+  },
+  "schema": "azelficoast.hosted-training-state",
+  "schema_version": 1
+}
