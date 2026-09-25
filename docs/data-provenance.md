@@ -83,5 +83,10 @@ population is recovered, so those observations cannot be hidden by a cache hit.
 Cache entries are digest-checked, live only for the pretraining source's
 lifetime, and are not included in posterior evidence or posterior digests.
 
+Exact-HP support is derived from the same pinned Showdown mechanics identity,
+but it does not require constructing a battle. The derivation uses only species
+base HP, level, HP IV, HP EV, and Showdown's species max-HP override; observed
+public HP percentage remains fixture-specific and is applied afterward.
+
 Azelficoast does not infer missing private requests from the public spectator
 log.
