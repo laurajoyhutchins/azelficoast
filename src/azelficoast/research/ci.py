@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
-SHOWDOWN_REVISION = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
+SHOWDOWN_REVISION_PATH = Path("experiments/showdown-revision.txt")
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 DEFAULT_OUTPUT_ROOT = Path("/tmp/azelficoast-research")
 
@@ -524,7 +524,10 @@ _SHARED_PYTHON_PATHS = {
     ".github/workflows/candidate-research.yml",
     "src/azelficoast/research/ci.py",
 }
-_SHARED_SHOWDOWN_PATHS = {".github/actions/setup-showdown/action.yml"}
+_SHARED_SHOWDOWN_PATHS = {
+    ".github/actions/setup-showdown/action.yml",
+    "experiments/showdown-revision.txt",
+}
 
 
 def experiments_for_paths(paths: Iterable[str]) -> tuple[CandidateExperiment, ...]:
@@ -632,6 +635,13 @@ def _check(check: Check, work: Path) -> None:
         )
 
 
+def showdown_revision() -> str:
+    revision = SHOWDOWN_REVISION_PATH.read_text(encoding="utf-8").strip()
+    if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
+        raise CandidateExperimentError("invalid authoritative Pokémon Showdown revision")
+    return revision
+
+
 def _git_sha() -> str:
     configured = os.environ.get("AZELFICOAST_GIT_SHA", "").strip()
     if configured:
@@ -671,7 +681,7 @@ def _receipt(experiment: CandidateExperiment, work: Path) -> None:
                 "experiment": experiment.name,
                 "git_sha": _git_sha(),
                 "showdown_revision": (
-                    SHOWDOWN_REVISION if experiment.showdown else None
+                    showdown_revision() if experiment.showdown else None
                 ),
                 "outputs": outputs,
                 "module_outcomes": module_outcomes,
@@ -699,7 +709,7 @@ def run_experiment(
         if (
             not marker.is_file()
             or marker.read_text(encoding="utf-8").strip()
-            != SHOWDOWN_REVISION
+            != showdown_revision()
         ):
             raise CandidateExperimentError(
                 "verified pinned Showdown is not available"
@@ -748,7 +758,67 @@ def _parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("experiment", choices=tuple(_BY_NAME))
     run.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+
+    certify = commands.add_parser("certify")
+    certify.add_argument("--matrix", required=True)
+    certify.add_argument("--selected-count", required=True, type=int)
+    certify.add_argument("--exact-result", required=True)
+    certify.add_argument("--head", required=True)
+    certify.add_argument("--output", type=Path, required=True)
     return parser
+
+
+def certify_candidate(
+    *,
+    matrix_json: str,
+    selected_count: int,
+    exact_result: str,
+    head_sha: str,
+    output: Path,
+) -> dict[str, object]:
+    if selected_count != 0 and exact_result != "success":
+        raise CandidateExperimentError(
+            f"candidate research failed: exact jobs={exact_result}"
+        )
+    matrix = json.loads(matrix_json)
+    if not isinstance(matrix, Mapping):
+        raise CandidateExperimentError("candidate matrix must be an object")
+    include = matrix.get("include")
+    if not isinstance(include, list):
+        raise CandidateExperimentError("candidate matrix must contain include list")
+    if len(include) != selected_count:
+        raise CandidateExperimentError(
+            f"candidate matrix count mismatch: {len(include)} != {selected_count}"
+        )
+    selected: list[str] = []
+    for entry in include:
+        if not isinstance(entry, Mapping):
+            raise CandidateExperimentError("candidate matrix entry must be an object")
+        experiment = entry.get("experiment")
+        if not isinstance(experiment, str) or experiment not in _BY_NAME:
+            raise CandidateExperimentError(
+                f"candidate matrix references unknown experiment {experiment!r}"
+            )
+        selected.append(experiment)
+    if len(selected) != len(set(selected)):
+        raise CandidateExperimentError("candidate matrix contains duplicate experiments")
+    if len(head_sha) != 40 or any(
+        character not in "0123456789abcdef" for character in head_sha
+    ):
+        raise CandidateExperimentError("candidate certificate requires an exact git SHA")
+
+    certificate = {
+        "schema": "azelficoast.candidate-research-certificate",
+        "git_sha": head_sha,
+        "selected_experiments": selected,
+        "passed": True,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(certificate, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return certificate
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -774,6 +844,17 @@ def main(argv: Sequence[str] | None = None) -> int:
                 separators=(",", ":"),
             )
         )
+        return 0
+
+    if args.command == "certify":
+        certificate = certify_candidate(
+            matrix_json=args.matrix,
+            selected_count=args.selected_count,
+            exact_result=args.exact_result,
+            head_sha=args.head,
+            output=args.output,
+        )
+        print(json.dumps(certificate, sort_keys=True))
         return 0
 
     work = run_experiment(args.experiment, Path(args.output_root))

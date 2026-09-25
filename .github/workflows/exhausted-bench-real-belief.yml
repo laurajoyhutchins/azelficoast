@@ -6,197 +6,48 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
+      - "experiments/showdown-revision.txt"
       - "scripts/probe_real_belief_trace.cjs"
+      - "src/azelficoast/research/hosted/**"
       - ".github/workflows/exhausted-bench-real-belief.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+      - name: Resolve code-owned witness matrix
+        id: matrix
+        run: echo "matrix=$(uv run python -m azelficoast.research.hosted matrix exhausted-bench)" >> "${GITHUB_OUTPUT}"
+
   exact:
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: tinkaton-gardevoir
-            fixture_id: bbe2078827062b7e32e0efcd28a77619b5d1e4edec4fd490ea71a5005e9e49d4
-          - name: regigigas-bruxish-turn17
-            fixture_id: 7a60eceebb54d4213afa90a51d6120e58f26bbcfd159d537087a6cd832a7b9ad
-          - name: regigigas-bruxish-turn18
-            fixture_id: e806414b1c6f2afa650d7c15f466aafc032c4c1fb0adae94f94e152d483d30ad
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     name: exact-${{ matrix.name }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Setup Azelficoast Python
-        uses: ./.github/actions/setup-python-environment
-
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-
-      - name: Extract exact publicly exhausted fixture
-        env:
-          FIXTURE_ID: ${{ matrix.fixture_id }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          fixture_id = os.environ["FIXTURE_ID"]
-          with Path("/tmp/azelficoast-evidence/discovery/fixtures.jsonl").open() as stream:
-              fixture = next(
-                  json.loads(raw)
-                  for raw in stream
-                  if json.loads(raw).get("fixture_id") == fixture_id
-              )
-          candidates = json.loads(
-              Path("/tmp/azelficoast-evidence/discovery/candidates.json").read_text()
-          )
-          candidate = next(
-              row
-              for row in candidates["candidates"]
-              if row["fixture_id"] == fixture_id
-          )
-
-          latest_tera = None
-          public_team_size = None
-          for batch in fixture["protocol_prefix"]:
-              for message in batch:
-                  if len(message) < 2 or message[0] != "":
-                      continue
-                  if (
-                      message[1] == "teamsize"
-                      and len(message) >= 4
-                      and message[2] == "p2"
-                  ):
-                      public_team_size = int(message[3])
-                  if message[1] == "request" and len(message) >= 3:
-                      try:
-                          request = json.loads(message[2])
-                      except json.JSONDecodeError:
-                          continue
-                      active = request.get("active") or []
-                      if active and active[0].get("canTerastallize"):
-                          latest_tera = active[0]["canTerastallize"]
-
-          public_team = list(fixture["state"]["opponent_team"].values())
-          known_species = {
-              view["species"] for view in public_team if view.get("species")
-          }
-          active_species = fixture["state"]["opponent_active"]["species"]
-          survivors = [
-              view["species"]
-              for view in public_team
-              if not view.get("fainted")
-          ]
-
-          assert public_team_size == 6, public_team_size
-          assert len(known_species) == public_team_size, known_species
-          assert survivors == [active_species], (survivors, active_species)
-          assert latest_tera is not None, fixture_id
-
-          source = {
-              "schema": "azelficoast.real-belief-source-fixture",
-              "schema_version": 1,
-              "fixture_id": fixture_id,
-              "showdown_commit": candidate["showdown_commit"],
-              "source_artifact": {
-                  "id": 10827665365,
-                  "digest": (
-                      "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34"
-                  ),
-              },
-              "source_projection": (
-                  "exact frozen speed-fork fixture with publicly exhausted opponent bench"
-              ),
-              "state": fixture["state"],
-              "protocol_prefix": fixture["protocol_prefix"],
-              "control_decisions": fixture.get("control_decisions", []),
-              "plausible_items": sorted(candidate["item_counts"]),
-              "observed_opponent_moves": candidate["revealed_moves"],
-              "opponent_response_move": candidate["locked_move"],
-              "own_active_tera_type": latest_tera,
-          }
-          Path("/tmp/source.json").write_text(
-              json.dumps(source, sort_keys=True),
-              encoding="utf-8",
-          )
-          PY
-
-      - name: Fetch pinned Pokémon Showdown
-        run: |
-          git init /tmp/pokemon-showdown
-          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
-          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
-          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
-
-      - name: Build Pokémon Showdown
-        working-directory: /tmp/pokemon-showdown
-        run: |
-          npm ci --omit=optional --no-audit --no-fund
-          npm run build
-
-      - name: Generate exact oracle
-        run: |
-          node scripts/probe_real_belief_trace.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/source.json \
-            > /tmp/oracle.json
-
-      - name: Analyze information set
-        run: |
-          uv run python -m azelficoast.research.verification.real_belief_trace /tmp/oracle.json \
-            | tee /tmp/trace.json
-          uv run python -m azelficoast.research.verification.real_belief_miner /tmp/oracle.json \
-            | tee /tmp/mining.json
-
-      - name: Verify exact exhausted-bench treatment
-        env:
-          FIXTURE_ID: ${{ matrix.fixture_id }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          fixture_id = os.environ["FIXTURE_ID"]
-          trace = json.loads(Path("/tmp/trace.json").read_text())
-          mining = json.loads(Path("/tmp/mining.json").read_text())
-
-          assert trace["source_fixture_id"] == fixture_id, trace
-          assert trace["experiment_valid"] is True, trace
-          assert trace["world_count"] >= 2, trace
-          assert trace["legal_action_count"] >= 1, trace
-          assert mining["ranking_uses_policy_result"] is False, mining
-
-          summary = {
-              "fixture_id": fixture_id,
-              "world_count": trace["world_count"],
-              "legal_action_count": trace["legal_action_count"],
-              "strategy_fusion_observation_count": (
-                  trace["strategy_fusion_observation_count"]
-              ),
-              "policy_disagreement": trace["policy_disagreement"],
-              "determinization_action": trace["determinization"]["chosen_action"],
-              "public_belief_action": trace["public_belief"]["chosen_action"],
-          }
-          Path("/tmp/result.json").write_text(
-              json.dumps(summary, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          print(json.dumps(summary, sort_keys=True))
-          PY
-
+      - uses: ./.github/actions/setup-python-environment
+      - uses: ./.github/actions/setup-research-evidence
+      - uses: ./.github/actions/setup-showdown
+      - name: Execute hosted research contract
+        run: uv run python -m azelficoast.research.hosted exhausted-bench "${{ matrix.name }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

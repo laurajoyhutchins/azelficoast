@@ -181,6 +181,46 @@ def test_unknown_sampled_item_fails_closed() -> None:
         infer_item_posterior(sample, _damage())
 
 
+def test_world_sample_accepts_explicit_null_public_generator_context(tmp_path) -> None:
+    sample = _sample()
+    sample["generator_context"] = {
+        **sample["generator_context"],
+        "publicLevel": None,
+        "publicAbility": None,
+    }
+    path = tmp_path / "sample.json"
+    import json
+
+    path.write_text(json.dumps(sample), encoding="utf-8")
+
+    loaded = load_world_sample(path)
+    assert loaded["generator_context"]["publicLevel"] is None
+
+    replay = ReplayEvidence(
+        replay_id="gen9randombattle-test",
+        format="[Gen 9] Random Battle",
+        log=_turn_19_log(),
+    )
+    result = build_replay_belief(replay, parse_protocol(replay.log), loaded)
+    assert result["posterior"] == {"Choice Scarf": 1.0}
+
+
+def test_world_sample_rejects_conditioned_public_generator_context(tmp_path) -> None:
+    sample = _sample()
+    sample["generator_context"] = {
+        **sample["generator_context"],
+        "publicLevel": 82,
+        "publicAbility": None,
+    }
+    path = tmp_path / "sample.json"
+    import json
+
+    path.write_text(json.dumps(sample), encoding="utf-8")
+
+    with pytest.raises(ReplayError, match="unexpected generator context"):
+        load_world_sample(path)
+
+
 def test_world_sample_must_be_bound_to_historical_showdown_revision(tmp_path) -> None:
     sample = _sample()
     sample["showdown_commit"] = "wrong"

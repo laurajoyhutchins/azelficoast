@@ -7,6 +7,7 @@ on:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
       - ".github/workflows/candidate-research.yml"
+      - "experiments/showdown-revision.txt"
       - "pyproject.toml"
       - "uv.lock"
       - "README.md"
@@ -97,39 +98,23 @@ jobs:
     name: certify exact head
     runs-on: ubuntu-latest
     steps:
-      - name: Require selected exact evidence
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Certify selected exact evidence
         env:
           SELECTED_COUNT: ${{ needs.plan.outputs.count }}
           EXACT_RESULT: ${{ needs.exact.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           MATRIX: ${{ needs.plan.outputs.matrix }}
         run: |
-          set -euo pipefail
-          if [[ "${SELECTED_COUNT}" != "0" && "${EXACT_RESULT}" != "success" ]]; then
-            echo "candidate research failed: exact jobs=${EXACT_RESULT}" >&2
-            exit 1
-          fi
-
-          mkdir -p /tmp/candidate-research-certificate
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          matrix = json.loads(os.environ["MATRIX"])
-          certificate = {
-              "schema": "azelficoast.candidate-research-certificate",
-              "git_sha": os.environ["HEAD_SHA"],
-              "selected_experiments": [
-                  entry["experiment"] for entry in matrix["include"]
-              ],
-              "passed": True,
-          }
-          Path("/tmp/candidate-research-certificate/certificate.json").write_text(
-              json.dumps(certificate, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
+          python src/azelficoast/research/ci.py certify \
+            --matrix "${MATRIX}" \
+            --selected-count "${SELECTED_COUNT}" \
+            --exact-result "${EXACT_RESULT}" \
+            --head "${HEAD_SHA}" \
+            --output /tmp/candidate-research-certificate/certificate.json
 
       - uses: actions/upload-artifact@v4
         with:
