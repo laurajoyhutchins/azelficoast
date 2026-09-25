@@ -688,6 +688,117 @@ function cloneBattle(snapshot, chanceSeed) {
   return battle;
 }
 
+function instrumentOpponentHiddenReads(battle) {
+  const reads = new Set();
+  const pokemon = battle.p2.active[0];
+  if (!pokemon) {
+    return {
+      reads: () => [],
+      restore: () => {},
+    };
+  }
+
+  const restorers = [];
+  const mark = (...fields) => {
+    for (const field of fields) reads.add(field);
+  };
+
+  function trackDataProperty(object, key, fields) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, key);
+    if (
+      !descriptor ||
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      descriptor.configurable === false
+    ) {
+      mark(...fields);
+      return;
+    }
+
+    let value = descriptor.value;
+    Object.defineProperty(object, key, {
+      configurable: descriptor.configurable,
+      enumerable: descriptor.enumerable,
+      get() {
+        mark(...fields);
+        return value;
+      },
+      set(next) {
+        if (descriptor.writable === false) {
+          throw new TypeError("cannot write instrumented read-only property " + key);
+        }
+        value = next;
+      },
+    });
+    restorers.push(() => {
+      Object.defineProperty(object, key, {
+        ...descriptor,
+        value,
+      });
+    });
+  }
+
+  function trackStatObject(key) {
+    const descriptor = Object.getOwnPropertyDescriptor(pokemon, key);
+    if (
+      !descriptor ||
+      !Object.prototype.hasOwnProperty.call(descriptor, "value") ||
+      descriptor.configurable === false ||
+      !descriptor.value ||
+      typeof descriptor.value !== "object"
+    ) {
+      mark("opponent.active.evs", "opponent.active.ivs");
+      return;
+    }
+    const target = descriptor.value;
+    const proxy = new Proxy(target, {
+      get(object, property, receiver) {
+        if (
+          typeof property === "string" &&
+          ["atk", "def", "spa", "spd", "spe"].includes(property)
+        ) {
+          mark("opponent.active.evs", "opponent.active.ivs");
+        }
+        return Reflect.get(object, property, receiver);
+      },
+      set(object, property, value, receiver) {
+        return Reflect.set(object, property, value, receiver);
+      },
+    });
+    pokemon[key] = proxy;
+    restorers.push(() => {
+      pokemon[key] = target;
+    });
+  }
+
+  trackDataProperty(pokemon, "item", ["opponent.active.item"]);
+  trackDataProperty(pokemon, "ability", ["opponent.active.ability"]);
+  trackDataProperty(pokemon, "hp", ["opponent.active.exact_hp"]);
+  trackDataProperty(
+    pokemon,
+    "maxhp",
+    ["opponent.active.evs", "opponent.active.ivs"]
+  );
+  trackDataProperty(
+    pokemon,
+    "baseMaxhp",
+    ["opponent.active.evs", "opponent.active.ivs"]
+  );
+  trackStatObject("storedStats");
+  trackStatObject("baseStoredStats");
+
+  let restored = false;
+  return {
+    reads() {
+      return [...reads].sort();
+    },
+    restore() {
+      if (restored) return;
+      restored = true;
+      for (const restore of restorers.reverse()) restore();
+    },
+  };
+}
+
 function rootChoice(action) {
   if (!action.startsWith("/choose ")) fail(`unexpected root action ${action}`);
   return action.slice("/choose ".length);
@@ -785,6 +896,10 @@ function stateSummary(battle, world) {
             battle.p2.active[0].hp === Number(world.exactHp)
               ? "<unchanged>"
               : battle.p2.active[0].hp,
+          maxhp:
+            battle.p2.active[0].maxhp === Number(world.opponent_max_hp)
+              ? "<unchanged>"
+              : battle.p2.active[0].maxhp,
         }
       : null,
     weather: battle.field.weather || null,
@@ -907,11 +1022,15 @@ function continuationValues(rootSnapshot) {
   };
 }
 
-function declaredReads(_action) {
-  // Pokémon Showdown is an external oracle rather than an instrumented lowering.
-  // Declare the whole hidden adapter boundary conservatively; the analyzer then
-  // derives the empirically required subset from exact mechanics outcomes.
-  return [...DEPENDENCY_CANDIDATES];
+function declaredReads(action) {
+  const reads = new Set();
+  for (const transition of transitions) {
+    if (transition.action !== action) continue;
+    for (const outcome of transition.outcomes) {
+      for (const field of outcome.transition_reads || []) reads.add(field);
+    }
+  }
+  return [...reads].sort();
 }
 
 function factoredBenchAudit(worlds, legalActions, transitions) {
@@ -1165,7 +1284,13 @@ for (const world of worlds) {
         seed(i, 1_000 + legalActions.indexOf(action))
       );
       const logStart = battle.log.length;
-      battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+      const readTrace = instrumentOpponentHiddenReads(battle);
+      try {
+        battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
+      } finally {
+        readTrace.restore();
+      }
+      const transitionReads = readTrace.reads();
       const rootObservation = observation(battle, logStart);
       const successor = stateSummary(battle, world);
       const rootSnapshot = JSON.stringify(battle);
@@ -1174,6 +1299,7 @@ for (const world of worlds) {
         probability: 1 / ROOT_CHANCE_SAMPLES,
         observation: rootObservation,
         successor,
+        transition_reads: transitionReads,
         ...continuation,
       });
       battle.destroy();
@@ -1252,7 +1378,7 @@ process.stdout.write(JSON.stringify({
     bench_factor_unread_action_count: benchFactor
       ? benchFactor.unread_actions.length
       : 0,
-    declared_read_mode: "conservative-external-oracle-boundary",
+    declared_read_mode: "instrumented-showdown-hidden-state-boundary",
   },
   factored_hidden: factoredHidden,
   marginalized_hidden: marginalizedHidden,

@@ -4,10 +4,10 @@ The compiler deliberately ignores continuation values. A transition program desc
 only one complete root turn: chance probability, public observation, and successor
 state. Search and value functions consume that surface later.
 
-For the supplied finite hidden-world support, the compiler finds the smallest declared
-hidden-field projection that determines the complete immediate transition distribution
-for each legal action. This is an exact finite-support quotient, not a claim that the
-same fields suffice for unseen worlds or a longer horizon.
+When Showdown supplies dynamic hidden-state read traces, the compiler refines classes
+only when a representative actually reads a hidden field. The existing exhaustive
+oracle verifies every resulting class, so incomplete instrumentation fails closed.
+Older frozen oracles without read traces retain the exact finite-support fallback.
 """
 
 from __future__ import annotations
@@ -77,6 +77,107 @@ def _minimal_dependency_fields(
     )
 
 
+def _dynamic_transition_reads(
+    transition: Mapping[str, Any],
+    candidates: Sequence[str],
+) -> tuple[str, ...] | None:
+    allowed = set(candidates)
+    reads: set[str] = set()
+    for outcome in transition_outcomes(
+        transition,
+        error_type=WholeTurnProgramError,
+    ):
+        raw = outcome.get("transition_reads")
+        if raw is None:
+            return None
+        if not isinstance(raw, list) or not all(isinstance(field, str) for field in raw):
+            raise WholeTurnProgramError(
+                "transition_reads must be an array of semantic hidden-field paths"
+            )
+        unknown = set(raw) - allowed
+        if unknown:
+            raise WholeTurnProgramError(
+                f"transition_reads reference unknown dependency candidates: {sorted(unknown)!r}"
+            )
+        reads.update(raw)
+    return tuple(sorted(reads))
+
+
+def _read_refined_classes(
+    worlds: Sequence[Mapping[str, Any]],
+    *,
+    action: str,
+    transitions: Mapping[tuple[str, str], Mapping[str, Any]],
+    semantic_hashes: Mapping[str, str],
+    candidates: Sequence[str],
+) -> tuple[tuple[str, ...], list[dict[str, Any]]] | None:
+    world_by_id = {str(world["world_id"]): world for world in worlds}
+    read_fields: dict[str, tuple[str, ...]] = {}
+    for world_id in world_by_id:
+        fields = _dynamic_transition_reads(
+            transitions[(world_id, action)],
+            candidates,
+        )
+        if fields is None:
+            return None
+        read_fields[world_id] = fields
+
+    pending: list[list[str]] = [sorted(world_by_id)]
+    classes: list[dict[str, Any]] = []
+    while pending:
+        member_ids = pending.pop()
+        representative_id = member_ids[0]
+        fields = read_fields[representative_id]
+
+        groups: dict[tuple[str, ...], list[str]] = defaultdict(list)
+        for world_id in member_ids:
+            hidden = world_by_id[world_id]["hidden"]
+            key = tuple(canonical_json(hidden.get(field)) for field in fields)
+            groups[key].append(world_id)
+
+        if len(groups) > 1:
+            for _, group in sorted(groups.items(), reverse=True):
+                pending.append(sorted(group))
+            continue
+
+        semantic_hash = semantic_hashes[representative_id]
+        divergent = [
+            world_id
+            for world_id in member_ids
+            if semantic_hashes[world_id] != semantic_hash
+        ]
+        if divergent:
+            raise WholeTurnProgramError(
+                f"{action}: instrumented transition reads are incomplete; "
+                f"representative {representative_id} cannot distinguish "
+                f"{divergent[0]}"
+            )
+
+        hidden = world_by_id[representative_id]["hidden"]
+        key = tuple(canonical_json(hidden.get(field)) for field in fields)
+        classes.append(
+            {
+                "read_fields": list(fields),
+                "projection_key": list(key),
+                "representative_world_id": representative_id,
+                "member_world_ids": sorted(member_ids),
+                "semantic_hash": semantic_hash,
+            }
+        )
+
+    classes.sort(key=lambda row: row["representative_world_id"])
+    union_fields = tuple(
+        sorted(
+            {
+                field
+                for row in classes
+                for field in row["read_fields"]
+            }
+        )
+    )
+    return union_fields, classes
+
+
 def compile_whole_turn_programs(
     oracle: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -99,26 +200,47 @@ def compile_whole_turn_programs(
             world_id: sha256_json(distribution)
             for world_id, distribution in immediate.items()
         }
-        dependency_fields = _minimal_dependency_fields(
+        refined = _read_refined_classes(
             worlds,
-            semantic_hashes,
-            candidates,
+            action=action,
+            transitions=transitions,
+            semantic_hashes=semantic_hashes,
+            candidates=candidates,
         )
-
-        grouped: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
-        for world in worlds:
-            hidden = world["hidden"]
-            key = tuple(
-                canonical_json(hidden.get(field))
-                for field in dependency_fields
+        if refined is None:
+            partition_method = "finite-support-minimal-semantics"
+            dependency_fields = _minimal_dependency_fields(
+                worlds,
+                semantic_hashes,
+                candidates,
             )
-            grouped[key].append(world)
+            grouped: dict[tuple[str, ...], list[str]] = defaultdict(list)
+            for world in worlds:
+                hidden = world["hidden"]
+                key = tuple(
+                    canonical_json(hidden.get(field))
+                    for field in dependency_fields
+                )
+                grouped[key].append(str(world["world_id"]))
+            class_rows = [
+                {
+                    "read_fields": list(dependency_fields),
+                    "projection_key": list(key),
+                    "representative_world_id": sorted(member_ids)[0],
+                    "member_world_ids": sorted(member_ids),
+                    "semantic_hash": semantic_hashes[sorted(member_ids)[0]],
+                }
+                for key, member_ids in sorted(grouped.items(), key=lambda row: row[0])
+            ]
+        else:
+            partition_method = "dynamic-read-refinement"
+            dependency_fields, class_rows = refined
 
         classes: list[dict[str, Any]] = []
-        for key, members in sorted(grouped.items(), key=lambda row: row[0]):
-            member_ids = sorted(str(world["world_id"]) for world in members)
-            representative_id = member_ids[0]
-            semantic_hash = semantic_hashes[representative_id]
+        for row in class_rows:
+            member_ids = list(row["member_world_ids"])
+            representative_id = str(row["representative_world_id"])
+            semantic_hash = str(row["semantic_hash"])
             if any(
                 semantic_hashes[member_id] != semantic_hash
                 for member_id in member_ids
@@ -130,15 +252,16 @@ def compile_whole_turn_programs(
             class_id = "transition-class-" + sha256_json(
                 {
                     "action": action,
-                    "fields": dependency_fields,
-                    "key": key,
+                    "read_fields": row["read_fields"],
+                    "key": row["projection_key"],
                     "semantic_hash": semantic_hash,
                 }
             )[:24]
             classes.append(
                 {
                     "class_id": class_id,
-                    "projection_key": list(key),
+                    "read_fields": list(row["read_fields"]),
+                    "projection_key": list(row["projection_key"]),
                     "representative_world_id": representative_id,
                     "member_world_ids": member_ids,
                     "semantic_hash": semantic_hash,
@@ -149,6 +272,7 @@ def compile_whole_turn_programs(
         partition_key_hash = sha256_json(
             {
                 "action": action,
+                "partition_method": partition_method,
                 "fields": dependency_fields,
                 "classes": [
                     {
@@ -174,6 +298,8 @@ def compile_whole_turn_programs(
                 "action": action,
                 "effect_signature": effect_signature,
                 "dependency_fields": list(dependency_fields),
+                "partition_method": partition_method,
+                "representative_world_count": len(classes),
                 "worlds_in": len(worlds),
                 "classes_out": len(classes),
                 "world_reduction": len(worlds) - len(classes),

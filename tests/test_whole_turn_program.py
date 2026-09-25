@@ -187,3 +187,97 @@ def test_execution_rejects_posterior_support_drift() -> None:
                 "Specs-1": 0.5,
             },
         )
+
+
+def _instrumented_branching_oracle() -> dict[str, object]:
+    worlds = [
+        {
+            "world_id": f"{mode}-{detail}",
+            "weight": 0.25,
+            "hidden": {"mode": mode, "detail": detail},
+        }
+        for mode in ("a", "b")
+        for detail in ("x", "y")
+    ]
+    transitions: list[dict[str, object]] = []
+    for world in worlds:
+        hidden = world["hidden"]
+        assert isinstance(hidden, dict)
+        mode = str(hidden["mode"])
+        detail = str(hidden["detail"])
+        reads = ["mode"] if mode == "a" else ["mode", "detail"]
+        successor = (
+            {"branch": "a"}
+            if mode == "a"
+            else {"branch": "b", "detail": detail}
+        )
+        transitions.append(
+            {
+                "world_id": world["world_id"],
+                "action": "turn",
+                "outcomes": [
+                    {
+                        "probability": 1.0,
+                        "observation": {"branch": mode},
+                        "successor": successor,
+                        "transition_reads": reads,
+                    }
+                ],
+            }
+        )
+    return {
+        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema_version": 1,
+        "source_fixture_id": "instrumented-branching",
+        "showdown_commit": "pinned",
+        "worlds": worlds,
+        "legal_actions": ["turn"],
+        "dependency_candidates": ["mode", "detail"],
+        "declared_reads": {"turn": ["mode", "detail"]},
+        "transitions": transitions,
+    }
+
+
+def test_dynamic_read_refinement_keeps_branch_local_dependencies_local() -> None:
+    program = program_for_action(
+        compile_whole_turn_programs(_instrumented_branching_oracle()),
+        "turn",
+    )
+
+    assert program["partition_method"] == "dynamic-read-refinement"
+    assert program["worlds_in"] == 4
+    assert program["classes_out"] == 3
+    assert program["representative_world_count"] == 3
+    assert program["dependency_fields"] == ["detail", "mode"]
+
+    members = sorted(
+        sorted(row["member_world_ids"])
+        for row in program["classes"]
+    )
+    assert members == [["a-x", "a-y"], ["b-x"], ["b-y"]]
+
+    a_class = next(
+        row for row in program["classes"] if row["member_world_ids"] == ["a-x", "a-y"]
+    )
+    assert a_class["read_fields"] == ["mode"]
+
+
+def test_dynamic_read_refinement_fails_closed_on_missing_instrumentation() -> None:
+    oracle = _instrumented_branching_oracle()
+    transitions = oracle["transitions"]
+    assert isinstance(transitions, list)
+    for transition in transitions:
+        assert isinstance(transition, dict)
+        if transition["world_id"] != "b-x":
+            continue
+        outcomes = transition["outcomes"]
+        assert isinstance(outcomes, list)
+        outcome = outcomes[0]
+        assert isinstance(outcome, dict)
+        outcome["transition_reads"] = ["mode"]
+
+    with pytest.raises(
+        WholeTurnProgramError,
+        match="instrumented transition reads are incomplete",
+    ):
+        compile_whole_turn_programs(oracle)
