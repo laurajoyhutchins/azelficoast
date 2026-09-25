@@ -28,9 +28,10 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
     max-damage play, a uniform exploration floor, and observed-move persistence when
     available. The components are mixed
     equally rather than pretending one handcrafted rule is a calibrated human model.
-    Voluntary opponent switches and opponent Terastallization are not yet modeled by
-    that policy. Unsupported
-    boundaries fall back to poke-env's simple heuristics rather than inventing semantics.
+    The bounded prior may switch to a publicly established surviving bench Pokemon and
+    may spend Tera when pinned Showdown exposes it as legal; it never invents an
+    unrevealed switch target. Unsupported boundaries fall back to poke-env's simple
+    heuristics rather than inventing semantics.
     """
 
     def __init__(

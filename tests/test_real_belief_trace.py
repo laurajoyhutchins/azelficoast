@@ -533,7 +533,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
         "];", 1
     )[0]
     assert '"opponent.active.moves"' in dependency_block
-    assert '"opponent.active.tera_type"' not in dependency_block
+    assert '"opponent.active.tera_type"' in dependency_block
 
     assert "mechanics_projection_variant_count" in source
     assert (
@@ -552,7 +552,11 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert '"equal-active-strategies"' in source
     assert "function moveDamageHeuristic(" in source
     assert "function simpleHeuristicsDistribution(" in source
+    assert "function legalOpponentSwitches(" in source
+    assert "function voluntarySwitchDistribution(" in source
+    assert '"simple-heuristics-switch"' in source
     assert "function dirtyTricksDistribution(" in source
+    assert '"dirty-tricks-switch"' in source
     assert '"dirty-tricks-anti-setup"' in source
     assert '"dirty-tricks-priority-cleanup"' in source
     assert '"dirty-tricks-status"' in source
@@ -565,6 +569,8 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'hiddenReads.add("opponent.active.evs")' in source
     assert 'hiddenReads.add("opponent.active.ivs")' in source
     assert 'hiddenReads.add("opponent.active.exact_hp")' in source
+    assert 'hiddenReads.add("opponent.active.tera_type")' in source
+    assert 'row.choice + " terastallize"' in source
     assert '"repeat-last-or-uniform-legal-moves"' not in source
     assert "showdown_turn_executions: showdownTurnExecutions" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source

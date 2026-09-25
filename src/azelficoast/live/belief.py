@@ -292,7 +292,7 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
         "kind": "strategy-mixture",
         "weighting": "equal-active-strategies",
         "strategies": strategies,
-        "voluntary_switches": False,
+        "voluntary_switches": True,
     }
 
     return source, "admitted"
