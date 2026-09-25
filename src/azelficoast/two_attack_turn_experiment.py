@@ -16,6 +16,7 @@ import numpy as np
 
 import azelficoast.gen9_damage as gen9_damage
 import azelficoast.gen9_two_attack_turn as gen9_two_attack_turn
+from azelficoast.adaptive_execution import ExecutionPath
 from azelficoast.adaptive_execution_experiment import (
     _evaluate,
     _execution_target_signature,
@@ -51,6 +52,7 @@ from azelficoast.two_attack_turn_belief import (
     uniform_two_attack_turn_belief,
 )
 from azelficoast.two_attack_turn_compiler import build_two_attack_turn_library
+from azelficoast.two_attack_turn_execution import execute_two_attack_turn_jax
 
 REPEATS = 7
 TRAINING_WORLD_COUNTS = (
@@ -629,6 +631,74 @@ def _benchmark_row(
     }
 
 
+def _preexecution_quotient_evidence(
+    contexts: Sequence[TwoAttackTurnContext],
+    support,
+    projection: TwoAttackTurnProjection,
+    profile,
+) -> dict[str, object]:
+    """Compare one held-out full-world execution with pre-execution quotienting."""
+
+    world_count = 73_728
+    belief = uniform_two_attack_turn_belief(support, world_count)
+
+    direct = execute_two_attack_turn_jax(
+        belief,
+        projection,
+        contexts,
+        force_path=ExecutionPath.DIRECT,
+    )
+    projected = execute_two_attack_turn_jax(
+        belief,
+        projection,
+        contexts,
+        force_path=ExecutionPath.PROJECTED,
+    )
+    adaptive = execute_two_attack_turn_jax(
+        belief,
+        projection,
+        contexts,
+        profile=profile,
+    )
+
+    return {
+        "logical_world_count": world_count,
+        "successor_histogram_exact": projected.histogram() == direct.histogram(),
+        "adaptive_histogram_exact": adaptive.histogram() == direct.histogram(),
+        "direct_transition_evaluations": direct.certificate[
+            "transition_evaluations"
+        ],
+        "projected_transition_evaluations": projected.certificate[
+            "transition_evaluations"
+        ],
+        "transition_evaluation_reduction_factor": (
+            int(direct.certificate["transition_evaluations"])
+            / int(projected.certificate["transition_evaluations"])
+        ),
+        "logical_reduction_fraction": projected.certificate[
+            "logical_reduction_fraction"
+        ],
+        "active_canonical_classes": projected.certificate[
+            "active_canonical_classes"
+        ],
+        "active_execution_classes": projected.certificate[
+            "active_execution_classes"
+        ],
+        "effect_signature": projected.certificate["effect_signature"],
+        "projection_binding_hash": projected.certificate[
+            "projection_binding_hash"
+        ],
+        "adaptive_path": adaptive.path.value,
+        "adaptive_decision": {
+            "predicted_direct_ms": adaptive.decision.predicted_direct_ms,
+            "predicted_projected_ms": adaptive.decision.predicted_projected_ms,
+            "within_uncertainty_guard": adaptive.decision.within_uncertainty_guard,
+        }
+        if adaptive.decision is not None
+        else None,
+    }
+
+
 def run_experiment(fixtures_path: Path) -> dict[str, object]:
     fixtures = _load(fixtures_path)
     contexts = _benchmark_contexts(fixtures)
@@ -676,6 +746,12 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
     candidate = evaluation["candidate"]
     disjoint = set(TRAINING_WORLD_COUNTS).isdisjoint(CONFIRMATION_WORLD_COUNTS)
     both_paths = set(candidate["chosen_paths"]) == {"direct", "projected"}
+    preexecution = _preexecution_quotient_evidence(
+        contexts,
+        support,
+        execution_projection,
+        profile,
+    )
 
     passed = (
         correctness["python_exact"]
@@ -701,6 +777,11 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         and candidate["choice_accuracy"] >= 0.75
         and candidate["adaptive_over_oracle"] <= 1.10
         and candidate["worst_case_over_oracle"] <= 1.20
+        and preexecution["successor_histogram_exact"]
+        and preexecution["adaptive_histogram_exact"]
+        and preexecution["projected_transition_evaluations"]
+        < preexecution["direct_transition_evaluations"]
+        and preexecution["effect_signature"] == effect_signature
     )
 
     return {
@@ -720,6 +801,7 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         "profile": _profile_record(profile),
         "model_selection": selection,
         "confirmation": evaluation,
+        "preexecution_quotient": preexecution,
         "passed": passed,
         "non_claims": [
             "this is a bounded two-damaging-action singles turn, not a complete battle turn scheduler",
