@@ -506,6 +506,11 @@ const particles = [...particleCounts.values()]
   }))
   .sort((a, b) => a.world_id.localeCompare(b.world_id));
 
+const acceptanceRate = attempted ? accepted / attempted : 0;
+const effectiveSampleSize = particles.length
+  ? 1 / particles.reduce((sum, particle) => sum + particle.weight ** 2, 0)
+  : 0;
+
 const publicEvidence = {
   fixture_id: fixture.fixture_id,
   opponent_side: SIDES.opponent,
@@ -535,7 +540,10 @@ const output = {
     minimum_particles: minimumParticles,
     max_rounds: maxRounds,
     generation_error_count: generationErrors,
+    acceptance_rate: acceptanceRate,
+    effective_sample_size: effectiveSampleSize,
     preserves_joint_team_set_correlations: true,
+    posterior_treatment: "practical_joint_generator",
     particle_atomicity: [
       "species",
       "moves",
