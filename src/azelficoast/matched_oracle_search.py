@@ -287,6 +287,7 @@ def execute_method(
         "schema_version": RECEIPT_SCHEMA_VERSION,
         "method": method,
         "input_digest": packet["input_digest"],
+        "evaluator_digest": packet["evaluator_digest"],
         "packet_digest": packet["packet_digest"],
         "posterior_digest": packet["posterior_digest"],
         "transition_oracle_digest": _oracle_digest(oracle),
