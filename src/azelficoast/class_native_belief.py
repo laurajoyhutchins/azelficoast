@@ -9,10 +9,15 @@ particles.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 
+from azelficoast.belief_projection import (
+    aggregate_projected_weights,
+    compile_projection_ids,
+    uniform_integer_weights,
+)
 from azelficoast.gen9_attack import (
     AttackTransitionContext,
     attack_transition_dependency_key,
@@ -143,13 +148,10 @@ def uniform_belief(
     support: CanonicalSupport,
     logical_world_count: int,
 ) -> ClassNativeBelief:
-    if logical_world_count < support.class_count:
-        raise ValueError("logical world count must cover every canonical support class")
-    quotient, remainder = divmod(logical_world_count, support.class_count)
-    weights = np.full(support.class_count, quotient, dtype=np.int64)
-    if remainder:
-        weights[:remainder] += 1
-    return ClassNativeBelief(support=support, weights=weights)
+    return ClassNativeBelief(
+        support=support,
+        weights=uniform_integer_weights(support.class_count, logical_world_count),
+    )
 
 
 def _compile_ids(
@@ -158,21 +160,11 @@ def _compile_ids(
     *,
     name: str,
 ) -> ProjectionMap:
-    ids = np.empty(support.class_count, dtype=np.int32)
-    representatives: list[int] = []
-    class_by_key: dict[tuple[int, ...], int] = {}
-    for index in range(support.class_count):
-        key = key_at(index)
-        class_id = class_by_key.get(key)
-        if class_id is None:
-            class_id = len(representatives)
-            class_by_key[key] = class_id
-            representatives.append(index)
-        ids[index] = class_id
+    class_ids, representatives = compile_projection_ids(support.class_count, key_at)
     return ProjectionMap(
         name=name,
-        class_ids=ids,
-        representative_indices=np.asarray(representatives, dtype=np.int32),
+        class_ids=class_ids,
+        representative_indices=representatives,
     )
 
 
@@ -264,14 +256,12 @@ def project_belief(
     belief: ClassNativeBelief,
     projection: ProjectionMap,
 ) -> ProjectedBelief:
-    if len(projection.class_ids) != belief.support.class_count:
-        raise ValueError("projection does not match belief support")
-    weights = np.zeros(projection.class_count, dtype=np.int64)
-    active = belief.weights > 0
-    np.add.at(
-        weights,
-        projection.class_ids[active],
-        belief.weights[active],
+    weights = aggregate_projected_weights(
+        belief.weights,
+        projection.class_ids,
+        projection.class_count,
+        support_class_count=belief.support.class_count,
+        mismatch_message="projection does not match belief support",
     )
     return ProjectedBelief(projection=projection, weights=weights)
 

@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Sequence
+from typing import Sequence
 
 import numpy as np
 
+from azelficoast.belief_projection import (
+    aggregate_projected_weights,
+    compile_projection_ids,
+    uniform_integer_weights,
+)
 from azelficoast.gen9_two_attack_turn import (
     TwoAttackTurnContext,
     two_attack_turn_dependency_key,
@@ -143,13 +148,10 @@ def uniform_two_attack_turn_belief(
     support: TwoAttackTurnSupport,
     logical_world_count: int,
 ) -> TwoAttackTurnBelief:
-    if logical_world_count < support.class_count:
-        raise ValueError("logical world count must cover every canonical support class")
-    quotient, remainder = divmod(logical_world_count, support.class_count)
-    weights = np.full(support.class_count, quotient, dtype=np.int64)
-    if remainder:
-        weights[:remainder] += 1
-    return TwoAttackTurnBelief(support=support, weights=weights)
+    return TwoAttackTurnBelief(
+        support=support,
+        weights=uniform_integer_weights(support.class_count, logical_world_count),
+    )
 
 
 def _compile_ids(
@@ -159,22 +161,11 @@ def _compile_ids(
     name: str,
     effect_signature: str | None,
 ) -> TwoAttackTurnProjection:
-    ids = np.empty(support.class_count, dtype=np.int32)
-    representatives: list[int] = []
-    class_by_key: dict[tuple[int, ...], int] = {}
-    for index in range(support.class_count):
-        key = key_at(index)
-        class_id = class_by_key.get(key)
-        if class_id is None:
-            class_id = len(representatives)
-            class_by_key[key] = class_id
-            representatives.append(index)
-        ids[index] = class_id
-
+    class_ids, representatives = compile_projection_ids(support.class_count, key_at)
     return TwoAttackTurnProjection(
         name=name,
-        class_ids=ids,
-        representative_indices=np.asarray(representatives, dtype=np.int32),
+        class_ids=class_ids,
+        representative_indices=representatives,
         effect_signature=effect_signature,
     )
 
@@ -209,9 +200,11 @@ def project_two_attack_turn_belief(
     belief: TwoAttackTurnBelief,
     projection: TwoAttackTurnProjection,
 ) -> ProjectedTwoAttackTurnBelief:
-    if len(projection.class_ids) != belief.support.class_count:
-        raise ValueError("projection does not match two-attack support")
-    weights = np.zeros(projection.class_count, dtype=np.int64)
-    active = belief.weights > 0
-    np.add.at(weights, projection.class_ids[active], belief.weights[active])
+    weights = aggregate_projected_weights(
+        belief.weights,
+        projection.class_ids,
+        projection.class_count,
+        support_class_count=belief.support.class_count,
+        mismatch_message="projection does not match two-attack support",
+    )
     return ProjectedTwoAttackTurnBelief(projection=projection, weights=weights)
