@@ -90,11 +90,30 @@
     "invalidated_before_outcome_read": true,
     "invalidation_reason": "exact adapter requires a known surviving opponent bench species or proof that the public bench is exhausted; one selected source lacked either structural witness"
   },
-  "treatment_enabled": false,
+  "treatment_enabled": true,
   "preregistration_amendment": {
     "reason": "structural exact-reconstruction preflight omitted from initial admissibility",
     "trigger": "index 5 failed before oracle construction because opponent bench was publicly unresolved",
     "outcome_values_inspected_before_amendment": false,
     "rule": "exclude any otherwise eligible fixture unless the public trace exposes a surviving opponent bench species or proves the public bench exhausted"
+  },
+  "frozen_cohort": {
+    "workflow_run_id": 36090229271,
+    "artifact_id": 10845134218,
+    "artifact_name": "natural-population-selection",
+    "artifact_digest": "sha256:f4e5ded9b15392681b4536113169e16d6fa19fd0c94b12e84ef5b8d04a519d31",
+    "manifest_sha256": "cc1bcdc38bb6377685719e48f8dbebae37a3d4baa7227e1cec1f1f7bca4252f2",
+    "head_sha": "6d9e145762bcb59c3ad3c9bf24c1176484ea0fdd",
+    "frozen_before_any_exact_policy_value": true,
+    "source_decision_state_count": 6485,
+    "bounded_candidate_count": 15,
+    "eligible_count": 12,
+    "selected_count": 12,
+    "selected_battle_count": 7,
+    "overflow_sampling_applied": false,
+    "ineligible_reason_counts": {
+      "active-hp-nonpositive": 2,
+      "exact-reconstruction:opponent-bench-unresolved": 1
+    }
   }
 }
