@@ -21,6 +21,7 @@ from azelficoast.belief.improvement import (
 )
 from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
+from azelficoast.public_replays import import_public_replays
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.research.training_records import build_training_dataset
 
@@ -29,6 +30,7 @@ DEFAULT_RESULTS = Path("artifacts/results.jsonl")
 DEFAULT_DECISIONS = Path("artifacts/decisions.jsonl")
 DEFAULT_REPLAYS = Path("artifacts/replays")
 DEFAULT_CORPUS = Path("artifacts/corpus.jsonl")
+DEFAULT_PUBLIC_CORPUS = Path("artifacts/public-replays")
 DEFAULT_TRAINING = Path("artifacts/training.jsonl")
 DEFAULT_EVALUATOR_MODELS = Path("artifacts/evaluators/candidates")
 DEFAULT_EVALUATOR_RECEIPTS = Path("artifacts/evaluators/receipts")
@@ -177,6 +179,24 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     corpus_build.add_argument("traces", nargs="+", type=Path)
     corpus_build.add_argument("--output", type=Path, default=DEFAULT_CORPUS)
+
+    corpus_import = corpus_commands.add_parser(
+        "import-public",
+        help="freeze public Gen 9 Random Battle replays as player-perspective traces",
+    )
+    corpus_import.add_argument("--output-root", type=Path, default=DEFAULT_PUBLIC_CORPUS)
+    corpus_import.add_argument("--max-battles", type=_positive_int, default=100)
+    corpus_import.add_argument("--min-rating", type=int, default=0)
+    corpus_import.add_argument(
+        "--before",
+        type=_positive_int,
+        help="optional Showdown replay-search uploadtime cursor",
+    )
+    corpus_import.add_argument(
+        "--strict",
+        action="store_true",
+        help="fail the import on the first unreconstructible replay instead of recording an exclusion",
+    )
 
     corpus_evaluate = corpus_commands.add_parser(
         "evaluate",
@@ -526,6 +546,19 @@ async def _async_main(args: argparse.Namespace) -> None:
 def _run_corpus(args: argparse.Namespace) -> None:
     if args.corpus_command == "build":
         summary = build_corpus(args.traces, args.output)
+    elif args.corpus_command == "import-public":
+        if args.showdown_root is None:
+            raise ValueError(
+                "public replay import requires --showdown-root or AZELFICOAST_SHOWDOWN_ROOT"
+            )
+        summary = import_public_replays(
+            showdown_root=args.showdown_root,
+            output_root=args.output_root,
+            max_battles=args.max_battles,
+            min_rating=args.min_rating,
+            before=args.before,
+            strict=args.strict,
+        )
     elif args.corpus_command == "evaluate":
         summary = evaluate_corpus(args.corpus_path, args.policy, args.output)
     else:
