@@ -100,6 +100,45 @@ def test_equivalent_support_splitting_does_not_change_evaluator_input() -> None:
     assert first.world_weights == split.world_weights
 
 
+def test_joint_bench_state_is_mechanics_only_not_evaluator_input() -> None:
+    def posterior(bench_item: str) -> dict[str, object]:
+        return {
+            "conditioned_on_public_history": True,
+            "realized_hidden_state_revealed": False,
+            "worlds": [
+                {
+                    "world_id": f"world-{bench_item}",
+                    "weight": 1.0,
+                    "hidden": {
+                        "opponent.active.item": "choicescarf",
+                        "opponent.active.moves": ["closecombat", "uturn"],
+                        "opponent.bench": [
+                            {
+                                "species": "gougingfire",
+                                "item": bench_item,
+                                "exact_hp": 173,
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+    first = build_evaluator_input(
+        public_state={"turn": 12},
+        posterior=posterior("leftovers"),
+        legal_actions=["attack", "switch"],
+    )
+    second = build_evaluator_input(
+        public_state={"turn": 12},
+        posterior=posterior("heavydutyboots"),
+        legal_actions=["attack", "switch"],
+    )
+
+    assert first.world_features == second.world_features
+    assert first.world_weights == second.world_weights
+
+
 def test_evaluator_identity_declares_public_belief_observability() -> None:
     identity = evaluator_identity(
         checkpoint_digest_value="sha256:" + "a" * 64,
