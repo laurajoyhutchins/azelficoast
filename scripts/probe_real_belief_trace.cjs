@@ -189,6 +189,15 @@ function sha256(value) {
   return crypto.createHash("sha256").update(JSON.stringify(stable(value))).digest("hex");
 }
 
+function sha256PythonCanonical(value) {
+  const encoded = JSON.stringify(stable(value)).replace(
+    /[^\x00-\x7f]/g,
+    character =>
+      "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0")
+  );
+  return crypto.createHash("sha256").update(encoded).digest("hex");
+}
+
 function toID(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -1317,7 +1326,7 @@ function immediateWholeTurn(world, action) {
   return {
     outcomes,
     read_fields: [...reads].sort(),
-    semantic_hash: sha256(semantics),
+    semantic_hash: sha256PythonCanonical(semantics),
   };
 }
 
