@@ -27,6 +27,8 @@ from azelficoast.adaptive_execution_experiment import (
 from azelficoast.gen9_attack import AttackTransitionContext
 from azelficoast.gen9_two_attack_turn import (
     COMPILED_TWO_ATTACK_TURN_CONTEXT_WIDTH,
+    P1_ACTION_ATTACK,
+    P1_ACTION_PROTECT,
     TwoAttackTurn,
     TwoAttackTurnContext,
     compile_two_attack_turn_context,
@@ -100,9 +102,23 @@ def _load(path: Path) -> tuple[Mapping[str, object], ...]:
 
 def _context(fixture: Mapping[str, object]) -> TwoAttackTurnContext:
     before = fixture["before"]
+    p1_damage_raw = fixture["p1_context"]
+    if not isinstance(p1_damage_raw, Mapping):
+        raise TwoAttackTurnExperimentError("fixture lacks p1 damage context")
+    if fixture.get("p1_action_kind") == "protect":
+        # Protect has no damage semantics, but the shared compiled context keeps a
+        # fixed-width attack slot. Preserve Showdown-derived numeric fields while
+        # normalizing only the parser-discriminant category to an inert admitted
+        # damage shape. The Protect execution/dependency branches never read it.
+        p1_damage_raw = {
+            **p1_damage_raw,
+            "category": "Special",
+            "base_power": 0,
+        }
+
     return TwoAttackTurnContext(
         p1_attack=AttackTransitionContext(
-            damage=damage_context_from_mapping(fixture["p1_context"]),
+            damage=damage_context_from_mapping(p1_damage_raw),
             accuracy=int(fixture["p1_accuracy"]),
             attacker_hp=int(before["p1_hp"]),
             attacker_max_hp=int(before["p1_max_hp"]),
@@ -123,6 +139,11 @@ def _context(fixture: Mapping[str, object]) -> TwoAttackTurnContext:
         p2_speed=int(before["p2_speed"]),
         p1_spa_drop_chance=int(fixture["p1_secondary_chance"]),
         p2_spa_stage=int(before["p2_spa_stage"]),
+        p1_action_kind=(
+            P1_ACTION_PROTECT
+            if fixture.get("p1_action_kind") == "protect"
+            else P1_ACTION_ATTACK
+        ),
     )
 
 
@@ -335,7 +356,7 @@ def _fixture(
 
 def _semantic_evidence(fixtures: Sequence[Mapping[str, object]]) -> dict[str, object]:
     by_order = {}
-    for case in ("p1-fast", "p2-fast", "speed-tie", "p1-priority"):
+    for case in ("p1-fast", "p2-fast", "speed-tie", "p1-priority", "protect"):
         rows = [
             fixture
             for fixture in fixtures
@@ -358,6 +379,27 @@ def _semantic_evidence(fixtures: Sequence[Mapping[str, object]]) -> dict[str, ob
     before_no_drop = _fixture(fixtures, order_case="p1-fast", secondary_roll=30)
     after_drop = _fixture(fixtures, order_case="p2-fast", secondary_roll=0)
     after_no_drop = _fixture(fixtures, order_case="p2-fast", secondary_roll=30)
+    protect_rows = [
+        fixture
+        for fixture in fixtures
+        if fixture["order_case"] == "protect" and fixture["hp_case"] == "full"
+    ]
+    protect_outcomes = {
+        (
+            int(row["after"]["p1_hp"]),
+            int(row["after"]["p2_hp"]),
+            int(row["after"]["p1_pp"]),
+            int(row["after"]["p2_pp"]),
+            int(row["after"]["p2_spa_stage"]),
+            bool(row["after"]["p1_acted"]),
+            bool(row["after"]["p2_acted"]),
+        )
+        for row in protect_rows
+    }
+    protect_damage_rng_absent = all(
+        not any(request.get("from") == 16 for request in row["rng_requests"])
+        for row in protect_rows
+    )
 
     return {
         "first_actors": by_order,
@@ -365,6 +407,20 @@ def _semantic_evidence(fixtures: Sequence[Mapping[str, object]]) -> dict[str, ob
         "p2_fast_first": by_order["p2-fast"] == ["p2"],
         "tie_both_orders": by_order["speed-tie"] == ["p1", "p2"],
         "priority_overrides_speed": by_order["p1-priority"] == ["p1"],
+        "protect_priority_first": by_order["protect"] == ["p1"],
+        "protect_blocks_opposing_damage": bool(protect_rows)
+        and all(
+            int(row["after"]["p1_hp"]) == int(row["before"]["p1_hp"])
+            and int(row["after"]["p2_hp"]) == int(row["before"]["p2_hp"])
+            and int(row["after"]["p1_pp"]) == 4
+            and int(row["after"]["p2_pp"]) == 4
+            and bool(row["after"]["p1_acted"])
+            and bool(row["after"]["p2_acted"])
+            for row in protect_rows
+        ),
+        "protect_hidden_item_and_rng_invariant": (
+            len(protect_outcomes) == 1 and protect_damage_rng_absent
+        ),
         "p1_ko_cancels_p2": bool(p1_ko_rows)
         and all(
             bool(row["after"]["p1_acted"])
@@ -389,6 +445,94 @@ def _semantic_evidence(fixtures: Sequence[Mapping[str, object]]) -> dict[str, ob
             and int(after_no_drop["after"]["p2_spa_stage"]) == 0
             and int(after_drop["after"]["p1_hp"]) == int(after_no_drop["after"]["p1_hp"])
         ),
+    }
+
+
+def _protect_projection_evidence(
+    fixtures: Sequence[Mapping[str, object]],
+) -> dict[str, object]:
+    contexts_by_item = {}
+    for fixture in fixtures:
+        if (
+            fixture["order_case"] == "protect"
+            and fixture["hp_case"] == "full"
+            and int(fixture["bench_signature"]) == 0
+            and int(fixture["order_tie_roll"]) == 0
+            and int(fixture["p1_damage_roll"]) == 0
+            and int(fixture["p2_damage_roll"]) == 0
+            and int(fixture["p1_secondary_roll"]) == 99
+        ):
+            contexts_by_item.setdefault(str(fixture["p2_item"]), _context(fixture))
+
+    required = {"None", "Choice Specs"}
+    if set(contexts_by_item) != required:
+        raise TwoAttackTurnExperimentError(
+            "Protect projection treatment lacks p2 item matrix"
+        )
+    contexts = tuple(
+        contexts_by_item[item] for item in ("None", "Choice Specs")
+    )
+    support = build_two_attack_turn_support(
+        len(contexts),
+        bench_variants=2,
+        order_tie_rolls=2,
+        p1_damage_rolls=4,
+        p1_secondary_rolls=31,
+        p2_damage_rolls=4,
+    )
+    projection = compile_two_attack_turn_projection(support, contexts)
+    belief = uniform_two_attack_turn_belief(support, support.class_count)
+    projected = project_two_attack_turn_belief(belief, projection)
+
+    params = [
+        compile_two_attack_turn_context(context)
+        for context in contexts
+    ]
+    direct = [
+        two_attack_turn_numeric(
+            params[int(context_index)],
+            int(order_roll),
+            0,
+            int(p1_damage_roll),
+            int(secondary_roll),
+            0,
+            int(p2_damage_roll),
+        )
+        for context_index, order_roll, p1_damage_roll, secondary_roll, p2_damage_roll in zip(
+            support.context_index,
+            support.order_tie_roll,
+            support.p1_damage_roll,
+            support.p1_secondary_roll,
+            support.p2_damage_roll,
+            strict=True,
+        )
+    ]
+    representative_outputs = [
+        two_attack_turn_numeric(
+            params[int(support.context_index[representative])],
+            int(support.order_tie_roll[representative]),
+            0,
+            int(support.p1_damage_roll[representative]),
+            int(support.p1_secondary_roll[representative]),
+            0,
+            int(support.p2_damage_roll[representative]),
+        )
+        for representative in projection.representative_indices
+    ]
+    expanded = [
+        representative_outputs[int(class_id)]
+        for class_id in projection.class_ids
+    ]
+
+    return {
+        "canonical_classes": support.class_count,
+        "execution_classes": projection.class_count,
+        "active_execution_classes": projected.active_classes,
+        "effect_signature": projection.effect_signature,
+        "direct_equals_projected": direct == expanded,
+        "opponent_item_collapsed": projection.class_count == 1,
+        "opponent_damage_rng_collapsed": projection.class_count == 1,
+        "reduction_factor": support.class_count / projection.class_count,
     }
 
 
@@ -719,6 +863,7 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         )
 
     semantics = _semantic_evidence(fixtures)
+    protect_projection = _protect_projection_evidence(fixtures)
     projection, _, _ = _projection_evidence(contexts)
     support = _benchmark_support(contexts)
     execution_projection = compile_two_attack_turn_projection(support, contexts)
@@ -762,6 +907,13 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         and semantics["p2_fast_first"]
         and semantics["tie_both_orders"]
         and semantics["priority_overrides_speed"]
+        and semantics["protect_priority_first"]
+        and semantics["protect_blocks_opposing_damage"]
+        and semantics["protect_hidden_item_and_rng_invariant"]
+        and protect_projection["direct_equals_projected"]
+        and protect_projection["opponent_item_collapsed"]
+        and protect_projection["opponent_damage_rng_collapsed"]
+        and protect_projection["effect_signature"] == effect_signature
         and semantics["p1_ko_cancels_p2"]
         and semantics["p2_ko_cancels_p1"]
         and semantics["pre_attack_drop_changes_later_damage"]
@@ -795,6 +947,7 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         "generated_c_bytes": len(native_build.c_source.encode("utf-8")),
         "correctness": correctness,
         "semantics": semantics,
+        "protect_projection": protect_projection,
         "projection": projection,
         "training_and_confirmation_disjoint": disjoint,
         "training": training,
@@ -804,9 +957,10 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         "preexecution_quotient": preexecution,
         "passed": passed,
         "non_claims": [
-            "this is a bounded two-damaging-action singles turn, not a complete battle turn scheduler",
+            "this is a bounded two-action singles turn with an attacking p1 or first-use Protect, not a complete battle turn scheduler",
             "p1's only modeled secondary is a Moonblast-shaped one-stage SpA drop",
-            "switching, protection, immunities, redirection, multihit, contact hooks, statuses, and residual effects remain outside the transition",
+            "only ordinary first-use Protect is modeled; consecutive-use probability and bypass mechanics remain outside the transition",
+            "switching, immunities, redirection, multihit, contact hooks, statuses, and residual effects remain outside the transition",
             "hosted timing is execution-target-specific CPU evidence",
         ],
     }

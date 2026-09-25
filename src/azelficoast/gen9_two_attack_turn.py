@@ -1,10 +1,14 @@
-"""Bounded two-attack turn with causal interaction between both actions.
+"""Bounded two-action turn with causal interaction between both actions.
 
-The transition executes two real damaging moves in priority/speed order. The p1 move
-may apply a Moonblast-shaped SpA drop before p2's special attack, and either first
-attack may faint the opponent and suppress its queued action. The slice deliberately
-excludes switching, protection, redirection, multihit moves, contact hooks, status
-effects, and residual/end-turn processing.
+The transition executes either a damaging p1 move or first-use Protect against a real
+p2 damaging move. Damaging actions still respect priority/speed order, Moonblast-shaped
+SpA drops, and KO cancellation. Protect is the bounded ordinary first-use case: it has
+priority +4, succeeds deterministically, consumes PP, and blocks the modeled opposing
+attack before accuracy/damage dependencies are read.
+
+The slice still excludes repeated-Protect probability, Feint/Unseen Fist-style bypass,
+switching, redirection, multihit moves, contact hooks, status effects, and residual or
+end-turn processing.
 """
 
 from __future__ import annotations
@@ -39,7 +43,11 @@ P1_SPEED_COLUMN = P1_PRIORITY_COLUMN + 2
 P2_SPEED_COLUMN = P1_PRIORITY_COLUMN + 3
 P1_SPA_DROP_CHANCE_COLUMN = P1_PRIORITY_COLUMN + 4
 P2_SPA_STAGE_COLUMN = P1_PRIORITY_COLUMN + 5
-COMPILED_TWO_ATTACK_TURN_CONTEXT_WIDTH = P1_PRIORITY_COLUMN + 6
+P1_ACTION_KIND_COLUMN = P1_PRIORITY_COLUMN + 6
+COMPILED_TWO_ATTACK_TURN_CONTEXT_WIDTH = P1_PRIORITY_COLUMN + 7
+
+P1_ACTION_ATTACK = 0
+P1_ACTION_PROTECT = 1
 
 PACK_HP_BASE = 512
 PACK_PP_BASE = 8
@@ -51,7 +59,7 @@ PACK_FLAGS_BASE = PACK_STAGE_BASE * 13
 FLAG_P1_ACTED = 1
 FLAG_P2_ACTED = 2
 
-TWO_ATTACK_TURN_DEPENDENCY_SCHEMA_VERSION = 1
+TWO_ATTACK_TURN_DEPENDENCY_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -64,6 +72,7 @@ class TwoAttackTurnContext:
     p2_speed: int
     p1_spa_drop_chance: int
     p2_spa_stage: int
+    p1_action_kind: int = P1_ACTION_ATTACK
 
     def __post_init__(self) -> None:
         if self.p1_attack.attacker_hp != self.p2_attack.defender_hp:
@@ -86,6 +95,10 @@ class TwoAttackTurnContext:
             raise ValueError("p1 SpA-drop chance must be in [0, 100]")
         if not -6 <= self.p2_spa_stage <= 6:
             raise ValueError("p2 SpA stage must be in [-6, 6]")
+        if self.p1_action_kind not in (P1_ACTION_ATTACK, P1_ACTION_PROTECT):
+            raise ValueError("p1 action kind is outside the bounded turn domain")
+        if self.p1_action_kind == P1_ACTION_PROTECT and self.p1_priority != 4:
+            raise ValueError("bounded Protect must use priority +4")
         if self.p2_attack.damage.category != "Special":
             raise ValueError("the bounded p2 attack must be Special")
         if self.p1_attack.damage.attacker_item == ITEM_LIFE_ORB:
@@ -135,6 +148,7 @@ def compile_two_attack_turn_context(context: TwoAttackTurnContext) -> tuple[int,
         context.p2_speed,
         context.p1_spa_drop_chance,
         context.p2_spa_stage,
+        context.p1_action_kind,
     )
 
 
@@ -210,12 +224,13 @@ def two_attack_turn_numeric(
     p2_accuracy_roll: int,
     p2_damage_roll: int,
 ) -> int:
-    """Execute the bounded two-attack turn and return one exact packed post-state."""
+    """Execute the bounded two-action turn and return one exact packed post-state."""
     p1_hp = params[19]
     p2_hp = params[21]
     p1_pp = params[22]
     p2_pp = params[45]
     p2_stage = params[51]
+    p1_action_kind = params[52]
 
     p1_acted = 0
     p2_acted = 0
@@ -230,34 +245,41 @@ def two_attack_turn_numeric(
         if p1_pp < 0:
             p1_pp = 0
 
-        if p1_accuracy_roll < params[18]:
-            p1_hit = 1
-            p1_damage = _turn_damage_numeric(params, 0, 0, p1_damage_roll)
-            p2_hp -= p1_damage
-            if p2_hp < 0:
-                p2_hp = 0
-
-        if p1_hit != 0:
+        if p1_action_kind == 1:
             if p2_hp > 0:
-                if p1_secondary_roll < params[50]:
-                    if p2_stage > -6:
-                        p2_stage -= 1
+                p2_acted = 1
+                p2_pp -= 1
+                if p2_pp < 0:
+                    p2_pp = 0
+        else:
+            if p1_accuracy_roll < params[18]:
+                p1_hit = 1
+                p1_damage = _turn_damage_numeric(params, 0, 0, p1_damage_roll)
+                p2_hp -= p1_damage
+                if p2_hp < 0:
+                    p2_hp = 0
 
-        if p2_hp > 0:
-            p2_acted = 1
-            p2_pp -= 1
-            if p2_pp < 0:
-                p2_pp = 0
-            if p2_accuracy_roll < params[41]:
-                p2_damage = _turn_damage_numeric(
-                    params,
-                    23,
-                    p2_stage,
-                    p2_damage_roll,
-                )
-                p1_hp -= p2_damage
-                if p1_hp < 0:
-                    p1_hp = 0
+            if p1_hit != 0:
+                if p2_hp > 0:
+                    if p1_secondary_roll < params[50]:
+                        if p2_stage > -6:
+                            p2_stage -= 1
+
+            if p2_hp > 0:
+                p2_acted = 1
+                p2_pp -= 1
+                if p2_pp < 0:
+                    p2_pp = 0
+                if p2_accuracy_roll < params[41]:
+                    p2_damage = _turn_damage_numeric(
+                        params,
+                        23,
+                        p2_stage,
+                        p2_damage_roll,
+                    )
+                    p1_hp -= p2_damage
+                    if p1_hp < 0:
+                        p1_hp = 0
     else:
         p2_acted = 1
         p2_pp -= 1
@@ -280,24 +302,25 @@ def two_attack_turn_numeric(
             if p1_pp < 0:
                 p1_pp = 0
 
-            p1_hit = 0
-            if p1_accuracy_roll < params[18]:
-                p1_hit = 1
-                p1_damage = _turn_damage_numeric(
-                    params,
-                    0,
-                    0,
-                    p1_damage_roll,
-                )
-                p2_hp -= p1_damage
-                if p2_hp < 0:
-                    p2_hp = 0
+            if p1_action_kind != 1:
+                p1_hit = 0
+                if p1_accuracy_roll < params[18]:
+                    p1_hit = 1
+                    p1_damage = _turn_damage_numeric(
+                        params,
+                        0,
+                        0,
+                        p1_damage_roll,
+                    )
+                    p2_hp -= p1_damage
+                    if p2_hp < 0:
+                        p2_hp = 0
 
-            if p1_hit != 0:
-                if p2_hp > 0:
-                    if p1_secondary_roll < params[50]:
-                        if p2_stage > -6:
-                            p2_stage -= 1
+                if p1_hit != 0:
+                    if p2_hp > 0:
+                        if p1_secondary_roll < params[50]:
+                            if p2_stage > -6:
+                                p2_stage -= 1
 
     flags = p1_acted + p2_acted * 2
     return (
@@ -408,6 +431,41 @@ def two_attack_turn_dependency_key(
         effective_order,
     )
 
+    if context.p1_action_kind == P1_ACTION_PROTECT:
+        if p1_first:
+            return (
+                P1_ACTION_PROTECT,
+                1,
+                context.p1_attack.attacker_hp,
+                context.p1_attack.move_pp,
+                context.p2_attack.attacker_hp,
+                context.p2_attack.move_pp,
+                context.p2_spa_stage,
+            )
+
+        p2_key = _staged_attack_dependency_key(
+            context.p2_attack,
+            context.p2_spa_stage,
+            p2_accuracy_roll,
+            p2_damage_roll,
+        )
+        p1_hp_after = context.p1_attack.attacker_hp
+        if p2_accuracy_roll < context.p2_attack.accuracy:
+            p1_hp_after -= _staged_damage(
+                context.p2_attack,
+                context.p2_spa_stage,
+                p2_damage_roll,
+            )
+            if p1_hp_after < 0:
+                p1_hp_after = 0
+        return (
+            P1_ACTION_PROTECT,
+            0,
+            *p2_key,
+            int(p1_hp_after > 0),
+            context.p1_attack.move_pp if p1_hp_after > 0 else 0,
+        )
+
     if p1_first:
         p1_key = attack_transition_dependency_key(
             context.p1_attack,
@@ -420,7 +478,7 @@ def two_attack_turn_dependency_key(
             p1_damage_roll,
         )
         if p1_result.defender_fainted:
-            return (1, context.p2_spa_stage, *p1_key, 0)
+            return (P1_ACTION_ATTACK, 1, context.p2_spa_stage, *p1_key, 0)
 
         stage_after = context.p2_spa_stage
         secondary_applied = int(
@@ -437,7 +495,7 @@ def two_attack_turn_dependency_key(
             p2_accuracy_roll,
             p2_damage_roll,
         )
-        return (1, *p1_key, secondary_applied, stage_after, *p2_key)
+        return (P1_ACTION_ATTACK, 1, *p1_key, secondary_applied, stage_after, *p2_key)
 
     p2_key = _staged_attack_dependency_key(
         context.p2_attack,
@@ -455,7 +513,7 @@ def two_attack_turn_dependency_key(
         if p1_hp_after < 0:
             p1_hp_after = 0
     if p1_hp_after == 0:
-        return (0, *p2_key, 0)
+        return (P1_ACTION_ATTACK, 0, *p2_key, 0)
 
     p1_key = attack_transition_dependency_key(
         context.p1_attack,
@@ -476,7 +534,7 @@ def two_attack_turn_dependency_key(
     )
     if secondary_applied:
         stage_after -= 1
-    return (0, *p2_key, *p1_key, secondary_applied, stage_after)
+    return (P1_ACTION_ATTACK, 0, *p2_key, *p1_key, secondary_applied, stage_after)
 
 
 def two_attack_turn_dependency_document() -> dict[str, object]:
@@ -497,7 +555,19 @@ def two_attack_turn_dependency_document() -> dict[str, object]:
             "conditional_random": "rng.final_speed_tie_outcome",
         },
         "p1_action": {
-            "reads": ["whole_attack.dependencies"],
+            "kind": {
+                "values": ["attack", "first-use-protect"],
+                "read": "p1.action.kind",
+            },
+            "attack_reads": ["whole_attack.dependencies"],
+            "protect": {
+                "priority": 4,
+                "success": "deterministic first-use bounded case",
+                "effect": (
+                    "modeled opposing attack consumes PP but is blocked before "
+                    "accuracy, damage RNG, damage stats, item modifiers, or HP writes"
+                ),
+            },
             "secondary": {
                 "condition": "p1 hit AND p2 survives AND roll < chance",
                 "reads": [
@@ -513,6 +583,13 @@ def two_attack_turn_dependency_document() -> dict[str, object]:
             "reads": [
                 "whole_attack.dependencies",
                 "p2.spa_stage_at_execution",
+            ],
+        },
+        "protection_boundary": {
+            "covered": "ordinary opposing damaging move blocked by first-use Protect",
+            "excluded": [
+                "consecutive Protect probability",
+                "Protect-bypassing moves and abilities",
             ],
         },
         "cancellation": {

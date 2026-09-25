@@ -36,7 +36,7 @@ def emit_two_attack_turn_c(
     damage_source: str,
     turn_source: str,
     *,
-    context_width: int = 52,
+    context_width: int = 53,
 ) -> str:
     if context_width <= 0:
         raise NativeKernelCompileError("context width must be positive")
@@ -113,7 +113,7 @@ def build_two_attack_turn_library(
     turn_source_path: str | Path,
     output_path: str | Path,
     *,
-    context_width: int = 52,
+    context_width: int = 53,
     cc: str = "cc",
     extra_cflags: Iterable[str] = (),
 ) -> NativeBuild:

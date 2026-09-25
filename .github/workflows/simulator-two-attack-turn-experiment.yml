@@ -30,9 +30,9 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install uv
-        run: python -m pip install uv
+        run: python -m pip install uv==0.12.18
       - name: Install simulator dependencies
-        run: uv sync --extra simulator
+        run: uv sync --locked --extra simulator
       - name: Fetch pinned Pokémon Showdown
         run: |
           git init /tmp/pokemon-showdown
@@ -65,6 +65,13 @@ jobs:
           assert result["semantics"]["p2_ko_cancels_p1"] is True, result
           assert result["semantics"]["pre_attack_drop_changes_later_damage"] is True, result
           assert result["semantics"]["post_attack_drop_not_retroactive"] is True, result
+          assert result["semantics"]["protect_priority_first"] is True, result
+          assert result["semantics"]["protect_blocks_opposing_damage"] is True, result
+          assert result["semantics"]["protect_hidden_item_and_rng_invariant"] is True, result
+          assert result["protect_projection"]["direct_equals_projected"] is True, result
+          assert result["protect_projection"]["execution_classes"] == 1, result
+          assert result["protect_projection"]["canonical_classes"] == 3968, result
+          assert result["protect_projection"]["reduction_factor"] == 3968.0, result
           assert result["projection"]["direct_equals_projected"] is True, result
           assert result["projection"]["missing_order_tie_changes_result"] is True, result
           assert result["projection"]["missing_secondary_changes_result"] is True, result
