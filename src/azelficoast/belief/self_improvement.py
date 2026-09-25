@@ -130,10 +130,20 @@ def _fixture_mining_signals(fixture: DecisionFixture) -> dict[str, Any]:
             continue
         status = belief.get("status")
         fallback += int(status == "fallback")
-        searched += int(status == "search" or belief.get("reason") == "learned-policy-uncertain")
         diagnostics = belief.get("diagnostics")
         if not isinstance(diagnostics, Mapping):
             continue
+        learned_route = diagnostics.get("learned_route")
+        searched += int(
+            status == "search"
+            or belief.get("reason") == "learned-policy-uncertain"
+            or learned_route in {
+                "exact-public-belief-search",
+                "transition-program-search",
+                "search-after-evaluator-error",
+                "search-after-posterior-probe-error",
+            }
+        )
         prediction = diagnostics.get("learned_prediction")
         if not isinstance(prediction, Mapping):
             continue
