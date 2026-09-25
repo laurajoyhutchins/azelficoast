@@ -1,0 +1,54 @@
+{
+  "bundle": {
+    "authority": "Git commit containing this manifest and bundle",
+    "path": "experiments/evidence/canonical-evidence.tar.gz",
+    "sha256": "84afaad1872799e538873750fb222b0cb2808ede25e0e57e572efee86d35118f"
+  },
+  "contents": {
+    "discovery": {
+      "purpose": "Six frozen speed-fork fixtures and candidate rows still consumed by current exact-regression workflows.",
+      "source_artifact": {
+        "digest": "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34",
+        "id": 10827665365
+      }
+    },
+    "policy_boundary": {
+      "purpose": "Nine probability/value surfaces consumed by the current policy-boundary refinement experiment.",
+      "source_artifacts": [
+        10831509823,
+        10831748483,
+        10832550259,
+        10831848674,
+        10832286063,
+        10831689741,
+        10832865336,
+        10832247914,
+        10827611687
+      ]
+    },
+    "population": {
+      "purpose": "Final ten-state outcome-blind frozen cohort. Rejected cohorts and the discovery population are provenance, not executable inputs.",
+      "source_artifact": {
+        "digest": "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6",
+        "id": 10845773798
+      }
+    },
+    "status_source": {
+      "derived_artifact": {
+        "digest": "sha256:6f71233d3d0053b26e55cafee350bfe298ca0d6f351e3bbd7be72ebfed0f599c",
+        "id": 10840097547
+      },
+      "purpose": "Frozen natural Articuno/Roost source consumed by the current status-move oracle."
+    },
+    "survival_source": {
+      "derived_artifact": {
+        "digest": "sha256:b45d309d627c8e5b6cbfe17a2c3556ebce65b60585ed42d094f8958d45abb5d8",
+        "id": 10831848674
+      },
+      "purpose": "Frozen Tropius/Chi-Yu source consumed by the survival-witness regression."
+    }
+  },
+  "non_authoritative_history": "Superseded cohorts, intermediate workflow runs, and raw source archives remain recoverable from Git and GitHub history but are not required by current CI.",
+  "schema": "azelficoast.canonical-research-evidence",
+  "schema_version": 1
+}

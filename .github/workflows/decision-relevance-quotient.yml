@@ -5,7 +5,12 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
-      - ".github/actions/restore-exact-artifact/action.yml"
+      - ".github/actions/setup-research-evidence/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - "experiments/evidence/canonical-evidence.json"
+      - "experiments/evidence/canonical-evidence.tar.gz"
+      - "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"
+      - "scripts/probe_real_belief_trace.cjs"
       - "src/azelficoast/decision_relevance.py"
       - "src/azelficoast/live_belief.py"
       - "tests/test_decision_relevance.py"
@@ -15,7 +20,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: decision-relevance-quotient-${{ github.event.pull_request.number || github.ref }}
@@ -34,34 +38,33 @@ jobs:
         run: |
           uv run pytest             tests/test_decision_relevance.py             tests/test_live_belief.py
 
-      - name: Restore exact status oracle
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10839882597"
-          digest: "sha256:777f63475c9fb8c297a9ffbaf91ce2ff1f1db28c2a4b3bb1bbbad153e47e9318"
-          path: /tmp/status
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
 
-      - name: Restore exact strategy-fusion oracle
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10832550259"
-          digest: "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443"
-          path: /tmp/fusion
+      - name: Restore verified pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
 
-      - name: Verify restored natural oracles
+      - name: Rebuild exact natural oracles
         run: |
-          test -s /tmp/status/status-oracle.json
-          test -s /tmp/fusion/transition-oracle.json
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            /tmp/azelficoast-evidence/status-source.json \
+            > /tmp/status-oracle.json
+
+          node scripts/probe_real_belief_trace.cjs \
+            /tmp/pokemon-showdown \
+            experiments/real-belief-source-tinkaton-zapdosgalar-mid.json \
+            > /tmp/fusion-oracle.json
 
       - name: Analyze exact quotients
         run: |
-          uv run python -m azelficoast.decision_relevance             /tmp/status/status-oracle.json             > /tmp/status-quotient.json
+          uv run python -m azelficoast.decision_relevance             /tmp/status-oracle.json             > /tmp/status-quotient.json
 
-          uv run python -m azelficoast.decision_relevance             /tmp/fusion/transition-oracle.json             > /tmp/fusion-quotient.json
+          uv run python -m azelficoast.decision_relevance             /tmp/fusion-oracle.json             > /tmp/fusion-quotient.json
 
-          uv run python -m azelficoast.real_belief_trace             /tmp/status/status-oracle.json             > /tmp/status-full.json
+          uv run python -m azelficoast.real_belief_trace             /tmp/status-oracle.json             > /tmp/status-full.json
 
-          uv run python -m azelficoast.real_belief_trace             /tmp/fusion/transition-oracle.json             > /tmp/fusion-full.json
+          uv run python -m azelficoast.real_belief_trace             /tmp/fusion-oracle.json             > /tmp/fusion-full.json
 
       - name: Verify exact equivalence and preregistered reductions
         run: |

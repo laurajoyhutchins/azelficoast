@@ -5,7 +5,9 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
-      - ".github/actions/restore-exact-artifact/action.yml"
+      - ".github/actions/setup-research-evidence/action.yml"
+      - "experiments/evidence/canonical-evidence.json"
+      - "experiments/evidence/canonical-evidence.tar.gz"
       - "scripts/probe_real_belief_trace.cjs"
       - ".github/workflows/exhausted-bench-real-belief.yml"
   workflow_dispatch:
@@ -38,12 +40,8 @@ jobs:
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
 
-      - name: Restore frozen discovery artifact
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10827665365"
-          digest: "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34"
-          path: /tmp/discovery
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
 
       - name: Extract exact publicly exhausted fixture
         env:
@@ -55,14 +53,14 @@ jobs:
           from pathlib import Path
 
           fixture_id = os.environ["FIXTURE_ID"]
-          with Path("/tmp/discovery/speed-fork-fixtures.jsonl").open() as stream:
+          with Path("/tmp/azelficoast-evidence/discovery/speed-fork-fixtures.jsonl").open() as stream:
               fixture = next(
                   json.loads(raw)
                   for raw in stream
                   if json.loads(raw).get("fixture_id") == fixture_id
               )
           candidates = json.loads(
-              Path("/tmp/discovery/speed-fork-candidates.json").read_text()
+              Path("/tmp/azelficoast-evidence/discovery/speed-fork-candidates.json").read_text()
           )
           candidate = next(
               row

@@ -5,7 +5,10 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
-      - ".github/actions/restore-exact-artifact/action.yml"
+      - ".github/actions/setup-research-evidence/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - "experiments/evidence/canonical-evidence.json"
+      - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
@@ -14,7 +17,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -29,112 +31,37 @@ jobs:
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
 
-      - name: Restore frozen source artifact
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10816374615"
-          digest: "sha256:4f043f14ea90362f7c60af6fbe957c85d63118f44aa639b9f733e791af9067e3"
-          path: /tmp/real-belief-source.zip
-          extract: "false"
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
 
-      - name: Extract exact Tropius versus Chi-Yu decision
+      - name: Verify canonical Tropius versus Chi-Yu source
         run: |
           python - <<'PY'
           import json
-          import zipfile
           from pathlib import Path
 
-          fixture_id = "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2"
-          fixture = None
-          with zipfile.ZipFile("/tmp/real-belief-source.zip") as archive:
-              with archive.open("corpus.jsonl") as stream:
-                  for raw in stream:
-                      row = json.loads(raw)
-                      if row.get("fixture_id") == fixture_id:
-                          fixture = row
-                          break
-          assert fixture is not None, fixture_id
-          assert fixture["state"]["turn"] == 42, fixture
-          assert fixture["state"]["active"]["species"] == "tropius", fixture
-          assert fixture["state"]["opponent_active"]["species"] == "chiyu", fixture
-          assert len(fixture["state"]["legal_actions"]) == 11, fixture
-
-          latest_tera = None
-          p2_active = None
-          seen = []
-          fainted = set()
-          for batch in fixture["protocol_prefix"]:
-              for message in batch:
-                  if len(message) < 2 or message[0] != "":
-                      continue
-                  if message[1] == "request" and len(message) >= 3:
-                      try:
-                          request = json.loads(message[2])
-                      except json.JSONDecodeError:
-                          continue
-                      tera = (request.get("active") or [{}])[0].get("canTerastallize")
-                      if tera:
-                          latest_tera = tera
-                  if message[1] in {"switch", "drag"} and str(message[2]).startswith("p2"):
-                      p2_active = str(message[3]).split(",", 1)[0]
-                      if p2_active not in seen:
-                          seen.append(p2_active)
-                  if message[1] == "faint" and str(message[2]).startswith("p2") and p2_active:
-                      fainted.add(p2_active.lower())
-
-          current = fixture["state"]["opponent_active"]["species"].lower()
-          bench = next(
-              species
-              for species in reversed(seen)
-              if species.lower().replace("-", "") != current.replace("-", "")
-              and species.lower() not in fainted
+          source = json.loads(
+              Path("/tmp/azelficoast-evidence/survival-source.json").read_text()
           )
-          assert latest_tera == "Steel", latest_tera
-          assert bench == "Hippowdon", (seen, fainted, bench)
-
-          source = {
-              "schema": "azelficoast.real-belief-source-fixture",
-              "schema_version": 1,
-              "fixture_id": fixture_id,
-              "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
-              "source_artifact": {
-                  "id": 10816374615,
-                  "digest": "sha256:4f043f14ea90362f7c60af6fbe957c85d63118f44aa639b9f733e791af9067e3",
-              },
-              "source_projection": (
-                  "exact decision state plus public hidden-world reconstruction inputs"
-              ),
-              "state": fixture["state"],
-              "protocol_prefix": fixture["protocol_prefix"],
-              "control_decisions": fixture.get("control_decisions", []),
-              "plausible_items": ["Choice Scarf", "Choice Specs"],
-              "own_active_tera_type": latest_tera,
-              "opponent_bench_species": bench,
-          }
-          Path("/tmp/tropius-chiyu-source.json").write_text(
-              json.dumps(source, sort_keys=True),
-              encoding="utf-8",
+          assert source["fixture_id"] == (
+              "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2"
           )
+          assert source["state"]["turn"] == 42
+          assert source["state"]["active"]["species"] == "tropius"
+          assert source["state"]["opponent_active"]["species"] == "chiyu"
+          assert len(source["state"]["legal_actions"]) == 11
+          assert source["own_active_tera_type"] == "Steel"
+          assert source["opponent_bench_species"] == "Hippowdon"
           PY
 
-      - name: Fetch pinned Pokémon Showdown
-        run: |
-          git init /tmp/pokemon-showdown
-          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
-          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
-          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
-
-      - name: Build Pokémon Showdown
-        working-directory: /tmp/pokemon-showdown
-        run: |
-          npm ci --omit=optional --no-audit --no-fund
-          npm run build
+      - name: Restore verified pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
 
       - name: Generate exact hidden-world oracle
         run: |
           node scripts/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
-            /tmp/tropius-chiyu-source.json \
+            /tmp/azelficoast-evidence/survival-source.json \
             > /tmp/tropius-chiyu-oracle.json
 
       - name: Analyze public information sets
@@ -181,7 +108,7 @@ jobs:
         with:
           name: real-belief-survival-witness
           path: |
-            /tmp/tropius-chiyu-source.json
+            /tmp/azelficoast-evidence/survival-source.json
             /tmp/tropius-chiyu-oracle.json
             /tmp/tropius-chiyu-trace.json
             /tmp/tropius-chiyu-mining.json

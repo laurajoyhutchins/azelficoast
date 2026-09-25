@@ -1,0 +1,22 @@
+name: Setup canonical research evidence
+description: Verify and extract the Git-authoritative research evidence bundle.
+
+runs:
+  using: composite
+  steps:
+    - name: Verify and extract canonical evidence
+      shell: bash
+      run: |
+        set -euo pipefail
+        bundle="experiments/evidence/canonical-evidence.tar.gz"
+        manifest="experiments/evidence/canonical-evidence.json"
+        expected="$(python3 -c 'import json; print(json.load(open("experiments/evidence/canonical-evidence.json"))["bundle"]["sha256"])')"
+        actual="$(sha256sum "${bundle}" | cut -d ' ' -f1)"
+        if [[ "${actual}" != "${expected}" ]]; then
+          echo "canonical research evidence digest mismatch: expected ${expected}, got ${actual}" >&2
+          exit 1
+        fi
+
+        rm -rf /tmp/azelficoast-evidence
+        mkdir -p /tmp/azelficoast-evidence
+        tar -xzf "${bundle}" -C /tmp/azelficoast-evidence

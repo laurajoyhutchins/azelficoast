@@ -5,14 +5,15 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
-      - ".github/actions/restore-exact-artifact/action.yml"
+      - ".github/actions/setup-research-evidence/action.yml"
+      - "experiments/evidence/canonical-evidence.json"
+      - "experiments/evidence/canonical-evidence.tar.gz"
       - "scripts/policy_boundary_refinement_experiment.py"
       - "experiments/policy-boundary-refinement-results.json"
       - ".github/workflows/policy-boundary-refinement-experiment.yml"
   workflow_dispatch:
 
 permissions:
-  actions: read
   contents: read
 
 concurrency:
@@ -25,81 +26,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Restore exact evidence 10831509823
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10831509823"
-          digest: "sha256:a55d9e525a3719222f2e276233ff9c26e1c06c240d7633cbf9d1eb289b607194"
-          path: /tmp/10831509823
-
-      - name: Restore exact evidence 10831748483
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10831748483"
-          digest: "sha256:085bd274386f8103d4c6d1c70ec409355a2b220fa7660338e8a51ceb53cdefb2"
-          path: /tmp/10831748483
-
-      - name: Restore exact evidence 10832550259
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10832550259"
-          digest: "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443"
-          path: /tmp/10832550259
-
-      - name: Restore exact evidence 10831848674
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10831848674"
-          digest: "sha256:b45d309d627c8e5b6cbfe17a2c3556ebce65b60585ed42d094f8958d45abb5d8"
-          path: /tmp/10831848674
-
-      - name: Restore exact evidence 10832286063
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10832286063"
-          digest: "sha256:95e6feb874ab5277e142a92588eba8a02974535a5e079a4168ae8c12dcb1fb7b"
-          path: /tmp/10832286063
-
-      - name: Restore exact evidence 10831689741
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10831689741"
-          digest: "sha256:9bd07add9603348bb5c61b478f293006847de1c7a135a21ab17f62872fe7b07e"
-          path: /tmp/10831689741
-
-      - name: Restore exact evidence 10832865336
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10832865336"
-          digest: "sha256:9f90dd2926a7168113733424261c7158776ab4b3cebbbbb0044cdd1e84fbb0ee"
-          path: /tmp/10832865336
-
-      - name: Restore exact evidence 10832247914
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10832247914"
-          digest: "sha256:2315a0f1debe667a7a872e611fc80f37abc1e9f0b44751a86bd698446aa83fa0"
-          path: /tmp/10832247914
-
-      - name: Restore exact evidence 10827611687
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10827611687"
-          digest: "sha256:1107aa0363e2a2f53bd886a265cc06a5cf29c2c963c5ac63860a0a1a2aaf6242"
-          path: /tmp/10827611687
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
 
       - name: Run policy-boundary refinement experiment
         run: |
           python scripts/policy_boundary_refinement_experiment.py \
-            /tmp/10831509823/decision-trace.json \
-            /tmp/10831748483/decision-trace.json \
-            /tmp/10832550259/decision-trace.json \
-            /tmp/10831848674/tropius-chiyu-trace.json \
-            /tmp/10832286063/candidate-trace.json \
-            /tmp/10831689741/trace.json \
-            /tmp/10832865336/trace.json \
-            /tmp/10832247914/trace.json \
-            /tmp/10827611687/real-belief-decision-trace.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-01.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-02.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-03.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-04.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-05.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-06.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-07.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-08.json \
+            /tmp/azelficoast-evidence/policy-boundary/case-09.json \
             | tee /tmp/policy-boundary-refinement-results.json
 
       - name: Verify fixed evidence

@@ -18,7 +18,9 @@ on:
       - "tests/test_natural_disagreements.py"
       - ".github/workflows/natural-population-strategy-fusion.yml"
       - ".github/actions/setup-python-environment/action.yml"
-      - ".github/actions/restore-exact-artifact/action.yml"
+      - ".github/actions/setup-research-evidence/action.yml"
+      - "experiments/evidence/canonical-evidence.json"
+      - "experiments/evidence/canonical-evidence.tar.gz"
       - ".github/actions/setup-showdown/action.yml"
   workflow_dispatch:
 
@@ -31,137 +33,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  freeze-cohort:
-    if: ${{ false }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/setup-python-environment
-
-      - name: Test population machinery
-        run: uv run pytest tests/test_population_study.py tests/test_natural_disagreements.py
-
-      - name: Restore immutable 256-battle source population
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10836574187"
-          digest: "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
-          path: /tmp/source
-
-      - name: Verify immutable source population
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          decisions = 0
-          terminals = 0
-          battle_tags = set()
-          with Path("/tmp/source/decisions.jsonl").open() as handle:
-              for line in handle:
-                  row = json.loads(line)
-                  if row.get("kind") == "decision":
-                      decisions += 1
-                      battle_tags.add(row["battle_tag"])
-                  elif row.get("kind") == "terminal":
-                      terminals += 1
-          assert decisions == 6485, decisions
-          assert terminals == 256, terminals
-          assert len(battle_tags) == 256, len(battle_tags)
-          coverage = json.loads(
-              Path("/tmp/source/belief-coverage.json").read_text()
-          )
-          assert coverage["observed_routing"]["decision_count"] == 6485
-          PY
-
-      - name: Freeze immutable decision corpus
-        run: |
-          uv run azelficoast corpus build \
-            /tmp/source/decisions.jsonl \
-            --output /tmp/corpus.jsonl \
-            | tee /tmp/corpus-summary.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          summary = json.loads(Path("/tmp/corpus-summary.json").read_text())
-          assert summary["fixture_count"] == 6485, summary
-          PY
-
-      - name: Restore verified pinned Pokémon Showdown
-        uses: ./.github/actions/setup-showdown
-
-      - name: Mine preregistered persistent hidden-Choice states
-        run: |
-          uv run python -m azelficoast.natural_disagreements \
-            /tmp/corpus.jsonl \
-            --showdown-root /tmp/pokemon-showdown \
-            --rounds 2048 \
-            --persistent-only \
-            | tee /tmp/candidates.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          result = json.loads(Path("/tmp/candidates.json").read_text())
-          assert result["fixture_count"] == 6485, result
-          assert result["candidate_count"] + len(result["excluded_fixtures"]) == 6485
-          assert result["persistent_only"] is True
-          PY
-
-      - name: Screen preregistered state structures
-        run: |
-          tail -n +2 /tmp/corpus.jsonl > /tmp/fixtures.jsonl
-          node scripts/screen_public_belief_speed_forks.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/candidates.json \
-            /tmp/fixtures.jsonl \
-            512 \
-            > /tmp/mechanics.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          candidates = json.loads(Path("/tmp/candidates.json").read_text())
-          mechanics = json.loads(Path("/tmp/mechanics.json").read_text())
-          assert mechanics["rounds"] == 512, mechanics
-          assert mechanics["case_count"] == candidates["candidate_count"]
-          PY
-
-      - name: Freeze outcome-blind exact cohort
-        run: |
-          mkdir -p /tmp/population/selected
-          uv run python -m azelficoast.population_study freeze \
-            experiments/natural-population-strategy-fusion-plan.json \
-            /tmp/candidates.json \
-            /tmp/mechanics.json \
-            /tmp/corpus.jsonl \
-            --output-dir /tmp/population/selected \
-            --manifest /tmp/population/manifest.json \
-            | tee /tmp/population/freeze-output.json
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          manifest = json.loads(Path("/tmp/population/manifest.json").read_text())
-          assert manifest["frozen_before_policy_values"] is True
-          assert manifest["selection_uses_policy_result"] is False
-          assert manifest["source_decision_state_count"] == 6485
-          assert manifest["selected_count"] > 0
-          print(
-              "eligible=", manifest["eligible_count"],
-              "selected=", manifest["selected_count"],
-              "overflow=", manifest["overflow_sampling_applied"],
-          )
-          PY
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: natural-population-selection
-          path: |
-            /tmp/corpus-summary.json
-            /tmp/candidates.json
-            /tmp/mechanics.json
-            /tmp/population/manifest.json
-            /tmp/population/selected
-          if-no-files-found: error
-
   exact:
     strategy:
       fail-fast: false
@@ -171,12 +42,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Restore frozen outcome-blind cohort
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10845773798"
-          digest: "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
-          path: /tmp/selection
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
 
       - name: Verify frozen outcome-blind cohort
         run: |
@@ -184,7 +51,7 @@ jobs:
           import json
           from pathlib import Path
           manifest = json.loads(
-              Path("/tmp/selection/population/manifest.json").read_text()
+              Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
           )
           assert manifest["source_decision_state_count"] == 6485, manifest
           assert manifest["bounded_candidate_count"] == 13, manifest
@@ -213,7 +80,7 @@ jobs:
           import os
           from pathlib import Path
           shard = int(os.environ["SHARD"])
-          manifest = json.loads(Path("/tmp/selection/population/manifest.json").read_text())
+          manifest = json.loads(Path("/tmp/azelficoast-evidence/population/manifest.json").read_text())
           for row in manifest["selected"]:
               index = int(row["population_index"])
               if (index - 1) % 8 == shard:
@@ -222,7 +89,7 @@ jobs:
 
           while IFS=$'\t' read -r index filename; do
             test -n "$index" || continue
-            source="/tmp/selection/population/selected/$filename"
+            source="/tmp/azelficoast-evidence/population/selected/$filename"
             node scripts/probe_real_belief_trace.cjs \
               /tmp/pokemon-showdown \
               "$source" \
@@ -251,12 +118,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-python-environment
-      - name: Restore frozen outcome-blind cohort
-        uses: ./.github/actions/restore-exact-artifact
-        with:
-          artifact-id: "10845773798"
-          digest: "sha256:06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6"
-          path: /tmp/selection
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
 
       - name: Verify frozen outcome-blind cohort
         run: |
@@ -264,7 +127,7 @@ jobs:
           import json
           from pathlib import Path
           manifest = json.loads(
-              Path("/tmp/selection/population/manifest.json").read_text()
+              Path("/tmp/azelficoast-evidence/population/manifest.json").read_text()
           )
           assert manifest["source_decision_state_count"] == 6485, manifest
           assert manifest["bounded_candidate_count"] == 13, manifest
@@ -284,7 +147,7 @@ jobs:
         run: |
           uv run python -m azelficoast.population_study aggregate \
             experiments/natural-population-strategy-fusion-plan.json \
-            /tmp/selection/population/manifest.json \
+            /tmp/azelficoast-evidence/population/manifest.json \
             /tmp/exact \
             --output /tmp/natural-population-aggregate.json \
             | tee /tmp/aggregate-output.json
