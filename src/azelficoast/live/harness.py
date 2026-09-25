@@ -31,6 +31,7 @@ from azelficoast.belief.improvement import (
 from azelficoast.belief.public_pretraining import run_public_pretraining
 from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.live.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
+from azelficoast.live.opponents import DirtyTricksPlayer
 from azelficoast.research.public_replays import PublicReplayError, import_public_replays
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.research.training_records import build_training_dataset
@@ -650,14 +651,19 @@ def _checkpoint_digest(path: Path) -> str:
 def _balanced_battle_allocation(
     battle_count: int,
     opponent_count: int,
+    *,
+    rotation: int = 0,
 ) -> tuple[int, ...]:
     if battle_count <= 0 or opponent_count <= 0:
         raise ValueError("battle and opponent counts must be positive")
+    if not isinstance(rotation, int) or isinstance(rotation, bool):
+        raise ValueError("battle allocation rotation must be an integer")
     quotient, remainder = divmod(battle_count, opponent_count)
-    return tuple(
-        quotient + int(index < remainder)
-        for index in range(opponent_count)
-    )
+    allocation = [quotient for _ in range(opponent_count)]
+    start = rotation % opponent_count
+    for offset in range(remainder):
+        allocation[(start + offset) % opponent_count] += 1
+    return tuple(allocation)
 
 
 def _training_opponent_specs(
@@ -667,9 +673,9 @@ def _training_opponent_specs(
     """Freeze the deterministic opponent population for one generation."""
 
     specs: list[dict[str, Any]] = [
-        {"kind": "random"},
         {"kind": "max-base-power"},
         {"kind": "simple-heuristics"},
+        {"kind": "dirty-tricks"},
         {
             "kind": "incumbent",
             "checkpoint": str(current_checkpoint),
@@ -701,12 +707,12 @@ def _training_opponent(
         "battle_format": BATTLE_FORMAT,
         "max_concurrent_battles": concurrency,
     }
-    if kind == "random":
-        return RandomPlayer(**common)
     if kind == "max-base-power":
         return MaxBasePowerPlayer(**common)
     if kind == "simple-heuristics":
         return SimpleHeuristicsPlayer(**common)
+    if kind == "dirty-tricks":
+        return DirtyTricksPlayer(**common)
     if kind in {"incumbent", "archive"}:
         checkpoint = spec.get("checkpoint")
         if not isinstance(checkpoint, str) or not checkpoint:
@@ -1045,6 +1051,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
         allocations = _balanced_battle_allocation(
             args.battles_per_generation,
             len(opponent_specs),
+            rotation=index,
         )
         opponent_population: list[dict[str, object]] = []
         for spec, battle_count in zip(opponent_specs, allocations, strict=True):
