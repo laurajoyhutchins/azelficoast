@@ -10,7 +10,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from azelficoast.corpus import DecisionFixture, build_fixtures
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.live_belief import build_probe_source, opponent_move_from_protocol
+from azelficoast.live.belief import build_probe_source, opponent_move_from_protocol
 
 REPORT_SCHEMA = "azelficoast.live-belief-coverage"
 REPORT_SCHEMA_VERSION = 1

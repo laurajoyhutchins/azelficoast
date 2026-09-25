@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from azelficoast.corpus import DecisionFixture, load_corpus
-from azelficoast.natural_disagreements import (
+from azelficoast.research.natural_disagreements import (
     _persistent_protect_actions,
     mine_candidates,
 )
