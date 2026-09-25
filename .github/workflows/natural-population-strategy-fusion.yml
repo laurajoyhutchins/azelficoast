@@ -220,7 +220,7 @@ jobs:
           import os
           from pathlib import Path
           shard = int(os.environ["SHARD"])
-          manifest = json.loads(Path("/tmp/selection/manifest.json").read_text())
+          manifest = json.loads(Path("/tmp/selection/population/manifest.json").read_text())
           for row in manifest["selected"]:
               index = int(row["population_index"])
               if (index - 1) % 8 == shard:
@@ -229,7 +229,7 @@ jobs:
 
           while IFS=$'\t' read -r index filename; do
             test -n "$index" || continue
-            source="/tmp/selection/selected/$filename"
+            source="/tmp/selection/population/selected/$filename"
             node scripts/probe_real_belief_trace.cjs \
               /tmp/pokemon-showdown \
               "$source" \
@@ -278,7 +278,7 @@ jobs:
         run: |
           uv run python -m azelficoast.population_study aggregate \
             experiments/natural-population-strategy-fusion-plan.json \
-            /tmp/selection/manifest.json \
+            /tmp/selection/population/manifest.json \
             /tmp/exact \
             --output /tmp/natural-population-aggregate.json \
             | tee /tmp/aggregate-output.json
