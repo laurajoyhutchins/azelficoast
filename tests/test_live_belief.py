@@ -347,6 +347,8 @@ def test_public_belief_result_selects_shared_information_set_action() -> None:
     assert result.diagnostics["decision_world_reduction"] == 2
     assert result.diagnostics["decision_reduction_fraction"] == 0.5
     assert result.diagnostics["belief_branching_required"] is True
+    assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
+    assert result.diagnostics["public_belief_search_horizons"] == 1
 
 
 def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
