@@ -388,6 +388,7 @@ function normalizedOpponentPolicy() {
       }
       const allowed = new Set([
         "simple-heuristics",
+        "dirty-tricks",
         "max-damage",
         "repeat-observed-move",
         "uniform-legal-moves",
@@ -424,6 +425,7 @@ function normalizedOpponentPolicy() {
 
   const strategies = [
     {kind: "simple-heuristics"},
+    {kind: "dirty-tricks"},
     {kind: "max-damage"},
     {kind: "uniform-legal-moves"},
   ];
