@@ -313,7 +313,7 @@ class PinnedShowdownTeacherSource:
         source, admission = build_probe_source(probe_fixture)
         if source is None:
             return TeacherExclusion(admission)
-        if not isinstance(source.get("opponent_response_move"), str):
+        if not isinstance(source.get("opponent_policy"), Mapping):
             return TeacherExclusion("opponent-model-unavailable")
         try:
             posterior = self.engine._probe_posterior(source)
@@ -362,7 +362,7 @@ def _teacher_plan(
             "unit": "transition_evaluations",
             "per_method_limit": compute_budget,
         },
-        "opponent_model": "fixed_observed_response",
+        "opponent_model": "repeat-last-or-uniform-legal-moves",
         "depths": [1],
         "confirmatory_predictors": [
             "posterior_world_count",
