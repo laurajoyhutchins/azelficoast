@@ -62,7 +62,8 @@
     "selection cannot use strategy-fusion value, chosen action, policy disagreement, or continuation values",
     "both search methods consume the identical reconstructed hidden-world oracle for every admitted state",
     "all exclusions and exact-evaluation failures are retained as evidence rather than silently dropped",
-    "a valid cohort with zero positive bias or zero policy disagreements is a successful falsification"
+    "a valid cohort with zero positive bias or zero policy disagreements is a successful falsification",
+    "exact reconstruction must reproduce the discovery-time hidden-item sample counts before policy evaluation"
   ],
   "staged_claims": {
     "current": "natural-state prevalence, value bias, corrected root-action regret, and structural associations under the bounded exact treatment",
