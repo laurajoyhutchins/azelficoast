@@ -3,9 +3,14 @@ from __future__ import annotations
 import copy
 import json
 
+import pytest
+
+import azelficoast.belief.self_improvement as self_improvement
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.belief.self_improvement import (
     TeacherArtifacts,
+    _challenger_consensus,
+    _challenger_teacher_required,
     _mine_informative_fixtures,
     generate_teacher_evidence,
 )
@@ -176,6 +181,60 @@ def _trace(path) -> None:
     )
 
 
+def _mark_trace_hard(path) -> None:
+    rows = [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    decision = next(row for row in rows if row.get("kind") == "decision")
+    decision["decision_metadata"] = {
+        "belief": {
+            "status": "search",
+            "reason": "learned-policy-uncertain",
+            "diagnostics": {
+                "learned_prediction": {
+                    "policy_margin": 0.0,
+                    "policy_entropy_bits": 1.0,
+                }
+            },
+        }
+    }
+    path.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+
+
+def test_challenger_teacher_runs_only_for_hard_public_evidence() -> None:
+    assert _challenger_teacher_required(
+        {"uncertainty": 0.8, "search_count": 0, "fallback_count": 0},
+        uncertainty_threshold=0.75,
+    )
+    assert _challenger_teacher_required(
+        {"uncertainty": 0.1, "search_count": 1, "fallback_count": 0},
+        uncertainty_threshold=0.75,
+    )
+    assert not _challenger_teacher_required(
+        {"uncertainty": 0.2, "search_count": 0, "fallback_count": 0},
+        uncertainty_threshold=0.75,
+    )
+
+
+def test_challenger_consensus_rejects_prior_sensitive_teacher_action() -> None:
+    stable = _challenger_consensus(
+        "attack",
+        {"flattened": "attack", "sharpened": "attack"},
+    )
+    unstable = _challenger_consensus(
+        "attack",
+        {"flattened": "switch", "sharpened": "attack"},
+    )
+
+    assert stable["passed"] is True
+    assert unstable["passed"] is False
+    assert unstable["actions"]["flattened"] == "switch"
+
 def test_teacher_evidence_is_reproducible_and_settled(tmp_path) -> None:
     trace = tmp_path / "trace.jsonl"
     _trace(trace)
@@ -219,6 +278,88 @@ def test_teacher_evidence_is_reproducible_and_settled(tmp_path) -> None:
     assert settled["matched_authorized_compute"] is True
     assert settled["matched_evaluator_checkpoint"] is True
     assert settled["matched_transition_program"] is True
+
+
+def test_hard_teacher_state_requires_prior_stress_consensus(tmp_path) -> None:
+    trace = tmp_path / "hard.jsonl"
+    _trace(trace)
+    _mark_trace_hard(trace)
+
+    evidence = generate_teacher_evidence(
+        [trace],
+        evaluator=_FakeEvaluator(),
+        source=_FakeTeacherSource(),
+        output_root=tmp_path / "teachers",
+        compute_budget=4,
+    )
+
+    assert evidence.admitted_decision_count == 1
+    assert evidence.excluded_decision_count == 0
+    assert len(evidence.packet_paths) == 1
+    assert len(evidence.receipt_paths) == 2
+
+    manifest = json.loads(evidence.manifest_path.read_text(encoding="utf-8"))
+    challenger = manifest["admitted"][0]["challenger"]
+    assert challenger["required"] is True
+    assert challenger["passed"] is True
+    assert len(challenger["runs"]) == 2
+    assert {row["treatment"] for row in challenger["runs"]} == {
+        "flattened",
+        "sharpened",
+    }
+    assert manifest["challenger_policy"]["failure_mode"] == "exclude-training-target"
+
+
+def test_prior_sensitive_challenger_withholds_teacher_label(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trace = tmp_path / "hard.jsonl"
+    _trace(trace)
+    _mark_trace_hard(trace)
+    original_execute = self_improvement.execute_method
+
+    def disagreeing_execute_method(**kwargs):
+        result = dict(original_execute(**kwargs))
+        packet = kwargs["packet"]
+        if (
+            packet.get("posterior_treatment") == "flattened"
+            and kwargs.get("method") == "information_set"
+        ):
+            legal_actions = list(packet["legal_actions"])
+            alternate = next(
+                action
+                for action in legal_actions
+                if action != result["chosen_action"]
+            )
+            result["chosen_action"] = alternate
+            result["root_values"] = {
+                action: (1.0 if action == alternate else 0.0)
+                for action in legal_actions
+            }
+        return result
+
+    monkeypatch.setattr(
+        self_improvement,
+        "execute_method",
+        disagreeing_execute_method,
+    )
+    evidence = generate_teacher_evidence(
+        [trace],
+        evaluator=_FakeEvaluator(),
+        source=_FakeTeacherSource(),
+        output_root=tmp_path / "teachers",
+        compute_budget=4,
+    )
+
+    assert evidence.admitted_decision_count == 0
+    assert evidence.excluded_decision_count == 1
+    assert evidence.packet_paths == ()
+    assert evidence.receipt_paths == ()
+
+    manifest = json.loads(evidence.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["excluded"][0]["reason"] == "posterior-sensitive-teacher-target"
+    assert manifest["excluded"][0]["challenger"]["passed"] is False
 
 
 def test_duplicate_trace_content_does_not_double_weight_teacher_data(tmp_path) -> None:
