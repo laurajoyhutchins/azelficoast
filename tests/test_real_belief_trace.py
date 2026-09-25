@@ -556,6 +556,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'hiddenReads.add("opponent.active.moves")' in source
     assert 'hiddenReads.add("opponent.active.evs")' in source
     assert 'hiddenReads.add("opponent.active.ivs")' in source
+    assert 'hiddenReads.add("opponent.active.exact_hp")' in source
     assert '"repeat-last-or-uniform-legal-moves"' not in source
     assert "showdown_turn_executions: showdownTurnExecutions" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
