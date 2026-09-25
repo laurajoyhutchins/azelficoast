@@ -175,8 +175,7 @@ jobs:
 
   exact:
     needs: freeze-cohort
-    if: false
-    if: false
+    if: ${{ false }}
     strategy:
       fail-fast: false
       max-parallel: 8
