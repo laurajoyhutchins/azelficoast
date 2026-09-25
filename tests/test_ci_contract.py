@@ -26,6 +26,7 @@ def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> N
     pull_request = _event_block(source, "pull_request")
 
     assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
+    assert source.count("\nconcurrency:\n") == 1
     assert "group: ci-${{ github.event.pull_request.number || github.ref }}" in source
     assert "cancel-in-progress: true" in source
 
