@@ -4,7 +4,7 @@ This document preserves the experiment-by-experiment narrative that originally a
 
 It is a **historical notebook**, captured from repository state `f9dc0b28da32d2dfd2242e3bfcdf40b8aaeca352`. Statements such as “next rung,” current limitations, and performance measurements describe the project at the point each note was written; they are not the current roadmap or capability contract.
 
-The value of these notes is the progression: each rung states a narrow claim, records the evidence used to test it, names important negative controls, and leaves the next unsupported claim visible. Current public-facing status belongs in the root README; frozen machine-readable evidence lives under [`experiments/`](../experiments/).
+The value of these notes is the progression: each rung states a narrow claim, records the evidence used to test it, names important negative controls, and leaves the next unsupported claim visible. Current public-facing status belongs in the root README, the current search/mechanics boundary is documented in [`search-architecture.md`](search-architecture.md), and frozen machine-readable evidence lives under [`experiments/`](../experiments/).
 
 ## Research progression
 
