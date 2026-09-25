@@ -274,7 +274,7 @@ def _mining_fixture(
 
 def test_state_mining_spends_budget_across_battles_before_refilling() -> None:
     fixtures = [
-        _mining_fixture("a-hard", "battle-a", status="fallback", margin=0.0),
+        _mining_fixture("a-hard", "battle-a", status="search", margin=0.0),
         _mining_fixture("a-second", "battle-a", status="search", margin=0.01),
         _mining_fixture("b-state", "battle-b", status="selected", margin=0.9),
     ]
