@@ -428,6 +428,7 @@ def freeze_population(
         source = dict(row["source"])
         candidate = row["candidate"]
         source["observed_opponent_moves"] = list(candidate["revealed_moves"])
+        source["opponent_is_lead"] = bool(candidate["is_lead"])
         source["source_artifact"] = {
             **source_artifact,
             "population_index": index,
