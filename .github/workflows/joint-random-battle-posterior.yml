@@ -111,6 +111,7 @@ jobs:
 
           from azelficoast.joint_posterior import (
               evaluator_posterior,
+              posterior_validity_record,
               validate_joint_posterior,
           )
 
@@ -118,6 +119,10 @@ jobs:
           document = json.loads(path.read_text())
           checked = validate_joint_posterior(document)
           projected = evaluator_posterior(checked)
+          validity = posterior_validity_record(checked)
+          Path("/tmp/joint-posterior-validity.json").write_text(
+              json.dumps(validity, sort_keys=True, indent=2) + "\n"
+          )
 
           construction = checked["construction"]
           assert construction["accepted_team_count"] >= 8
@@ -128,11 +133,15 @@ jobs:
               "attempted=", construction["attempted_team_count"],
               "accepted=", construction["accepted_team_count"],
               "unique=", construction["unique_particle_count"],
+              "support_ess=", validity["support"]["effective_sample_size"],
+              "support_entropy_bits=", validity["support"]["entropy_bits"],
           )
           PY
 
       - uses: actions/upload-artifact@v4
         with:
           name: joint-random-battle-posterior
-          path: /tmp/joint-posterior.json
+          path: |
+            /tmp/joint-posterior.json
+            /tmp/joint-posterior-validity.json
           if-no-files-found: error
