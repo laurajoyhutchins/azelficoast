@@ -169,6 +169,10 @@ def freeze_population(
         raise PopulationStudyError("unexpected mechanics-screen schema")
     if mechanics_document.get("showdown_commit") != plan["showdown_commit"]:
         raise PopulationStudyError("mechanics screen used another Showdown revision")
+    if int(mechanics_document.get("rounds", 0)) != int(
+        admission["mechanics_screen_rounds"]
+    ):
+        raise PopulationStudyError("mechanics-screen sampling resolution changed")
 
     source_count = int(plan["source_artifact"]["decision_state_count"])
     if len(fixtures) != source_count:
@@ -203,6 +207,12 @@ def freeze_population(
         if fixture_id in seen_candidates:
             raise PopulationStudyError(f"duplicate candidate {fixture_id}")
         seen_candidates.add(fixture_id)
+        if int(candidate.get("sample_rounds", 0)) != int(
+            admission["generator_rounds"]
+        ):
+            raise PopulationStudyError(
+                f"{fixture_id}: generator sampling resolution changed"
+            )
 
         fixture = fixture_by_id.get(fixture_id)
         mechanics = case_by_id.get(fixture_id)
