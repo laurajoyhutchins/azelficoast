@@ -727,6 +727,8 @@ def import_public_replays(
     rows: list[dict[str, Any]] = []
     admitted: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
+    cache_hit_count = 0
+    download_count = 0
     for candidate in metadata:
         replay_id = str(candidate.get("id") or "")
         frozen: dict[str, Any] | None = None
@@ -734,6 +736,9 @@ def import_public_replays(
             replay = _load_frozen_public_replay(candidate, root)
             if replay is None:
                 replay = fetch_public_replay(candidate)
+                download_count += 1
+            else:
+                cache_hit_count += 1
             frozen = freeze_public_replay(replay, root)
             _require_replay_revision(replay, revision)
             replay_rows = asyncio.run(
@@ -801,6 +806,8 @@ def import_public_replays(
             "license_or_terms": "not asserted",
         },
         "discovered_count": len(metadata),
+        "cache_hit_count": cache_hit_count,
+        "download_count": download_count,
         "admitted_count": len(admitted),
         "excluded_count": len(excluded),
         "trace_record_count": len(rows),
@@ -820,6 +827,8 @@ def import_public_replays(
         "trace": str(trace_path),
         "trace_sha256": trace_digest,
         "discovered_count": len(metadata),
+        "cache_hit_count": cache_hit_count,
+        "download_count": download_count,
         "admitted_count": len(admitted),
         "excluded_count": len(excluded),
         "decision_count": manifest["decision_count"],
