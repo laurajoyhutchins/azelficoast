@@ -4,10 +4,10 @@ The compiler deliberately ignores continuation values. A transition program desc
 only one complete root turn: chance probability, public observation, and successor
 state. Search and value functions consume that surface later.
 
-When Showdown supplies dynamic hidden-state read traces, the compiler refines classes
-only when a representative actually reads a hidden field. The existing exhaustive
-oracle verifies every resulting class, so incomplete instrumentation fails closed.
-Older frozen oracles without read traces retain the exact finite-support fallback.
+The default compiler derives semantic classes from the complete finite-support oracle,
+so analysis measures behavior rather than implementation reads. An explicit dynamic-read
+strategy is available for validating representative-refinement machinery; lazy Showdown
+production emits that strategy directly and is verified against the semantic oracle.
 """
 
 from __future__ import annotations
@@ -182,8 +182,20 @@ def _read_refined_classes(
 
 def compile_whole_turn_programs(
     oracle: Mapping[str, Any],
+    *,
+    partition_strategy: str = "semantic",
 ) -> dict[str, Any]:
-    """Compile one exact finite-support transition program per legal root action."""
+    """Compile one exact finite-support transition program per legal root action.
+
+    The semantic strategy is authoritative for analysis: classes are derived from
+    complete immediate transition behavior. dynamic_reads is an explicit validation
+    mode for representative refinement and is never inferred merely from trace presence.
+    """
+
+    if partition_strategy not in {"semantic", "dynamic_reads"}:
+        raise WholeTurnProgramError(
+            f"unsupported whole-turn partition strategy: {partition_strategy!r}"
+        )
 
     worlds, actions, transitions, candidates = validate_oracle_core(
         oracle,
@@ -202,14 +214,26 @@ def compile_whole_turn_programs(
             world_id: sha256_json(distribution)
             for world_id, distribution in immediate.items()
         }
-        refined = _read_refined_classes(
-            worlds,
-            action=action,
-            transitions=transitions,
-            semantic_hashes=semantic_hashes,
-            candidates=candidates,
+        refined = (
+            _read_refined_classes(
+                worlds,
+                action=action,
+                transitions=transitions,
+                semantic_hashes=semantic_hashes,
+                candidates=candidates,
+            )
+            if partition_strategy == "dynamic_reads"
+            else None
         )
-        if refined is None:
+        if partition_strategy == "dynamic_reads":
+            if refined is None:
+                raise WholeTurnProgramError(
+                    f"{action}: dynamic-read partition requested but oracle has no "
+                    "complete transition_reads evidence"
+                )
+            partition_method = "dynamic-read-refinement"
+            dependency_fields, class_rows = refined
+        else:
             partition_method = "finite-support-minimal-semantics"
             dependency_fields = _minimal_dependency_fields(
                 worlds,
@@ -234,9 +258,6 @@ def compile_whole_turn_programs(
                 }
                 for key, member_ids in sorted(grouped.items(), key=lambda row: row[0])
             ]
-        else:
-            partition_method = "dynamic-read-refinement"
-            dependency_fields, class_rows = refined
 
         classes: list[dict[str, Any]] = []
         for row in class_rows:
