@@ -42,7 +42,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         *args: Any,
         decision_log: str | Path | None = None,
         showdown_root: str | Path | None = None,
-        timing_policy: LiveTimingPolicy = LiveTimingPolicy(),
+        timing_policy: LiveTimingPolicy | None = None,
         evaluator_checkpoint: str | Path | None = None,
         search_policy_margin: float = 1.0,
         belief_policy: Any | None = None,
@@ -61,7 +61,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         )
         self._protocol_history: dict[str, list[list[list[str]]]] = {}
         self._battle_clocks = BattleClockTracker()
-        self._timing_policy = timing_policy
+        self._timing_policy = timing_policy or LiveTimingPolicy()
         self._belief_policy = belief_policy
         if self._belief_policy is None and showdown_root is not None:
             learned_evaluator = None
@@ -75,7 +75,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
                 )
             self._belief_policy = PinnedShowdownBeliefPolicy(
                 showdown_root,
-                operation_timeout_seconds=timing_policy.operation_timeout_seconds,
+                operation_timeout_seconds=self._timing_policy.operation_timeout_seconds,
                 learned_evaluator=learned_evaluator,
                 search_gate=search_gate,
             )
