@@ -8,6 +8,32 @@ It is also building the machinery needed to make that comparison on real Pokémo
 
 > **Status:** active research code, not a finished competitive bot. The live player uses bounded public-belief search only on admitted states and falls back to poke-env simple heuristics elsewhere.
 
+## Matched experiment contract
+
+The central experiment is executable, not a naming convention. `matched_comparison.py`
+freezes one public decision state, one posterior, one Showdown revision, one depth,
+and one compute ceiling into paired determinization and information-set work packets.
+Settlement fails closed if either method changes the input, legal actions, budget, or
+chosen-action semantics.
+
+`matched_population.py` then requires the complete natural-state × posterior × depth
+matrix and emits battle-clustered bootstrap rows for value optimism, regret, and policy
+disagreement. The posterior treatment and opponent model remain explicit in every
+packet and result.
+
+The current natural-state oracle work still has a narrower boundary: it fixes the
+observed opponent response. A result is marked as preserving two-player information
+sets only when the executable opponent-model contract says so.
+
+~~~bash
+python -m azelficoast.matched_comparison freeze PLAN STATE POSTERIOR \
+  --posterior-treatment generator_faithful --depth 2 --output packet.json
+python -m azelficoast.matched_comparison settle packet.json DET.json INFO.json \
+  --output result.json
+python -m azelficoast.matched_population PLAN COHORT RESULTS \
+  --output aggregate.json
+~~~
+
 ## What exists today
 
 ~~~text
