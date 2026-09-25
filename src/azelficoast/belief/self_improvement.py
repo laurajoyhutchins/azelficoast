@@ -174,11 +174,11 @@ def _mine_informative_fixtures(
     ranked = sorted(
         scored,
         key=lambda item: (
-            -int(item[1]["fallback_count"]),
             -int(item[1]["search_count"]),
             -float(item[1]["uncertainty"]),
             -float(item[1]["policy_entropy_bits"]),
             -int(item[1]["legal_action_count"]),
+            -int(item[1]["fallback_count"]),
             item[0].fixture_id,
         ),
     )
