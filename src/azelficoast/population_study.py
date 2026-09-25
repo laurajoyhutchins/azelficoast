@@ -644,11 +644,15 @@ def _pearson(left: Sequence[float], right: Sequence[float]) -> float | None:
     return numerator / math.sqrt(left_ss * right_ss)
 
 
-def _spearman(rows: Sequence[Mapping[str, Any]], predictor: str) -> dict[str, Any]:
+def _spearman(
+    rows: Sequence[Mapping[str, Any]],
+    predictor: str,
+    outcome: str,
+) -> dict[str, Any]:
     pairs = [
         (
             float(row["predictors"][predictor]),
-            float(row["max_strategy_fusion_value_advantage"]),
+            float(row[outcome]),
         )
         for row in rows
         if isinstance(row.get("predictors"), Mapping)
@@ -667,15 +671,16 @@ def _spearman(rows: Sequence[Mapping[str, Any]], predictor: str) -> dict[str, An
 def _binary_contrast(
     rows: Sequence[Mapping[str, Any]],
     predictor: str,
+    outcome: str,
 ) -> dict[str, Any]:
     yes = [
-        float(row["max_strategy_fusion_value_advantage"])
+        float(row[outcome])
         for row in rows
         if isinstance(row.get("predictors"), Mapping)
         and row["predictors"].get(predictor) is True
     ]
     no = [
-        float(row["max_strategy_fusion_value_advantage"])
+        float(row[outcome])
         for row in rows
         if isinstance(row.get("predictors"), Mapping)
         and row["predictors"].get(predictor) is False
@@ -683,9 +688,9 @@ def _binary_contrast(
     return {
         "true_n": len(yes),
         "false_n": len(no),
-        "true_mean_bias": _mean(yes) if yes else None,
-        "false_mean_bias": _mean(no) if no else None,
-        "mean_bias_difference": _mean(yes) - _mean(no) if yes and no else None,
+        "true_mean": _mean(yes) if yes else None,
+        "false_mean": _mean(no) if no else None,
+        "mean_difference": _mean(yes) - _mean(no) if yes and no else None,
     }
 
 
@@ -843,14 +848,20 @@ def aggregate_results(
         },
         "cluster_bootstrap": bootstrap,
         "predictor_associations": {
-            "numeric_spearman": {
-                predictor: _spearman(ordered, predictor)
-                for predictor in numeric_predictors
-            },
-            "binary_mean_bias_contrast": {
-                predictor: _binary_contrast(ordered, predictor)
-                for predictor in binary_predictors
-            },
+            outcome: {
+                "numeric_spearman": {
+                    predictor: _spearman(ordered, predictor, outcome)
+                    for predictor in numeric_predictors
+                },
+                "binary_mean_contrast": {
+                    predictor: _binary_contrast(ordered, predictor, outcome)
+                    for predictor in binary_predictors
+                },
+            }
+            for outcome in (
+                "max_strategy_fusion_value_advantage",
+                "determinization_public_regret",
+            )
         },
         "results": [dict(row) for row in ordered],
     }
