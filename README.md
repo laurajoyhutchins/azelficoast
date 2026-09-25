@@ -543,6 +543,17 @@ fixed to the observed locked move, the continuation horizon is one further decis
 material-only, and hidden support is an empirical Showdown-generator support rather than a full
 analytical posterior.
 
+## CI evidence boundary
+
+Ordinary pull-request updates run only the deterministic `ci` workflow. Hosted research
+experiments are candidate evidence rather than edit-loop feedback.
+
+Keep an actively changing PR in draft. When its current head is a candidate, mark the PR
+Ready for review; only the path-matched research workflows run for that exact head. A later
+commit creates a new head without candidate evidence, so move the PR back to draft and Ready
+for review again before treating the new revision as certified. Research workflows also retain
+`workflow_dispatch` for explicit runs, and superseded runs for the same PR are cancelled.
+
 ## Development
 
 ```bash
