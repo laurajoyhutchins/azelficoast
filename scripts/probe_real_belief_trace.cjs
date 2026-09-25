@@ -2210,8 +2210,8 @@ process.stdout.write(JSON.stringify({
     continuation_decision_horizons: CONTINUATION_DECISION_HORIZONS,
     chance_seed_family: CHANCE_SEED_FAMILY,
     opponent_response: (
-      OPPONENT_POLICY.kind === "repeat-last-or-uniform-legal-moves"
-        ? `repeat ${OPPONENT_POLICY.preferred_move} when legal, otherwise uniform legal moves`
+      OPPONENT_POLICY.kind === "strategy-mixture"
+        ? "equal mixture of simple heuristics, max damage, uniform legal moves, and public move persistence when available"
         : "uniform legal moves"
     ),
     opponent_policy: OPPONENT_POLICY,
