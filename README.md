@@ -477,21 +477,28 @@ hand-curated tactical examples.
 A preregistered three-case natural exact treatment has now found that failure mode in pinned
 Showdown mechanics. All three structurally selected hidden-Choice speed-fork cases contained
 public successor information sets with competing world-aware continuations. In the third case,
-Tinkaton versus Choice Band/Choice Scarf Galarian Zapdos, the conflict was large enough to change
-the bounded root decision: world-aware determinization chose Protect while public-belief search
-chose Gigaton Hammer.
+Tinkaton versus Choice Band/Choice Scarf Galarian Zapdos, the original 8×8 chance-sampling
+treatment changed the bounded root decision: world-aware determinization chose Protect while
+public-belief search chose Gigaton Hammer.
 
 The causal trace is unusually clean. After Protect, all 18 reconstructed worlds produce one
 identical public observation and the immediate transition has no empirically required hidden
 read. Every Choice Band world prefers Gigaton Hammer at the next decision; every Choice Scarf
-world prefers Protect. Determinization can splice those incompatible continuations together.
-Public-belief search must choose one action for the shared information set and chooses Play Rough,
-lowering Protect enough for immediate Gigaton Hammer to become the root action.
+world prefers Protect. Determinization can splice those incompatible continuations together,
+while public-belief search must choose one continuation for the shared information set.
 
-This positive result remains bounded evidence rather than a competitive-play claim. The opponent
-response is fixed to the observed locked move, the continuation horizon is one further decision,
-and utility is material-only. The final public root margin is also narrow, so higher-sample,
-multi-seed replication is required before treating the root flip as robust.
+A preregistered robustness treatment then reran the same frozen decision at 32 root samples × 32
+continuation samples under four deterministic seed families. The causal strategy-fusion pattern
+replicated in all four families, and determinization overvalued Protect relative to public-belief
+search in all four. The specific root-policy flip did not: families 0 and 1 chose Gigaton Hammer
+under public-belief search, while families 2 and 3 chose Protect. The durable result is therefore
+the information-set continuation conflict and its positive strategy-fusion value bias, not a
+stable claim that the corrected root action must be Gigaton Hammer.
+
+This remains bounded evidence rather than a competitive-play claim. The opponent response is
+fixed to the observed locked move, the continuation horizon is one further decision, utility is
+material-only, and hidden support is an empirical Showdown-generator support rather than a full
+analytical posterior.
 
 ## Development
 
