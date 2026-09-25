@@ -7,6 +7,7 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -680,11 +681,16 @@ class PinnedShowdownBeliefPolicy:
 
         route: LiveDecisionResult | None = None
         posterior: Mapping[str, Any] | None = None
+        posterior_probe_wall_ms: float | None = None
         program_failure: dict[str, Any] = {}
 
         if self.learned_evaluator is not None:
+            posterior_started_ns = time.perf_counter_ns()
             try:
                 posterior = self._probe_posterior(source)
+                posterior_probe_wall_ms = (
+                    time.perf_counter_ns() - posterior_started_ns
+                ) / 1_000_000.0
                 if posterior.get("source_fixture_id") != fixture.fixture_id:
                     raise LiveBeliefPolicyError("posterior fixture identity mismatch")
                 if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
@@ -697,9 +703,21 @@ class PinnedShowdownBeliefPolicy:
                     evaluator=self.learned_evaluator,
                     search_gate=self.search_gate,
                 )
+                route = LiveDecisionResult(
+                    action=route.action,
+                    status=route.status,
+                    reason=route.reason,
+                    diagnostics={
+                        **dict(route.diagnostics),
+                        "posterior_construction_wall_ms": posterior_probe_wall_ms,
+                    },
+                )
                 if route.action is not None:
                     return route
             except Exception as error:
+                posterior_probe_wall_ms = (
+                    time.perf_counter_ns() - posterior_started_ns
+                ) / 1_000_000.0
                 route = LiveDecisionResult(
                     action=None,
                     status="search",
@@ -710,6 +728,7 @@ class PinnedShowdownBeliefPolicy:
                             "type": type(error).__name__,
                             "error": str(error)[-1000:],
                         },
+                        "posterior_construction_wall_ms": posterior_probe_wall_ms,
                     },
                 )
 
@@ -732,14 +751,22 @@ class PinnedShowdownBeliefPolicy:
             and route is not None
             and route.action is None
         ):
+            program_started_ns = time.perf_counter_ns()
             try:
                 transition_program = self._probe_transition_program(source)
+                program_generation_wall_ms = (
+                    time.perf_counter_ns() - program_started_ns
+                ) / 1_000_000.0
+                search_started_ns = time.perf_counter_ns()
                 searched = transition_program_belief_result(
                     fixture=fixture,
                     posterior=posterior,
                     transition_program=transition_program,
                     evaluator=self.learned_evaluator,
                 )
+                program_search_wall_ms = (
+                    time.perf_counter_ns() - search_started_ns
+                ) / 1_000_000.0
                 if searched.action is not None:
                     return LiveDecisionResult(
                         action=searched.action,
@@ -748,19 +775,34 @@ class PinnedShowdownBeliefPolicy:
                         diagnostics={
                             **dict(route.diagnostics),
                             **dict(searched.diagnostics),
+                            "transition_program_generation_wall_ms": (
+                                program_generation_wall_ms
+                            ),
+                            "transition_program_admission_search_wall_ms": (
+                                program_search_wall_ms
+                            ),
+                            "exact_route_wall_ms": (
+                                program_generation_wall_ms + program_search_wall_ms
+                            ),
                         },
                     )
                 program_failure = {
                     "transition_program_fallback_reason": searched.reason,
+                    "transition_program_generation_wall_ms": program_generation_wall_ms,
+                    "transition_program_admission_search_wall_ms": program_search_wall_ms,
                     **dict(searched.diagnostics),
                 }
             except subprocess.TimeoutExpired:
+                program_generation_wall_ms = (
+                    time.perf_counter_ns() - program_started_ns
+                ) / 1_000_000.0
                 return LiveDecisionResult(
                     action=None,
                     status="fallback",
                     reason="transition-program-search-timeout",
                     diagnostics={
                         "timeout_seconds": self.timeout_seconds,
+                        "transition_program_generation_wall_ms": program_generation_wall_ms,
                         **dict(route.diagnostics),
                     },
                 )
@@ -776,12 +818,19 @@ class PinnedShowdownBeliefPolicy:
                 program_failure = {
                     "transition_program_fallback_reason": "program-probe-failed",
                     "transition_program_error": detail[-1000:],
+                    "transition_program_generation_wall_ms": (
+                        time.perf_counter_ns() - program_started_ns
+                    ) / 1_000_000.0,
                 }
 
         # Compatibility fallback for unlearned configurations or a failed program
         # path. New learned search does not require this exhaustive matrix.
+        oracle_started_ns = time.perf_counter_ns()
         try:
             oracle = self._probe(source)
+            exhaustive_oracle_generation_wall_ms = (
+                time.perf_counter_ns() - oracle_started_ns
+            ) / 1_000_000.0
         except subprocess.TimeoutExpired:
             return LiveDecisionResult(
                 action=None,
@@ -828,7 +877,23 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"showdown_commit": oracle.get("showdown_commit")},
             )
 
+        exact_started_ns = time.perf_counter_ns()
         exact = public_belief_result(oracle, fixture.legal_actions)
+        legacy_oracle_search_wall_ms = (
+            time.perf_counter_ns() - exact_started_ns
+        ) / 1_000_000.0
+        exact = LiveDecisionResult(
+            action=exact.action,
+            status=exact.status,
+            reason=exact.reason,
+            diagnostics={
+                **dict(exact.diagnostics),
+                "exhaustive_oracle_generation_wall_ms": (
+                    exhaustive_oracle_generation_wall_ms
+                ),
+                "legacy_oracle_search_wall_ms": legacy_oracle_search_wall_ms,
+            },
+        )
         if route is None:
             return exact
         return LiveDecisionResult(
