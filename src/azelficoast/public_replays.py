@@ -22,7 +22,6 @@ from poke_env.player import Player
 from poke_env.player.battle_order import BattleOrder
 
 from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION, battle_view
-from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 PUBLIC_REPLAY_SCHEMA = "azelficoast.public-replay-corpus"
 PUBLIC_REPLAY_SCHEMA_VERSION = 1
@@ -150,13 +149,7 @@ def discover_public_replays(
             if not isinstance(replay_id, str) or not replay_id or replay_id in seen:
                 continue
             seen.add(replay_id)
-            rating = row.get("rating")
-            if isinstance(rating, int) and not isinstance(rating, bool):
-                numeric_rating = rating
-            elif isinstance(rating, str) and rating.isdigit():
-                numeric_rating = int(rating)
-            else:
-                numeric_rating = 0
+            numeric_rating = _optional_int(row.get("rating")) or 0
             if numeric_rating < min_rating:
                 continue
             selected.append(dict(row))
@@ -600,6 +593,7 @@ async def _trace_side(
                         "kind": "public-showdown-replay",
                         "replay_id": replay.replay_id,
                         "side": side,
+                        "source_showdown_version": replay.source_showdown_version,
                     },
                 }
             )
@@ -663,6 +657,7 @@ async def _trace_side(
                 "kind": "public-showdown-replay",
                 "replay_id": replay.replay_id,
                 "side": side,
+                "source_showdown_version": replay.source_showdown_version,
             },
         }
     )
