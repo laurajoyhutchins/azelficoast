@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import math
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any, Mapping, Sequence
 from poke_env import AccountConfiguration, ShowdownServerConfiguration
 from poke_env.player import MaxBasePowerPlayer, Player, RandomPlayer, SimpleHeuristicsPlayer
 
+from azelficoast.belief.competence import allocate_evidence_budget, evidence_source_debt
 from azelficoast.belief.coverage import summarize_traces
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.battle_promotion import (
@@ -543,8 +545,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_nonnegative_int,
         default=4,
         help=(
-            "replenish the curriculum from this many public Random Battle replays "
-            "per generation; use 0 to disable network acquisition"
+            "allow up to this many public Random Battle replays per generation; "
+            "competence debt may reduce acquisition after the first generation; "
+            "use 0 to disable network acquisition"
         ),
     )
     training_auto.add_argument(
@@ -766,6 +769,49 @@ def _training_opponent(
             search_policy_margin=search_policy_margin,
         )
     raise ValueError(f"unsupported training opponent kind {kind!r}")
+
+
+def _adaptive_public_replay_count(
+    maximum: int,
+    *,
+    ledger: Mapping[str, Any] | None,
+    generated_source_kinds: Sequence[str],
+) -> int:
+    """Back off public acquisition only when its debt is below generated evidence."""
+
+    if maximum <= 0:
+        return 0
+    if ledger is None or not generated_source_kinds:
+        return maximum
+    public_debt = float(
+        evidence_source_debt(ledger, "public-showdown-replay")["acquisition_debt"]
+    )
+    generated_debts = [
+        float(evidence_source_debt(ledger, source)["acquisition_debt"])
+        for source in generated_source_kinds
+    ]
+    generated_mean = math.fsum(generated_debts) / len(generated_debts)
+    if generated_mean <= 0.0 or public_debt >= generated_mean:
+        return maximum
+    if public_debt <= 0.0:
+        return 0
+    return max(1, math.ceil(maximum * public_debt / generated_mean))
+
+
+def _competence_ledger_from_teacher_manifest(path: object) -> Mapping[str, Any] | None:
+    if not isinstance(path, str) or not path:
+        return None
+    try:
+        document = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read teacher competence ledger: {error}") from error
+    if not isinstance(document, Mapping):
+        raise ValueError("teacher manifest must contain a JSON object")
+    selection = document.get("selection")
+    if not isinstance(selection, Mapping):
+        return None
+    ledger = selection.get("competence_ledger")
+    return ledger if isinstance(ledger, Mapping) else None
 
 
 def _live_player(
@@ -1071,6 +1117,8 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
     archive_checkpoints: list[Path] = []
     generations: list[dict[str, object]] = []
     public_before: int | None = None
+    competence_ledger: Mapping[str, Any] | None = None
+    competence_ledger_manifest: str | None = None
 
     for index in range(args.generations):
         generation_number = index + 1
@@ -1089,11 +1137,49 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             current_checkpoint,
             archive_checkpoints,
         )
-        allocations = _balanced_battle_allocation(
+        generated_source_kinds = [
+            f"generated-{spec['kind']}" for spec in opponent_specs
+        ]
+        allocations = allocate_evidence_budget(
+            generated_source_kinds,
             args.battles_per_generation,
-            len(opponent_specs),
+            ledger=competence_ledger,
             rotation=index,
         )
+        public_replay_count = _adaptive_public_replay_count(
+            args.public_replays_per_generation,
+            ledger=competence_ledger,
+            generated_source_kinds=generated_source_kinds,
+        )
+        source_debts = [
+            evidence_source_debt(competence_ledger, source)
+            for source in generated_source_kinds
+        ]
+        public_source_debt = evidence_source_debt(
+            competence_ledger,
+            "public-showdown-replay",
+        )
+        acquisition_plan = {
+            "kind": "competence-debt",
+            "ledger_manifest": competence_ledger_manifest,
+            "cold_start": competence_ledger is None,
+            "generated_sources": [
+                {
+                    **dict(debt),
+                    "battle_count": battle_count,
+                }
+                for debt, battle_count in zip(
+                    source_debts,
+                    allocations,
+                    strict=True,
+                )
+            ],
+            "public_source": {
+                **dict(public_source_debt),
+                "configured_max_replays": args.public_replays_per_generation,
+                "selected_replays": public_replay_count,
+            },
+        }
         opponent_population: list[dict[str, object]] = []
         for spec, battle_count in zip(opponent_specs, allocations, strict=True):
             population_row = {
@@ -1138,14 +1224,14 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
         traces.append(decisions)
 
         public_curriculum: dict[str, object]
-        if args.public_replays_per_generation > 0:
+        if public_replay_count > 0:
             public_root = generation_root / "public-replays"
             try:
                 public_result = await asyncio.to_thread(
                     import_public_replays,
                     showdown_root=args.showdown_root,
                     output_root=public_root,
-                    max_battles=args.public_replays_per_generation,
+                    max_battles=public_replay_count,
                     min_rating=args.public_replay_min_rating,
                     before=public_before,
                     strict=False,
@@ -1171,7 +1257,14 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
                     "before": public_before,
                 }
         else:
-            public_curriculum = {"status": "disabled"}
+            public_curriculum = {
+                "status": (
+                    "disabled"
+                    if args.public_replays_per_generation == 0
+                    else "deferred-by-competence-debt"
+                ),
+                "selected_replays": public_replay_count,
+            }
 
         receipt = run_self_improvement_cycle(
             traces,
@@ -1203,6 +1296,15 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
                 ),
             ),
             defer_promotion=True,
+        )
+
+        next_competence_ledger = _competence_ledger_from_teacher_manifest(
+            receipt.get("teacher_manifest")
+        )
+        next_competence_ledger_manifest = (
+            str(receipt.get("teacher_manifest"))
+            if isinstance(receipt.get("teacher_manifest"), str)
+            else None
         )
 
         promoted = False
@@ -1242,11 +1344,12 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
 
         generation = {
             "schema": "azelficoast.self-improvement-generation",
-            "schema_version": 3,
+            "schema_version": 4,
             "generation": generation_number,
             "battle_count": args.battles_per_generation,
             "battle_search_policy_margin": args.battle_search_policy_margin,
             "opponent_population": opponent_population,
+            "acquisition_plan": acquisition_plan,
             "public_curriculum": public_curriculum,
             "promotion_panel": promotion_panel,
             "promotion_settlement_receipt_digest": (
@@ -1284,10 +1387,12 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
             encoding="utf-8",
         )
         generations.append(generation)
+        competence_ledger = next_competence_ledger
+        competence_ledger_manifest = next_competence_ledger_manifest
 
     return {
         "schema": "azelficoast.self-improvement-run",
-        "schema_version": 3,
+        "schema_version": 4,
         "generation_count": len(generations),
         "generations": generations,
         "final_checkpoint": str(current_checkpoint),

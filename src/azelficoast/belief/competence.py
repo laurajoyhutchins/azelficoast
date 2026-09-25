@@ -83,6 +83,7 @@ def competence_claims(
     fallback_count = signals.get("fallback_count", 0)
     searched = isinstance(search_count, int) and not isinstance(search_count, bool) and search_count > 0
     fallback = isinstance(fallback_count, int) and not isinstance(fallback_count, bool) and fallback_count > 0
+    hard = searched or fallback or uncertainty >= 0.75
 
     state = fixture.state
     claims = [
@@ -135,6 +136,14 @@ def competence_claims(
                         1.5,
                     )
                 )
+                if hard:
+                    claims.append(
+                        CompetenceClaim(
+                            f"evidence-source-hard:{source_kind}",
+                            "evidence-source-hard",
+                            3.0,
+                        )
+                    )
 
     by_id = {claim.claim_id: claim for claim in claims}
     return tuple(by_id[claim_id] for claim_id in sorted(by_id))
@@ -172,6 +181,101 @@ def build_competence_ledger(
         "claim_count": len(claims),
         "claims": claims,
     }
+
+
+def evidence_source_debt(
+    ledger: Mapping[str, Any] | None,
+    source_kind: str,
+) -> dict[str, Any]:
+    """Return acquisition debt for one observable evidence source.
+
+    An unseen source starts with both coverage and hard-state debt. Once the source has
+    ordinary evidence, absence of a hard-state claim means no hard case has yet been
+    observed rather than an endlessly missing capability.
+    """
+
+    if not source_kind:
+        raise ValueError("evidence source kind must be non-empty")
+    claims = (
+        ledger.get("claims", ())
+        if isinstance(ledger, Mapping)
+        else ()
+    )
+    by_id = {
+        str(row.get("claim_id")): row
+        for row in claims
+        if isinstance(row, Mapping)
+    }
+    base_id = f"evidence-source:{source_kind}"
+    hard_id = f"evidence-source-hard:{source_kind}"
+    base = by_id.get(base_id)
+    hard = by_id.get(hard_id)
+
+    if isinstance(base, Mapping):
+        base_debt = float(base.get("debt", 0.0))
+        base_count = int(base.get("evidence_count", 0))
+        hard_debt = float(hard.get("debt", 0.0)) if isinstance(hard, Mapping) else 0.0
+        hard_count = int(hard.get("evidence_count", 0)) if isinstance(hard, Mapping) else 0
+    else:
+        base_debt = 1.5
+        base_count = 0
+        hard_debt = 3.0
+        hard_count = 0
+
+    return {
+        "source_kind": source_kind,
+        "coverage_debt": base_debt,
+        "hard_state_debt": hard_debt,
+        "acquisition_debt": base_debt + hard_debt,
+        "evidence_count": base_count,
+        "hard_state_count": hard_count,
+    }
+
+
+def allocate_evidence_budget(
+    source_kinds: Sequence[str],
+    budget: int,
+    *,
+    ledger: Mapping[str, Any] | None,
+    rotation: int = 0,
+) -> tuple[int, ...]:
+    """Allocate an integer acquisition budget in proportion to measured source debt."""
+
+    if not source_kinds:
+        raise ValueError("at least one evidence source is required")
+    if any(not isinstance(source, str) or not source for source in source_kinds):
+        raise ValueError("evidence source kinds must be non-empty strings")
+    if not isinstance(budget, int) or isinstance(budget, bool) or budget < 0:
+        raise ValueError("evidence budget must be a non-negative integer")
+    if not isinstance(rotation, int) or isinstance(rotation, bool):
+        raise ValueError("evidence allocation rotation must be an integer")
+    if budget == 0:
+        return tuple(0 for _ in source_kinds)
+
+    priorities = [
+        float(evidence_source_debt(ledger, source)["acquisition_debt"])
+        for source in source_kinds
+    ]
+    total = math.fsum(priorities)
+    if not math.isfinite(total) or total <= 0.0:
+        priorities = [1.0 for _ in source_kinds]
+        total = float(len(source_kinds))
+
+    quotas = [budget * priority / total for priority in priorities]
+    allocation = [math.floor(quota) for quota in quotas]
+    remainder = budget - sum(allocation)
+    count = len(source_kinds)
+    order = sorted(
+        range(count),
+        key=lambda index: (
+            -(quotas[index] - allocation[index]),
+            (index - rotation) % count,
+            index,
+        ),
+    )
+    for index in order[:remainder]:
+        allocation[index] += 1
+    return tuple(int(value) for value in allocation)
 
 
 def curriculum_priority(
