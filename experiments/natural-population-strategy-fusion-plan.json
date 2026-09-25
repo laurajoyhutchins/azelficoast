@@ -59,7 +59,7 @@
     "cluster_unit": "battle_tag",
     "bootstrap_replicates": 2000,
     "bootstrap_seed": 1729,
-    "predictor_analysis": "preregistered univariate Spearman correlations for numeric predictors and mean-bias contrasts for binary predictors"
+    "predictor_analysis": "preregistered univariate Spearman correlations for numeric predictors and mean contrasts for binary predictors, evaluated separately against continuous value bias and continuous corrected regret; policy disagreement remains descriptive"
   },
   "scientific_contract": [
     "admissibility and overflow sampling are frozen before exact policy values are computed",
