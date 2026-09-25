@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 from typing import Any
 
 from poke_env.battle.abstract_battle import AbstractBattle
@@ -15,6 +16,12 @@ from azelficoast.live.belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,
     live_fixture,
+)
+from azelficoast.live.timing import (
+    BattleClockTracker,
+    DecisionDeadline,
+    DecisionDeadlineExceeded,
+    LiveTimingPolicy,
 )
 from azelficoast.search.selective import PolicyMarginSearchGate
 
@@ -35,7 +42,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         *args: Any,
         decision_log: str | Path | None = None,
         showdown_root: str | Path | None = None,
-        belief_timeout_seconds: float = 20.0,
+        timing_policy: LiveTimingPolicy = LiveTimingPolicy(),
         evaluator_checkpoint: str | Path | None = None,
         search_policy_margin: float = 1.0,
         belief_policy: Any | None = None,
@@ -53,6 +60,8 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
             DecisionTraceWriter(decision_log) if decision_log is not None else None
         )
         self._protocol_history: dict[str, list[list[list[str]]]] = {}
+        self._battle_clocks = BattleClockTracker()
+        self._timing_policy = timing_policy
         self._belief_policy = belief_policy
         if self._belief_policy is None and showdown_root is not None:
             learned_evaluator = None
@@ -66,7 +75,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
                 )
             self._belief_policy = PinnedShowdownBeliefPolicy(
                 showdown_root,
-                timeout_seconds=belief_timeout_seconds,
+                operation_timeout_seconds=timing_policy.operation_timeout_seconds,
                 learned_evaluator=learned_evaluator,
                 search_gate=search_gate,
             )
@@ -74,7 +83,9 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
 
     async def _handle_battle_message(self, split_messages: list[list[str]]) -> None:
         # poke-env funnels the exact Showdown observations through this callback.
-        # The dependency is pinned so this private seam is version-fenced.
+        # Parse the server clock before delegating so a request in the same batch
+        # can consume the freshest available deadline.
+        self._battle_clocks.observe_protocol(split_messages)
         if split_messages:
             room = split_messages[0][0].lstrip(">")
             if room:
@@ -96,11 +107,17 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         return None
 
     def _belief_decision(self, battle: AbstractBattle) -> LiveDecisionResult:
+        budget = self._timing_policy.decision_budget(
+            self._battle_clocks.observation(battle.battle_tag)
+        )
+        started_at = time.monotonic()
+
         if self._belief_policy is None:
             return LiveDecisionResult(
                 action=None,
                 status="fallback",
                 reason="belief-search-disabled",
+                diagnostics={"timing": budget.as_trace(elapsed_seconds=0.0)},
             )
 
         fixture = live_fixture(
@@ -108,11 +125,24 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
             self._protocol_history.get(battle.battle_tag, ()),
         )
         try:
-            result = self._belief_policy.choose(fixture)
+            deadline = DecisionDeadline.after(budget.usable_seconds)
+        except DecisionDeadlineExceeded:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason="battle-clock-budget-exhausted",
+                diagnostics={"timing": budget.as_trace(elapsed_seconds=0.0)},
+            )
+
+        try:
+            if isinstance(self._belief_policy, PinnedShowdownBeliefPolicy):
+                result = self._belief_policy.choose(fixture, deadline=deadline)
+            else:
+                result = self._belief_policy.choose(fixture)
         except Exception as error:
             # A research policy must never turn an otherwise legal live decision
             # into a forfeit. Preserve the exception as evidence and fall back.
-            return LiveDecisionResult(
+            result = LiveDecisionResult(
                 action=None,
                 status="fallback",
                 reason="belief-policy-exception",
@@ -122,12 +152,25 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
                 },
             )
 
+        elapsed = time.monotonic() - started_at
+        result = LiveDecisionResult(
+            action=result.action,
+            status=result.status,
+            reason=result.reason,
+            diagnostics={
+                **dict(result.diagnostics),
+                "timing": budget.as_trace(elapsed_seconds=elapsed),
+            },
+        )
         if result.action is not None and result.action not in fixture.legal_actions:
             return LiveDecisionResult(
                 action=None,
                 status="fallback",
                 reason="belief-policy-returned-nonlegal-action",
-                diagnostics={"action": result.action},
+                diagnostics={
+                    **dict(result.diagnostics),
+                    "action": result.action,
+                },
             )
         return result
 
@@ -169,4 +212,5 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         if self._decision_trace is not None:
             self._decision_trace.record_terminal(battle)
         self._protocol_history.pop(battle.battle_tag, None)
+        self._battle_clocks.clear(battle.battle_tag)
         super()._battle_finished_callback(battle)
