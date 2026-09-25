@@ -67,7 +67,11 @@ def _oracle() -> dict[str, object]:
             "turn": 9,
             "request_state": "move",
             "p1": [{"species": "rotom", "hp": 61, "maxhp": 100}],
-            "p2_active": {"species": "garchomp", "hp": "<unchanged>"},
+            "p2_active": {
+                "species": "garchomp",
+                "hp": 42 if item == "Specs" else 41,
+                "maxhp": 213 if item == "Specs" else 211,
+            },
         }
         transitions.extend(
             [
