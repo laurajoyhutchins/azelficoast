@@ -279,9 +279,12 @@ def test_state_mining_spends_budget_across_battles_before_refilling() -> None:
         _mining_fixture("b-state", "battle-b", status="selected", margin=0.9),
     ]
 
-    selected, manifest = _mine_informative_fixtures(fixtures, max_fixtures=2)
+    selected, manifest = _mine_informative_fixtures(fixtures, max_fixtures=3)
 
     assert [fixture.fixture_id for fixture in selected] == ["a-hard", "b-state"]
     assert manifest["candidate_fixture_count"] == 3
+    assert manifest["candidate_decision_count"] == 3
     assert manifest["selected_fixture_count"] == 2
+    assert manifest["selected_decision_count"] == 2
+    assert manifest["one_decision_per_battle"] is True
     assert manifest["kind"] == "public-evidence-debt-curriculum"
