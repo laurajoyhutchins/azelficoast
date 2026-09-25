@@ -128,7 +128,7 @@ class _FakeTeacherSource:
             "transitions": transitions,
         }
         posterior = {
-            "treatment": "generator_faithful",
+            "treatment": "generator_faithful_joint_empirical",
             "conditioned_on_public_history": True,
             "realized_hidden_state_revealed": False,
             "worlds": copy.deepcopy(worlds),
@@ -271,6 +271,16 @@ def test_teacher_evidence_is_reproducible_and_settled(tmp_path) -> None:
     assert det["evaluator_checkpoint_digest"] == _FakeEvaluator.identity["checkpoint_digest"]
     packet = json.loads(first.packet_paths[0].read_text(encoding="utf-8"))
     assert packet["run_id"] == "run"
+    assert packet["posterior_treatment"] == "generator_faithful_joint_empirical"
+
+    manifest = json.loads(first.manifest_path.read_text(encoding="utf-8"))
+    assert manifest["plan"]["posterior_treatments"] == [
+        "generator_faithful_joint_empirical",
+        "practical_joint_completion",
+        "flattened",
+        "sharpened",
+    ]
+    assert manifest["posterior_source"]["kind"] == "_FakeTeacherSource"
 
     settled = json.loads(
         (first.packet_paths[0].parent / "settled.json").read_text(encoding="utf-8")
