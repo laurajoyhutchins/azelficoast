@@ -53,15 +53,26 @@ const CONTINUATION_CHANCE_SAMPLES = environmentInteger(
   8,
   {min: 1}
 );
+const CONTINUATION_DECISION_HORIZONS = environmentInteger(
+  "AZELFICOAST_CONTINUATION_DECISION_HORIZONS",
+  1,
+  {min: 1}
+);
+if (![1, 2].includes(CONTINUATION_DECISION_HORIZONS)) {
+  fail(
+    "AZELFICOAST_CONTINUATION_DECISION_HORIZONS must be 1 or 2, got " +
+    CONTINUATION_DECISION_HORIZONS
+  );
+}
 const CHANCE_SEED_FAMILY = environmentInteger(
   "AZELFICOAST_CHANCE_SEED_FAMILY",
   0
 );
+const MARGINALIZED_VARIANT_FIELD = "opponent.active.generator_variant_remainder";
+
 const DEPENDENCY_CANDIDATES = [
   "opponent.active.item",
   "opponent.active.ability",
-  "opponent.active.moves",
-  "opponent.active.tera_type",
   "opponent.active.evs",
   "opponent.active.ivs",
   "opponent.active.exact_hp",
@@ -319,9 +330,6 @@ function generatorVariants() {
       source.opponent_is_lead === true,
       false
     );
-    // Forme and level are public Random Battle information. In particular,
-    // getForme() consumes RNG before set construction, so impossible cosmetic
-    // forme draws must be rejected rather than normalized after sampling.
     if (
       toID(set.species || requested) !==
       toID(fixture.state.opponent_active.species)
@@ -329,17 +337,16 @@ function generatorVariants() {
     if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
     const publicAbility = toID(fixture.state.opponent_active.ability || "");
     if (publicAbility && toID(set.ability) !== publicAbility) continue;
+
     const moves = [...set.moves].map(toID).sort();
     if (![...observed].every(move => moves.includes(move))) continue;
     const plausibleItems = Array.isArray(source.plausible_items)
       ? new Set(source.plausible_items)
       : null;
     if (plausibleItems && !plausibleItems.has(set.item)) continue;
+
     matched++;
     itemCounts.set(set.item, (itemCounts.get(set.item) || 0) + 1);
-    // Collapse generator-only role labels. The exact oracle never consumes
-    // role, so two sets that differ only by role are the same mechanics world
-    // and must contribute prior mass to one world rather than mint duplicate IDs.
     const semantic = {
       species: toID(fixture.state.opponent_active.species),
       ability: set.ability,
@@ -363,6 +370,44 @@ function generatorVariants() {
     ),
     variants: [...variants.values()],
   };
+}
+
+function executionClasses(variants) {
+  const classes = new Map();
+  for (const entry of variants) {
+    const execution = {
+      species: entry.set.species,
+      ability: entry.set.ability,
+      item: entry.set.item,
+      level: entry.set.level,
+      evs: entry.set.evs,
+      ivs: entry.set.ivs,
+    };
+    const key = JSON.stringify(stable(execution));
+    const remainder = stable({
+      moves: entry.set.moves,
+      teraType: entry.set.teraType,
+    });
+    const existing = classes.get(key);
+    if (!existing) {
+      classes.set(key, {
+        set: entry.set,
+        count: entry.count,
+        generator_variant_count: 1,
+        marginalized_remainders: [{value: remainder, count: entry.count}],
+      });
+      continue;
+    }
+    existing.count += entry.count;
+    existing.generator_variant_count += 1;
+    const remainderKey = JSON.stringify(remainder);
+    const prior = existing.marginalized_remainders.find(
+      candidate => JSON.stringify(candidate.value) === remainderKey
+    );
+    if (prior) prior.count += entry.count;
+    else existing.marginalized_remainders.push({value: remainder, count: entry.count});
+  }
+  return [...classes.values()];
 }
 
 function ownActiveTeraType() {
@@ -688,8 +733,10 @@ function opponentChoice(battle, hiddenReads = null) {
     const moves = request.active[0].moves || [];
     const locked = lastOpponentMove();
     if (moves.some(move => move.id === locked && !move.disabled)) return `move ${locked}`;
-    const first = moves.find(move => !move.disabled);
-    return first ? `move ${first.id}` : "";
+    if (hiddenReads) hiddenReads.add(MARGINALIZED_VARIANT_FIELD);
+    fail(
+      `bounded opponent response ${locked} became unavailable; hidden move fallback would be required`
+    );
   }
   return "";
 }
@@ -756,6 +803,35 @@ function utility(battle) {
   return ownMaterial - opponentActive;
 }
 
+function leafContinuationValues(snapshot, hiddenReads, seedSalt) {
+  const probe = Battle.fromJSON(snapshot);
+  probe.restart(() => {});
+  const choices = legalP1Continuations(probe);
+  if (!choices.length) {
+    const value = utility(probe);
+    probe.destroy();
+    return {terminal_utility: value};
+  }
+  probe.destroy();
+
+  const values = {};
+  for (const choice of choices) {
+    let sum = 0;
+    for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
+      const battle = cloneBattle(
+        snapshot,
+        seed(i, seedSalt + sha256(choice).charCodeAt(0))
+      );
+      const foe = opponentChoice(battle, hiddenReads);
+      battle.makeChoices(choice, foe);
+      sum += utility(battle);
+      battle.destroy();
+    }
+    values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
+  }
+  return {continuations: values};
+}
+
 function continuationValues(rootSnapshot) {
   const hiddenReads = new Set();
   const probe = Battle.fromJSON(rootSnapshot);
@@ -771,23 +847,59 @@ function continuationValues(rootSnapshot) {
   }
   probe.destroy();
 
-  const values = {};
+  if (CONTINUATION_DECISION_HORIZONS === 1) {
+    const values = {};
+    for (const choice of choices) {
+      let sum = 0;
+      for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
+        const battle = cloneBattle(
+          rootSnapshot,
+          seed(i, 10_000 + sha256(choice).charCodeAt(0))
+        );
+        const foe = opponentChoice(battle, hiddenReads);
+        battle.makeChoices(choice, foe);
+        sum += utility(battle);
+        battle.destroy();
+      }
+      values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
+    }
+    return {
+      continuations: values,
+      hidden_reads: [...hiddenReads].sort(),
+    };
+  }
+
+  const continuationTransitions = {};
   for (const choice of choices) {
-    let sum = 0;
+    const outcomes = [];
+    const firstSalt = sha256(choice).charCodeAt(0);
     for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
       const battle = cloneBattle(
         rootSnapshot,
-        seed(i, 10_000 + sha256(choice).charCodeAt(0))
+        seed(i, 10_000 + firstSalt)
       );
+      const logStart = battle.log.length;
       const foe = opponentChoice(battle, hiddenReads);
       battle.makeChoices(choice, foe);
-      sum += utility(battle);
+      const nextObservation = observation(battle, logStart);
+      const nextSnapshot = JSON.stringify(battle);
+      const leaf = leafContinuationValues(
+        nextSnapshot,
+        hiddenReads,
+        20_000 + firstSalt * 257 + i * 17
+      );
+      outcomes.push({
+        probability: 1 / CONTINUATION_CHANCE_SAMPLES,
+        observation: nextObservation,
+        ...leaf,
+      });
       battle.destroy();
     }
-    values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
+    continuationTransitions[choice] = outcomes;
   }
+
   return {
-    continuations: values,
+    continuation_transitions: continuationTransitions,
     hidden_reads: [...hiddenReads].sort(),
   };
 }
@@ -922,6 +1034,7 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
 }
 
 const {matched, itemCounts, variants} = generatorVariants();
+const executionVariants = executionClasses(variants);
 if (
   source.expected_generator_rounds != null &&
   Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
@@ -939,15 +1052,14 @@ if (source.expected_item_counts != null) {
     );
   }
 }
+
 const worldById = new Map();
-for (const entry of variants) {
+for (const entry of executionVariants) {
   const {maxhp, support} = hpSupportForVariant(entry.set);
   for (const exactHp of support) {
     const hidden = {
       "opponent.active.item": entry.set.item,
       "opponent.active.ability": entry.set.ability,
-      "opponent.active.moves": entry.set.moves,
-      "opponent.active.tera_type": entry.set.teraType,
       "opponent.active.evs": entry.set.evs,
       "opponent.active.ivs": entry.set.ivs,
       "opponent.active.exact_hp": exactHp,
@@ -962,6 +1074,8 @@ for (const entry of variants) {
       exactHp,
       opponent_max_hp: maxhp,
       generator_count: entry.count,
+      generator_variant_count: entry.generator_variant_count,
+      marginalized_remainders: entry.marginalized_remainders,
     };
     const existing = worldById.get(worldId);
     if (!existing) {
@@ -980,12 +1094,12 @@ for (const entry of variants) {
       opponent_max_hp: candidate.opponent_max_hp,
     });
     if (JSON.stringify(existingMechanics) !== JSON.stringify(candidateMechanics)) {
-      fail(
-        `hidden world identity collision across distinct mechanics: ${worldId}`
-      );
+      fail(`hidden world identity collision across distinct mechanics: ${worldId}`);
     }
     existing.weight += weight;
     existing.generator_count += entry.count;
+    existing.generator_variant_count += entry.generator_variant_count;
+    existing.marginalized_remainders.push(...entry.marginalized_remainders);
   }
 }
 const worlds = [...worldById.values()];
@@ -1034,6 +1148,20 @@ const factoredHidden = benchFactor
     }
   : {};
 
+const marginalizedHidden = {
+  [MARGINALIZED_VARIANT_FIELD]: {
+    fields: ["opponent.active.moves", "opponent.active.tera_type"],
+    generator_variant_count: variants.length,
+    execution_variant_count: executionVariants.length,
+    all_root_actions: legalActions,
+    proof: {
+      response_policy: `repeat observed ${lastOpponentMove()}`,
+      hidden_fallback: "fail-closed",
+      opponent_terastallized: false,
+    },
+  },
+};
+
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
@@ -1044,6 +1172,12 @@ const outputWorlds = worlds.map(world => ({
   provenance: {
     generator_count: world.generator_count,
     generator_rounds: GENERATOR_ROUNDS,
+    generator_variant_count: world.generator_variant_count,
+    marginalized_variant_digest: sha256(
+      world.marginalized_remainders
+        .map(entry => stable(entry))
+        .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
+    ),
     opponent_max_hp: world.opponent_max_hp,
     hp_prior: "uniform-within-public-percentage-bucket",
   },
@@ -1060,14 +1194,26 @@ process.stdout.write(JSON.stringify({
     format: "gen9customgame state reconstruction",
     root_chance_samples: ROOT_CHANCE_SAMPLES,
     continuation_chance_samples: CONTINUATION_CHANCE_SAMPLES,
+    continuation_decision_horizons: CONTINUATION_DECISION_HORIZONS,
     chance_seed_family: CHANCE_SEED_FAMILY,
     opponent_response: `repeat observed ${lastOpponentMove()}`,
-    continuation_scope: "all non-Tera player choices at the next decision",
+    continuation_scope:
+      CONTINUATION_DECISION_HORIZONS === 1
+        ? "all non-Tera player choices at the next decision"
+        : "all non-Tera player choices at the next two public decisions",
     utility: "sum own team HP fractions minus opposing active HP fraction",
   },
   reconstruction: {
     generator_rounds: GENERATOR_ROUNDS,
     generator_matches: matched,
+    generator_variant_count: variants.length,
+    execution_variant_count: executionVariants.length,
+    marginalized_generator_variant_fields: [
+      "opponent.active.moves",
+      "opponent.active.tera_type",
+    ],
+    marginalized_variant_rule:
+      "sum prior mass across variants sharing species/ability/item/level/EVs/IVs; fail closed if the fixed public response would require any hidden fallback move",
     observed_opponent_moves: observedOpponentMoves(),
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
@@ -1082,6 +1228,7 @@ process.stdout.write(JSON.stringify({
     declared_read_mode: "conservative-external-oracle-boundary",
   },
   factored_hidden: factoredHidden,
+  marginalized_hidden: marginalizedHidden,
   dependency_candidates: DEPENDENCY_CANDIDATES,
   declared_reads: declared,
   worlds: outputWorlds,

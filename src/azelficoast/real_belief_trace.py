@@ -105,14 +105,137 @@ def _immediate_distribution(transition: Mapping[str, Any]) -> list[dict[str, Any
     ]
 
 
-def _continuation_values(outcome: Mapping[str, Any]) -> dict[str, float]:
+def _leaf_continuation_values(outcome: Mapping[str, Any]) -> dict[str, float]:
     raw = outcome.get("continuations")
     if isinstance(raw, Mapping) and raw:
-        return {str(action): float(value) for action, value in raw.items()}
+        values: dict[str, float] = {}
+        for action, value in raw.items():
+            if not isinstance(value, (int, float)):
+                raise BeliefTraceError("continuation utility must be numeric")
+            values[str(action)] = float(value)
+        return values
     terminal = outcome.get("terminal_utility")
     if isinstance(terminal, (int, float)):
         return {"<terminal>": float(terminal)}
-    raise BeliefTraceError("outcome has neither continuations nor terminal utility")
+    raise BeliefTraceError("leaf outcome has neither continuations nor terminal utility")
+
+
+def _continuation_actions(outcome: Mapping[str, Any]) -> set[str]:
+    shallow = outcome.get("continuations")
+    deep = outcome.get("continuation_transitions")
+    terminal = outcome.get("terminal_utility")
+
+    if deep is not None:
+        if shallow is not None or terminal is not None:
+            raise BeliefTraceError(
+                "outcome cannot mix continuation_transitions with leaf utility"
+            )
+        if not isinstance(deep, Mapping) or not deep:
+            raise BeliefTraceError("continuation_transitions must be a non-empty object")
+        actions = {str(action) for action in deep}
+        for action in actions:
+            _nested_outcomes(outcome, action)
+        return actions
+
+    return set(_leaf_continuation_values(outcome))
+
+
+def _nested_outcomes(
+    outcome: Mapping[str, Any],
+    action: str,
+) -> list[Mapping[str, Any]]:
+    raw = outcome.get("continuation_transitions")
+    if not isinstance(raw, Mapping):
+        raise BeliefTraceError("outcome does not contain deeper continuation transitions")
+    branch = raw.get(action)
+    if not isinstance(branch, list) or not branch:
+        raise BeliefTraceError(
+            f"deeper continuation {action!r} must contain chance outcomes"
+        )
+
+    total = 0.0
+    nested: list[Mapping[str, Any]] = []
+    for next_outcome in branch:
+        if not isinstance(next_outcome, Mapping):
+            raise BeliefTraceError("deeper continuation outcome must be an object")
+        if next_outcome.get("continuation_transitions") is not None:
+            raise BeliefTraceError(
+                "deeper continuation exceeds the supported extra decision horizon"
+            )
+        probability = next_outcome.get("probability")
+        if not isinstance(probability, (int, float)) or probability <= 0:
+            raise BeliefTraceError(
+                "deeper continuation probabilities must be positive"
+            )
+        _leaf_continuation_values(next_outcome)
+        total += float(probability)
+        nested.append(next_outcome)
+    if abs(total - 1.0) > 1e-9:
+        raise BeliefTraceError(
+            f"deeper continuation probabilities sum to {total}, not 1"
+        )
+    return nested
+
+
+def _weighted_leaf_choice(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    weight_key: str,
+) -> tuple[str, float]:
+    maps = [_leaf_continuation_values(member["outcome"]) for member in members]
+    common = set(maps[0])
+    for mapping in maps[1:]:
+        common &= set(mapping)
+    if not common:
+        raise BeliefTraceError(
+            "deeper successor information set has no common legal continuation"
+        )
+
+    total_weight = sum(float(member[weight_key]) for member in members)
+    if total_weight <= 0:
+        raise BeliefTraceError("deeper successor information set has no probability mass")
+
+    values = {
+        action: sum(
+            float(member[weight_key])
+            * _leaf_continuation_values(member["outcome"])[action]
+            for member in members
+        )
+        / total_weight
+        for action in sorted(common)
+    }
+    return _choose(values)
+
+
+def _weighted_deeper_value(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    weight_key: str,
+    action: str,
+) -> float:
+    total_weight = sum(float(member[weight_key]) for member in members)
+    if total_weight <= 0:
+        raise BeliefTraceError("successor information set has no probability mass")
+
+    observation_members: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for member in members:
+        member_weight = float(member[weight_key])
+        for next_outcome in _nested_outcomes(member["outcome"], action):
+            probability = float(next_outcome["probability"])
+            observation_key = _canonical(next_outcome.get("observation"))
+            observation_members[observation_key].append(
+                {
+                    "weight": member_weight * probability,
+                    "outcome": next_outcome,
+                }
+            )
+
+    expected = 0.0
+    for nested_members in observation_members.values():
+        group_weight = sum(float(member["weight"]) for member in nested_members)
+        _, value = _weighted_leaf_choice(nested_members, weight_key="weight")
+        expected += group_weight * value
+    return expected / total_weight
 
 
 def _weighted_continuation_choice(
@@ -120,34 +243,51 @@ def _weighted_continuation_choice(
     *,
     weight_key: str,
 ) -> tuple[str, float]:
-    """Choose once for an information set, averaging chance inside that set."""
+    """Choose once per public information set, at one or two continuation horizons."""
     if not members:
         raise BeliefTraceError("cannot choose a continuation for an empty information set")
 
-    continuation_maps = [
-        _continuation_values(member["outcome"]) for member in members
-    ]
-    common = set(continuation_maps[0])
-    for mapping in continuation_maps[1:]:
-        common &= set(mapping)
+    action_sets = [_continuation_actions(member["outcome"]) for member in members]
+    common = set(action_sets[0])
+    for actions in action_sets[1:]:
+        common &= actions
     if not common:
         raise BeliefTraceError(
             "successor information set has no common legal continuation"
         )
 
-    total_weight = sum(float(member[weight_key]) for member in members)
-    if total_weight <= 0:
-        raise BeliefTraceError("successor information set has no probability mass")
-
-    values = {
-        continuation: sum(
-            float(member[weight_key])
-            * _continuation_values(member["outcome"])[continuation]
-            for member in members
-        )
-        / total_weight
-        for continuation in sorted(common)
+    modes = {
+        member["outcome"].get("continuation_transitions") is not None
+        for member in members
     }
+    if len(modes) != 1:
+        raise BeliefTraceError(
+            "successor information set mixes shallow and deeper continuation evidence"
+        )
+    deeper = next(iter(modes))
+
+    if deeper:
+        values = {
+            action: _weighted_deeper_value(
+                members,
+                weight_key=weight_key,
+                action=action,
+            )
+            for action in sorted(common)
+        }
+    else:
+        total_weight = sum(float(member[weight_key]) for member in members)
+        if total_weight <= 0:
+            raise BeliefTraceError("successor information set has no probability mass")
+        values = {
+            action: sum(
+                float(member[weight_key])
+                * _leaf_continuation_values(member["outcome"])[action]
+                for member in members
+            )
+            / total_weight
+            for action in sorted(common)
+        }
     return _choose(values)
 
 
@@ -495,6 +635,18 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
         for report in action_reports
     )
 
+    continuation_decision_horizons = max(
+        (
+            2
+            if outcome.get("continuation_transitions") is not None
+            else 1
+            if outcome.get("continuations") is not None
+            else 0
+        )
+        for transition in transitions.values()
+        for outcome in _outcomes(transition)
+    )
+
     return {
         "schema": RESULT_SCHEMA,
         "schema_version": RESULT_SCHEMA_VERSION,
@@ -519,6 +671,7 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             for field, factor in sorted(factored_hidden.items())
         },
         "legal_action_count": len(legal_actions),
+        "continuation_decision_horizons": continuation_decision_horizons,
         "actions": action_reports,
         "determinization": {
             "chosen_action": determinization_action,

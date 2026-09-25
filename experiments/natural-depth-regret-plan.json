@@ -1,0 +1,232 @@
+{
+  "schema": "azelficoast.natural-depth-regret-plan",
+  "schema_version": 1,
+  "source_population_evidence": {
+    "pull_request": 46,
+    "workflow_run_id": 36093962119,
+    "artifact_id": 10846946608,
+    "artifact_name": "natural-population-strategy-fusion-results",
+    "artifact_digest": "sha256:ea8d3ff5b3bc365115f903e228d37b264d126752d80c99ef28f6a2ca2a15704d",
+    "exact_state_count": 10,
+    "exact_battle_count": 6
+  },
+  "motivation": {
+    "positive_value_bias_rate": 0.6,
+    "mean_max_value_bias": 0.0084835,
+    "max_value_bias": 0.0617168,
+    "corrected_root_regret_count": 0,
+    "root_policy_disagreement_count": 0
+  },
+  "predictors_frozen_from_population_study": {
+    "numeric": [
+      {
+        "name": "legal_action_count",
+        "bias_spearman_rho": 0.8002
+      },
+      {
+        "name": "incoming_ko_roll_probability_gap",
+        "bias_spearman_rho": 0.7028
+      },
+      {
+        "name": "opponent_public_hp_fraction",
+        "bias_spearman_rho": 0.6789
+      },
+      {
+        "name": "hidden_item_entropy_bits",
+        "bias_spearman_rho": 0.5631
+      }
+    ],
+    "binary": [
+      {
+        "name": "persistent_protect_present",
+        "mean_bias_difference": 0.01161
+      },
+      {
+        "name": "persistent_switch_present",
+        "mean_bias_difference": 0.0106
+      }
+    ]
+  },
+  "fresh_population": {
+    "source": "new natural Gen 9 Random Battle decision corpus",
+    "battle_count": 1024,
+    "outcome_blind": true,
+    "source_binding": "SHA-256 of decisions.jsonl plus exact workflow head SHA",
+    "selection_frozen_before_deeper_values": true,
+    "same_exact_hidden_world_treatment_as_population_study": true,
+    "minimum_selected_states": 8,
+    "minimum_selected_battles": 6
+  },
+  "cohort_selection": {
+    "enriched_stratum": {
+      "rule": "union of states in the top quartile of each varying numeric predictor frozen from PR #46: legal_action_count, incoming_ko_roll_probability_gap, opponent_public_hp_fraction, or hidden_item_entropy_bits; invariant numeric predictors contribute no enrichment",
+      "quartiles_computed_from": "fresh admissible population before any policy value is computed"
+    },
+    "representative_lower_stratum": {
+      "rule": "deterministic SHA-256 sample from admissible states outside the enriched stratum",
+      "purpose": "retain a lower-predictor comparison rather than replacing prevalence with targeted search"
+    },
+    "target_ratio": "2 enriched : 1 representative-lower when both strata have sufficient support",
+    "overflow_selection": "ascending sha256('depth-regret-v1:' + fixture_id)",
+    "binary_predictors": "persistent_protect_present and persistent_switch_present remain measured predictors and association strata, but do not define enrichment because persistent-only candidate admission makes at least one true by construction"
+  },
+  "paired_treatment": {
+    "shallow_continuation_decision_horizons": 1,
+    "deeper_continuation_decision_horizons": 2,
+    "same_root_actions": true,
+    "same_hidden_worlds": true,
+    "same_root_chance_seeds": true,
+    "same_mechanics_revision": true,
+    "deeper_extension": "one additional public observation and player decision before leaf utility",
+    "no_broad_mechanics_expansion_before_result": true,
+    "root_chance_samples": 8,
+    "continuation_chance_samples": 2,
+    "chance_seed_family": 0
+  },
+  "primary_endpoints": [
+    "max root-action determinization value minus public-belief value at each depth",
+    "corrected public-belief regret of the determinization-chosen root action at each depth",
+    "paired deeper-minus-shallow change in value bias",
+    "paired deeper-minus-shallow change in corrected regret"
+  ],
+  "secondary_endpoints": [
+    "root-policy disagreement",
+    "strategy-fusion observation count"
+  ],
+  "decision_rule": "choose later mechanics expansion only from measured deeper-search residuals and predictor strata; do not require or optimize for a root-policy flip",
+  "valid_falsifications": [
+    "deeper search does not increase value bias",
+    "deeper search increases value bias but corrected regret remains zero",
+    "deeper search produces neither corrected regret nor policy disagreement"
+  ],
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "admissibility": {
+    "generator_rounds": 2048,
+    "mechanics_screen_rounds": 512,
+    "max_exact_states": 18,
+    "requires_positive_active_hp": true,
+    "requires_live_probe_admission": true,
+    "requires_exact_item_support_match": true,
+    "requires_exact_opponent_bench_reconstruction": true,
+    "requires_public_forme_conditioning": true,
+    "requires_exact_lead_context": true,
+    "requires_public_ability_conditioning": true,
+    "requires_opponent_not_terastallized": true,
+    "requires_empty_weather": true,
+    "requires_empty_field_effects": true,
+    "requires_generator_stat_spread_fidelity": true
+  },
+  "inference": {
+    "cluster_unit": "battle_tag",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 2718,
+    "primary_analysis": "paired state-level deeper-minus-shallow changes with battle-cluster bootstrap confidence intervals"
+  },
+  "preregistration_amendment_population_support": {
+    "trigger": {
+      "workflow_run_id": 36097422656,
+      "selection_artifact_id": 10847659425,
+      "selection_artifact_digest": "sha256:0e4afa53d4129f9ecc466e278b52e91d4705f9426e55e70e7ab24efad714a3f1"
+    },
+    "outcome_values_inspected_before_amendment": false,
+    "observed_selection_support": {
+      "source_battles": 256,
+      "source_decision_states": 6298,
+      "bounded_candidates": 7,
+      "eligible_states": 3,
+      "selected_states": 3,
+      "selected_battles": 2,
+      "prior_stratum_counts": {
+        "predictor-enriched": 3,
+        "representative-lower": 0
+      }
+    },
+    "reason": [
+      "three states from two battles are too sparse for the planned paired population inference",
+      "the original enrichment rule was logically degenerate because persistent-only admission guarantees Protect or persistent-switch presence for every candidate",
+      "numeric predictors should enrich only when they discriminate within the fresh admissible population"
+    ],
+    "amendment": [
+      "increase the fresh source population from 256 to 1024 battles",
+      "use only varying numeric PR #46 predictors for enriched-cohort selection",
+      "retain Protect and persistent-switch presence as measured predictors rather than automatic enriched-stratum membership",
+      "require at least 8 selected states from at least 6 battles before exact policy values may be evaluated"
+    ],
+    "invalidated_before_outcome_inspection": true
+  },
+  "frozen_cohort": {
+    "workflow_run_id": 36140228005,
+    "artifact_id": 10866900218,
+    "artifact_name": "natural-depth-regret-selection",
+    "artifact_digest": "sha256:9a57c16c183b5d32e7cc32d330e42697509eb6575d227623670bccfdda3bb5b1",
+    "source_decision_state_count": 25445,
+    "bounded_candidate_count": 29,
+    "eligible_count": 21,
+    "selected_state_count": 18,
+    "selected_battle_count": 12,
+    "stratum_counts": {
+      "predictor-enriched": 12,
+      "representative-lower": 6
+    },
+    "decisions_sha256": "6de55a45943002fa81d042f21be70b48305584f9b9d74bb6de0d06695c8ff8e4",
+    "selection_uses_policy_result": false
+  },
+  "preregistration_amendment_compute_feasibility": {
+    "trigger": {
+      "workflow_run_id": 36140228005,
+      "exact_head": "9e08d30d79a6a0747add36ddbbe6d67e26867a03",
+      "frozen_selection_artifact_id": 10866900218,
+      "frozen_selection_artifact_digest": "sha256:9a57c16c183b5d32e7cc32d330e42697509eb6575d227623670bccfdda3bb5b1"
+    },
+    "observed_before_amendment": {
+      "exact_shard_count": 6,
+      "completed_exact_shards": 0,
+      "exact_result_artifact_count": 0,
+      "minimum_elapsed_minutes_per_running_shard": 17,
+      "all_shards_still_in": "Execute paired exact shard"
+    },
+    "outcome_values_inspected_before_amendment": false,
+    "reason": [
+      "the full 8-by-8 nested continuation treatment exceeded the bounded interactive experiment budget before any exact shard produced an outcome",
+      "the frozen cohort itself passed all preregistered support criteria and must not be regenerated or reselected in response to runtime"
+    ],
+    "amendment": [
+      "reuse the exact same 18-state frozen cohort",
+      "retain 8 root chance samples and chance seed family 0",
+      "reduce continuation chance samples from 8 to 2 for both shallow and deeper treatments",
+      "retain one versus two public continuation-decision horizons as the only search-depth difference",
+      "bound each exact shard to 30 minutes"
+    ],
+    "invalidated_before_outcome_inspection": true
+  },
+  "preregistration_amendment_exact_factorization": {
+    "trigger": {
+      "stale_workflow_run_id": 36140228005,
+      "stale_selection_artifact_id": 10866900218,
+      "stale_selection_artifact_digest": "sha256:9a57c16c183b5d32e7cc32d330e42697509eb6575d227623670bccfdda3bb5b1"
+    },
+    "outcome_values_inspected_before_amendment": false,
+    "observed_pre_outcome_support": {
+      "selected_states": 18,
+      "selected_battles": 12,
+      "stratum_counts": {
+        "predictor-enriched": 12,
+        "representative-lower": 6
+      },
+      "generator_variants_per_selected_state": "48-121 before exact-HP expansion",
+      "execution_classes_per_selected_state": "2-4 before exact-HP expansion"
+    },
+    "reason": [
+      "the exact two-horizon treatment was spending most execution time replaying generator variants that differ only in hidden moves or Tera type",
+      "the bounded opponent policy always replays one publicly observed response move and never terastallizes",
+      "item, ability, level, EVs, IVs, and exact HP remain materialized because they affect mechanics"
+    ],
+    "amendment": [
+      "marginalize prior mass across generator variants that share species, ability, item, level, EVs, and IVs before exact-HP expansion",
+      "retain one representative full set only to instantiate Showdown for each execution class",
+      "fail closed if the fixed public opponent response ever becomes unavailable and would require consulting hidden fallback moves",
+      "retain the preregistered 8 root and 8 continuation chance samples unchanged"
+    ],
+    "invalidated_stale_run_before_outcome_inspection": true
+  }
+}

@@ -1,0 +1,213 @@
+# Candidate-only hosted evidence; ordinary PR edits run ci.yml only.
+name: natural-depth-regret
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - "experiments/natural-depth-regret-plan.json"
+      - "src/azelficoast/depth_population.py"
+      - "src/azelficoast/depth_study.py"
+      - "src/azelficoast/real_belief_trace.py"
+      - "scripts/probe_real_belief_trace.cjs"
+      - "tests/test_depth_population.py"
+      - "tests/test_depth_study.py"
+      - "tests/test_real_belief_trace.py"
+      - ".github/workflows/natural-depth-regret.yml"
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: natural-depth-regret-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact:
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+
+      - name: Setup verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - name: Restore frozen outcome-blind cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/selection
+          mkdir -p /tmp/selection
+          gh run download 36140228005 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name natural-depth-regret-selection \
+            --dir /tmp/selection
+
+      - name: Verify frozen cohort identity
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(
+              Path("/tmp/selection/depth/manifest.json").read_text()
+          )
+          assert manifest["selection_uses_policy_result"] is False, manifest
+          assert manifest["source_decision_state_count"] == 25445, manifest
+          assert manifest["bounded_candidate_count"] == 29, manifest
+          assert manifest["eligible_count"] == 21, manifest
+          assert manifest["selected_count"] == 18, manifest
+          assert manifest["stratum_counts"] == {
+              "predictor-enriched": 12,
+              "representative-lower": 6,
+          }, manifest
+          assert len({row["battle_tag"] for row in manifest["selected"]}) == 12, manifest
+          source = manifest["source_artifact"]
+          assert source["workflow_run_id"] == 36140228005, source
+          assert source["battle_count"] == 1024, source
+          assert source["decisions_sha256"] == (
+              "6de55a45943002fa81d042f21be70b48305584f9b9d74bb6de0d06695c8ff8e4"
+          ), source
+          PY
+
+      - name: Execute paired exact shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          AZELFICOAST_ROOT_CHANCE_SAMPLES: "8"
+          AZELFICOAST_CONTINUATION_CHANCE_SAMPLES: "2"
+          AZELFICOAST_CHANCE_SEED_FAMILY: "0"
+        run: |
+          mkdir -p /tmp/results
+          python - <<'PY' > /tmp/shard.tsv
+          import json
+          import os
+          from pathlib import Path
+
+          shard = int(os.environ["SHARD"])
+          manifest = json.loads(
+              Path("/tmp/selection/depth/manifest.json").read_text()
+          )
+          for row in manifest["selected"]:
+              index = int(row["depth_index"])
+              if (index - 1) % 6 == shard:
+                  print(index, row["filename"], sep="\t")
+          PY
+
+          while IFS=$'\t' read -r index filename; do
+            test -n "$index" || continue
+            source="/tmp/selection/depth/selected/$filename"
+
+            AZELFICOAST_CONTINUATION_DECISION_HORIZONS=1 \
+              node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown "$source" \
+              > /tmp/shallow-oracle.json
+            uv run python -m azelficoast.real_belief_trace \
+              /tmp/shallow-oracle.json \
+              > /tmp/shallow-trace.json
+
+            AZELFICOAST_CONTINUATION_DECISION_HORIZONS=2 \
+              node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown "$source" \
+              > /tmp/deeper-oracle.json
+            uv run python -m azelficoast.real_belief_trace \
+              /tmp/deeper-oracle.json \
+              > /tmp/deeper-trace.json
+
+            uv run python -m azelficoast.depth_population summarize \
+              "$source" \
+              /tmp/shallow-trace.json \
+              /tmp/deeper-trace.json \
+              --output "/tmp/results/summary-$index.json"
+
+            rm -f \
+              /tmp/shallow-oracle.json /tmp/shallow-trace.json \
+              /tmp/deeper-oracle.json /tmp/deeper-trace.json
+          done < /tmp/shard.tsv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natural-depth-regret-exact-${{ matrix.shard }}
+          path: /tmp/results
+          if-no-files-found: error
+
+  aggregate:
+    needs: exact
+    if: always() && needs.exact.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+
+      - name: Restore frozen outcome-blind cohort
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/selection
+          mkdir -p /tmp/selection
+          gh run download 36140228005 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name natural-depth-regret-selection \
+            --dir /tmp/selection
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: natural-depth-regret-exact-*
+          path: /tmp/exact
+          merge-multiple: true
+
+      - name: Aggregate paired depth endpoints
+        run: |
+          uv run python -m azelficoast.depth_population aggregate \
+            experiments/natural-depth-regret-plan.json \
+            /tmp/selection/depth/manifest.json \
+            /tmp/exact \
+            --output /tmp/natural-depth-regret-aggregate.json \
+            | tee /tmp/aggregate-output.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/natural-depth-regret-aggregate.json").read_text()
+          )
+          assert result["cohort"]["selected_count"] == 18, result
+          assert result["cohort"]["exact_battle_count"] == 12, result
+          assert result["cohort"]["stratum_counts"] == {
+              "predictor-enriched": 12,
+              "representative-lower": 6,
+          }, result
+          print(json.dumps({
+              "cohort": result["cohort"],
+              "deep_value_bias": result["outcomes"]["deep_value_bias"],
+              "deep_regret": result["outcomes"]["deep_regret"],
+              "value_bias_change": result["outcomes"]["value_bias_change"],
+              "regret_change": result["outcomes"]["regret_change"],
+              "deep_positive_regret_count": (
+                  result["outcomes"]["deep_positive_regret_count"]
+              ),
+              "deep_policy_disagreement_count": (
+                  result["outcomes"]["deep_policy_disagreement_count"]
+              ),
+          }, sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natural-depth-regret-results
+          path: |
+            /tmp/natural-depth-regret-aggregate.json
+            /tmp/aggregate-output.json
+          if-no-files-found: error
