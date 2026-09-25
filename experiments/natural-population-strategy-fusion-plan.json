@@ -19,7 +19,8 @@
     "requires_exact_item_support_match": true,
     "requires_public_level_conditioning": true,
     "max_exact_states": 128,
-    "overflow_selection": "ascending sha256('population-v1:' + fixture_id)"
+    "overflow_selection": "ascending sha256('population-v1:' + fixture_id)",
+    "mechanics_screen_rounds": 512
   },
   "exact_treatment": {
     "root_chance_samples": 16,
