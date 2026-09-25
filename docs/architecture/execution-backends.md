@@ -101,6 +101,11 @@ JAX must not own information-flow branching. An XLA program may calculate values
 already-authorized batch, but it does not decide which worlds are observationally
 equivalent.
 
+Immutable evidence may be lowered before this boundary into revision-bound dense arrays.
+The [compiled data plane](compiled-data-plane.md) reuses pinned Showdown numeric identities
+for categorical Pokémon data and preserves joint posterior particles without granting the
+packed representation any semantic authority.
+
 ## Cost units
 
 Three counts describe different work and must remain separate:
