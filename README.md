@@ -305,13 +305,34 @@ uv run azelficoast \
   training cycle artifacts/decisions.jsonl
 ~~~
 
-The cycle reconstructs generator-faithful posteriors from each admissible frozen
-decision, compiles the verified whole-turn transition program, executes both matched
-search methods with the exact incumbent evaluator, settles their receipts, builds the
-training dataset, and runs the admission gate. Unsupported decisions are recorded as
-teacher exclusions rather than receiving guessed labels. If there are not yet
-non-empty train, validation, and test splits, the cycle returns `not-ready` and does
-not create or promote a candidate.
+The scientific teacher first constructs an atomic full-opponent-team posterior from
+the pinned Random Battle generator machinery. With one revealed opponent it uses
+generator-rejection particles; with multiple revealed opponents it uses the existing
+conditioned-completion proposal and labels that posterior `practical_joint_completion`
+rather than pretending it is exact conditional generator sampling. Species, moves,
+item, ability, Tera type, level, spread, and unrevealed teammates remain correlated
+inside each particle.
+
+For every revealed opponent Pokemon, public percentage HP is expanded into the exact
+integer-HP values compatible with that particle's generated set. The teacher can
+therefore reason about switching to a damaged revealed bench Pokemon without choosing
+an invented representative HP value. The full hidden bench is available to pinned
+Showdown mechanics and to the opponent strategy, which is allowed to condition on its
+own private team just as a real opponent can.
+
+The learned evaluator deliberately does **not** receive `opponent.bench` as a model
+feature. Full-team state changes search transitions and teacher labels, while model
+inputs remain on the active-belief surface available to the low-latency live router.
+This keeps the richer scientific teacher from creating a private-information feature
+dependency that deployment cannot currently reproduce cheaply.
+
+The cycle compiles the verified whole-turn transition program from that support,
+executes both matched search methods with the exact incumbent evaluator, settles their
+receipts, builds the training dataset, and runs the admission gate. Unsupported states,
+including unresolved Illusion ordering or insufficient joint support, are recorded as
+teacher exclusions rather than receiving guessed labels. If there are not yet non-empty
+train, validation, and test splits, the cycle returns `not-ready` and does not create
+or promote a candidate.
 
 Promotion is compare-and-swap fenced to the incumbent digest used for teaching and
 evaluation. A stale concurrent cycle therefore cannot overwrite a newer admitted
@@ -325,13 +346,14 @@ recovery, then damage), a deliberately disruptive dirty-tricks archetype
 a uniform legal-move floor, and an observed-move persistence component when that
 move belongs to the current active.
 The mixture is deliberately an explicit prior, not a claim that these weights match
-human frequencies. The bounded model can now voluntarily switch to a surviving,
-publicly established full-health bench Pokemon when the matchup is sufficiently poor;
-damaged bench Pokemon remain excluded until their percentage-censored HP is represented
-as a posterior rather than guessed. Damage strategies may also spend Tera when the
-reconstructed active can legally Terastallize
-and the heuristic sees an offensive or defensive reason. Pinned Showdown still owns
-the resulting mechanics, and the model never invents an unrevealed switch target.
+human frequencies. In the scientific teacher, the opponent may voluntarily switch
+among the surviving members of its sampled joint private team, including damaged
+revealed bench Pokemon whose exact HP remains uncertain to Azelficoast. In the cheaper
+live active-only posterior, voluntary switching remains conservatively limited to
+publicly established full-health bench Pokemon until joint inference meets the live
+latency budget. Damage strategies may also spend Tera when the reconstructed active can
+legally Terastallize; public Tera history is reconstructed so a spent Tera cannot be
+used twice. Pinned Showdown still owns the resulting turn mechanics.
 
 The outer generation loop can also run unattended against the local Random Battle
 opponent league:
