@@ -14,6 +14,11 @@ from poke_env import AccountConfiguration, ShowdownServerConfiguration
 from poke_env.player import Player, RandomPlayer
 
 from azelficoast.belief.coverage import summarize_traces
+from azelficoast.belief.improvement import (
+    VALUE_TARGET_SOURCES,
+    AdmissionPolicy,
+    improve_checkpoint,
+)
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.research.training_records import build_training_dataset
@@ -24,6 +29,9 @@ DEFAULT_DECISIONS = Path("artifacts/decisions.jsonl")
 DEFAULT_REPLAYS = Path("artifacts/replays")
 DEFAULT_CORPUS = Path("artifacts/corpus.jsonl")
 DEFAULT_TRAINING = Path("artifacts/training.jsonl")
+DEFAULT_EVALUATOR_MODELS = Path("artifacts/evaluators/candidates")
+DEFAULT_EVALUATOR_RECEIPTS = Path("artifacts/evaluators/receipts")
+DEFAULT_EVALUATOR_PROMOTION = Path("artifacts/evaluators/current.json")
 
 
 def _positive_int(value: str) -> int:
@@ -44,6 +52,13 @@ def _unit_float(value: str) -> float:
     parsed = float(value)
     if not 0.0 <= parsed <= 1.0:
         raise argparse.ArgumentTypeError("must be within [0, 1]")
+    return parsed
+
+
+def _nonnegative_float(value: str) -> float:
+    parsed = float(value)
+    if parsed < 0.0:
+        raise argparse.ArgumentTypeError("must be non-negative")
     return parsed
 
 
@@ -226,6 +241,57 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.1,
     )
 
+    training_improve = training_commands.add_parser(
+        "improve",
+        help="train, evaluate, and evidence-gate one evaluator candidate",
+    )
+    training_improve.add_argument("dataset", type=Path)
+    training_improve.add_argument(
+        "--incumbent",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+        help="checkpoint directory or digest-bound promotion pointer",
+    )
+    training_improve.add_argument(
+        "--models-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_MODELS,
+    )
+    training_improve.add_argument(
+        "--receipts-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_RECEIPTS,
+    )
+    training_improve.add_argument(
+        "--promotion",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+        help="atomic pointer updated only when the candidate is admitted",
+    )
+    training_improve.add_argument("--epochs", type=_positive_int, default=1)
+    training_improve.add_argument("--learning-rate", type=_positive_float, default=3e-4)
+    training_improve.add_argument("--policy-weight", type=_nonnegative_float, default=1.0)
+    training_improve.add_argument(
+        "--value-target",
+        choices=VALUE_TARGET_SOURCES,
+        default="public_belief_search_return",
+    )
+    training_improve.add_argument(
+        "--min-validation-improvement",
+        type=_nonnegative_float,
+        default=1e-6,
+    )
+    training_improve.add_argument(
+        "--max-validation-value-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_improve.add_argument(
+        "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+
     coverage = subparsers.add_parser(
         "belief-coverage",
         help="summarize live public-belief routing and static admission coverage",
@@ -404,20 +470,38 @@ def _run_corpus(args: argparse.Namespace) -> None:
 
 
 def _run_training(args: argparse.Namespace) -> None:
-    if args.training_command != "build":
-        raise AssertionError(
-            f"unsupported training command: {args.training_command}"
+    if args.training_command == "build":
+        summary = build_training_dataset(
+            args.traces,
+            args.output,
+            search_packet_paths=args.search_packet,
+            search_receipt_paths=args.search_receipt,
+            posterior_paths=args.posterior,
+            split_seed=args.split_seed,
+            train_fraction=args.train_fraction,
+            validation_fraction=args.validation_fraction,
         )
-    summary = build_training_dataset(
-        args.traces,
-        args.output,
-        search_packet_paths=args.search_packet,
-        search_receipt_paths=args.search_receipt,
-        posterior_paths=args.posterior,
-        split_seed=args.split_seed,
-        train_fraction=args.train_fraction,
-        validation_fraction=args.validation_fraction,
-    )
+    elif args.training_command == "improve":
+        summary = improve_checkpoint(
+            args.dataset,
+            incumbent_checkpoint=args.incumbent,
+            models_dir=args.models_dir,
+            receipts_dir=args.receipts_dir,
+            promotion_file=args.promotion,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            policy_weight=args.policy_weight,
+            value_target_source=args.value_target,
+            admission_policy=AdmissionPolicy(
+                min_validation_total_improvement=args.min_validation_improvement,
+                max_validation_value_mse_regression=args.max_validation_value_regression,
+                max_validation_policy_cross_entropy_regression=(
+                    args.max_validation_policy_regression
+                ),
+            ),
+        )
+    else:
+        raise AssertionError(f"unsupported training command: {args.training_command}")
     print(json.dumps(summary, sort_keys=True))
 
 
