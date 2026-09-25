@@ -83,6 +83,7 @@ def test_probe_source_reconstructs_general_posterior_from_either_showdown_side()
         "weighting": "equal-active-strategies",
         "strategies": [
             {"kind": "simple-heuristics"},
+            {"kind": "dirty-tricks"},
             {"kind": "max-damage"},
             {"kind": "uniform-legal-moves"},
             {"kind": "repeat-observed-move", "move": "U-turn"},
@@ -122,6 +123,7 @@ def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None
         "weighting": "equal-active-strategies",
         "strategies": [
             {"kind": "simple-heuristics"},
+            {"kind": "dirty-tricks"},
             {"kind": "max-damage"},
             {"kind": "uniform-legal-moves"},
         ],
@@ -149,6 +151,7 @@ def test_probe_source_allows_status_move_as_bounded_response() -> None:
         "weighting": "equal-active-strategies",
         "strategies": [
             {"kind": "simple-heuristics"},
+            {"kind": "dirty-tricks"},
             {"kind": "max-damage"},
             {"kind": "uniform-legal-moves"},
             {"kind": "repeat-observed-move", "move": "Bulk Up"},
@@ -780,6 +783,7 @@ def test_live_low_margin_route_uses_strategy_mixture_without_move_history() -> N
         "weighting": "equal-active-strategies",
         "strategies": [
             {"kind": "simple-heuristics"},
+            {"kind": "dirty-tricks"},
             {"kind": "max-damage"},
             {"kind": "uniform-legal-moves"},
         ],
