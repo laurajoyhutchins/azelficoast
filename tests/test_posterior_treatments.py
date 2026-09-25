@@ -90,6 +90,8 @@ def test_generator_faithful_preserves_correlated_world_mass() -> None:
     assert posterior["conditioned_on_public_history"] is True
     assert posterior["realized_hidden_state_revealed"] is False
     assert posterior["construction"]["preserves_joint_hidden_worlds"] is True
+    assert posterior["construction"]["total_variation_from_generator_faithful"] == 0.0
+    assert posterior["construction"]["changed_world_weight_count"] == 0
     assert [world["weight"] for world in posterior["worlds"]] == [
         0.45,
         0.15,
@@ -109,6 +111,10 @@ def test_practical_preserves_item_mass_but_discards_within_item_frequency() -> N
     assert abs(by_id["scarf-b"]["weight"] - 0.20) < 1e-12
     assert posterior["construction"]["preserves_item_marginal_mass"] is True
     assert posterior["construction"]["preserves_joint_hidden_world_support"] is True
+    assert abs(
+        posterior["construction"]["total_variation_from_generator_faithful"] - 0.25
+    ) < 1e-12
+    assert posterior["construction"]["changed_world_weight_count"] == 4
 
 
 def test_oracle_treatment_fails_closed_on_sampled_generator_reconstruction() -> None:
