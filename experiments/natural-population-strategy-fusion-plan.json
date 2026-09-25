@@ -20,7 +20,8 @@
     "requires_public_level_conditioning": true,
     "max_exact_states": 128,
     "overflow_selection": "ascending sha256('population-v1:' + fixture_id)",
-    "mechanics_screen_rounds": 512
+    "mechanics_screen_rounds": 512,
+    "requires_exact_opponent_bench_reconstruction": true
   },
   "exact_treatment": {
     "root_chance_samples": 16,
@@ -72,7 +73,7 @@
     "Material utility is not claimed to equal competitive win probability.",
     "Structural associations are descriptive predictors, not causal effects."
   ],
-  "frozen_cohort": {
+  "superseded_cohort": {
     "workflow_run_id": 36089504420,
     "artifact_id": 10844299570,
     "artifact_name": "natural-population-selection",
@@ -85,6 +86,15 @@
     "eligible_count": 13,
     "selected_count": 13,
     "selected_battle_count": 8,
-    "overflow_sampling_applied": false
+    "overflow_sampling_applied": false,
+    "invalidated_before_outcome_read": true,
+    "invalidation_reason": "exact adapter requires a known surviving opponent bench species or proof that the public bench is exhausted; one selected source lacked either structural witness"
+  },
+  "treatment_enabled": false,
+  "preregistration_amendment": {
+    "reason": "structural exact-reconstruction preflight omitted from initial admissibility",
+    "trigger": "index 5 failed before oracle construction because opponent bench was publicly unresolved",
+    "outcome_values_inspected_before_amendment": false,
+    "rule": "exclude any otherwise eligible fixture unless the public trace exposes a surviving opponent bench species or proves the public bench exhausted"
   }
 }
