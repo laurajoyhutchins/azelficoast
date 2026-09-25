@@ -107,10 +107,11 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         return None
 
     def _belief_decision(self, battle: AbstractBattle) -> LiveDecisionResult:
-        budget = self._timing_policy.decision_budget(
-            self._battle_clocks.observation(battle.battle_tag)
-        )
         started_at = time.monotonic()
+        budget = self._timing_policy.decision_budget(
+            self._battle_clocks.observation(battle.battle_tag),
+            now=started_at,
+        )
 
         if self._belief_policy is None:
             return LiveDecisionResult(
@@ -125,7 +126,10 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
             self._protocol_history.get(battle.battle_tag, ()),
         )
         try:
-            deadline = DecisionDeadline.after(budget.usable_seconds)
+            deadline = DecisionDeadline.after(
+                budget.usable_seconds,
+                now=started_at,
+            )
         except DecisionDeadlineExceeded:
             return LiveDecisionResult(
                 action=None,
