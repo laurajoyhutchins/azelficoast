@@ -272,6 +272,7 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
     last_move = opponent_move_from_protocol(fixture)
     strategies: list[dict[str, object]] = [
         {"kind": "simple-heuristics"},
+        {"kind": "dirty-tricks"},
         {"kind": "max-damage"},
         {"kind": "uniform-legal-moves"},
     ]
