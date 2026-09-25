@@ -1,0 +1,146 @@
+name: One-shot canonical evidence rebuild
+
+on:
+  push:
+    branches:
+      - cleanup/shared-transition-oracle-contract
+    paths:
+      - ".github/workflows/rebuild-canonical-evidence-once.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
+      - name: Reconstruct canonical evidence from pinned artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          root=/tmp/canonical-source
+          stage=/tmp/canonical-stage
+          rm -rf "$root" "$stage"
+          mkdir -p "$root" "$stage"
+
+          download() {
+            local id="$1"
+            local name="$2"
+            mkdir -p "$root/$name"
+            curl --fail --location --silent --show-error \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}/zip" \
+              -o "$root/$name.zip"
+            unzip -q "$root/$name.zip" -d "$root/$name"
+          }
+
+          download 10827665365 discovery
+          download 10845773798 population
+          download 10840097547 status
+          download 10831848674 survival
+          download 10831509823 policy01
+          download 10831748483 policy02
+          download 10832550259 policy03
+          download 10832286063 policy05
+          download 10831689741 policy06
+          download 10832865336 policy07
+          download 10832247914 policy08
+          download 10827611687 policy09
+
+          echo "60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34  $root/discovery.zip" | sha256sum -c -
+          echo "06ed24d6da7266247e7e2a1e68d5c6fd71b3d68dfa61708b604b13b5029cfaf6  $root/population.zip" | sha256sum -c -
+          echo "6f71233d3d0053b26e55cafee350bfe298ca0d6f351e3bbd7be72ebfed0f599c  $root/status.zip" | sha256sum -c -
+          echo "b45d309d627c8e5b6cbfe17a2c3556ebce65b60585ed42d094f8958d45abb5d8  $root/survival.zip" | sha256sum -c -
+
+          mkdir -p "$stage/discovery" "$stage/policy-boundary" "$stage/population"
+          cp "$root/discovery/speed-fork-candidates.json" "$stage/discovery/"
+          cp "$root/discovery/speed-fork-fixtures.jsonl" "$stage/discovery/"
+          cp -R "$root/population/population/." "$stage/population/"
+          cp "$root/status/status-source.json" "$stage/status-source.json"
+          cp "$root/survival/tropius-chiyu-source.json" "$stage/survival-source.json"
+
+          cp "$root/policy01/decision-trace.json" "$stage/policy-boundary/case-01.json"
+          cp "$root/policy02/decision-trace.json" "$stage/policy-boundary/case-02.json"
+          cp "$root/policy03/decision-trace.json" "$stage/policy-boundary/case-03.json"
+          cp "$root/survival/tropius-chiyu-trace.json" "$stage/policy-boundary/case-04.json"
+          cp "$root/policy05/candidate-trace.json" "$stage/policy-boundary/case-05.json"
+          cp "$root/policy06/trace.json" "$stage/policy-boundary/case-06.json"
+          cp "$root/policy07/trace.json" "$stage/policy-boundary/case-07.json"
+          cp "$root/policy08/trace.json" "$stage/policy-boundary/case-08.json"
+          cp "$root/policy09/real-belief-decision-trace.json" "$stage/policy-boundary/case-09.json"
+
+          STAGE="$stage" python3 - <<'PY'
+          import gzip
+          import io
+          import json
+          import os
+          import tarfile
+          from pathlib import Path
+
+          stage = Path(os.environ["STAGE"])
+          manifest_path = Path("experiments/evidence/canonical-evidence.json")
+          bundle_path = Path("experiments/evidence/canonical-evidence.tar.gz")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          required = manifest["bundle"]["required_paths"]
+
+          missing = [path for path in required if not (stage / path).is_file()]
+          if missing:
+              raise SystemExit(f"reconstruction missing required evidence: {missing}")
+
+          extras = sorted(
+              str(path.relative_to(stage))
+              for path in stage.rglob("*")
+              if path.is_file() and str(path.relative_to(stage)) not in set(required)
+          )
+          if extras:
+              raise SystemExit(f"reconstruction produced undeclared evidence: {extras}")
+
+          raw = io.BytesIO()
+          with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as archive:
+              for relative in sorted(required):
+                  data = (stage / relative).read_bytes()
+                  info = tarfile.TarInfo(relative)
+                  info.size = len(data)
+                  info.mode = 0o644
+                  info.uid = 0
+                  info.gid = 0
+                  info.uname = ""
+                  info.gname = ""
+                  info.mtime = 0
+                  archive.addfile(info, io.BytesIO(data))
+
+          with bundle_path.open("wb") as output:
+              with gzip.GzipFile(
+                  filename="",
+                  mode="wb",
+                  fileobj=output,
+                  mtime=0,
+              ) as compressed:
+                  compressed.write(raw.getvalue())
+
+          import hashlib
+          digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+          manifest["bundle"]["sha256"] = digest
+          manifest_path.write_text(
+              json.dumps(manifest, indent=2, sort_keys=False) + "\n",
+              encoding="utf-8",
+          )
+          print(f"canonical evidence sha256={digest}")
+          PY
+
+      - name: Commit reconstructed bundle
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add experiments/evidence/canonical-evidence.tar.gz experiments/evidence/canonical-evidence.json
+          git diff --cached --check
+          git commit -m "fix: reconstruct complete canonical evidence"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
