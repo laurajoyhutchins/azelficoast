@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from azelficoast.belief_evaluator import BeliefEvaluatorSpec, BeliefPrediction
+from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.corpus import DecisionFixture
-from azelficoast.live_belief import (
+from azelficoast.live.belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,
     build_probe_source,
@@ -14,8 +14,8 @@ from azelficoast.live_belief import (
     selective_belief_result,
     transition_program_belief_result,
 )
-from azelficoast.player import AzelficoastPlayer
-from azelficoast.selective_belief import PolicyMarginSearchGate
+from azelficoast.live.player import AzelficoastPlayer
+from azelficoast.search.selective import PolicyMarginSearchGate
 from azelficoast.whole_turn_program import compile_whole_turn_programs
 
 
