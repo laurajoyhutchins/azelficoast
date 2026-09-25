@@ -158,6 +158,26 @@ def build_evaluator_input(
         raise BeliefEvaluatorError(str(error)) from error
 
 
+_MECHANICS_ONLY_HIDDEN_FIELDS = frozenset({"opponent.bench"})
+
+
+def _evaluator_world_record(world: Any) -> dict[str, Any]:
+    """Project mechanics-private state out of the learned evaluator surface."""
+
+    record = world.features.to_record()
+    hidden = record.get("hidden")
+    if isinstance(hidden, Mapping):
+        record = {
+            **record,
+            "hidden": {
+                str(key): value
+                for key, value in hidden.items()
+                if str(key) not in _MECHANICS_ONLY_HIDDEN_FIELDS
+            },
+        }
+    return record
+
+
 def build_evaluator_input_for_contract(
     *,
     public_state: PublicDecisionInput | PublicSuccessorState,
@@ -176,7 +196,7 @@ def build_evaluator_input_for_contract(
     return BeliefEvaluatorInput(
         public_features=hashed_features(state_record, width=spec.public_width),
         world_features=tuple(
-            hashed_features(world.features.to_record(), width=spec.world_width)
+            hashed_features(_evaluator_world_record(world), width=spec.world_width)
             for world in belief.model_worlds
         ),
         world_weights=tuple(world.weight for world in belief.model_worlds),
