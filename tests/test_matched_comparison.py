@@ -31,6 +31,10 @@ def _plan() -> dict[str, object]:
         ],
         "cluster_unit": "battle_tag",
         "showdown_commit": "pinned",
+        "inference": {
+            "bootstrap_replicates": 20,
+            "bootstrap_seed": 1729,
+        },
     }
 
 
@@ -40,6 +44,11 @@ def _state() -> dict[str, object]:
         "battle_tag": "battle-1",
         "public_state": {"turn": 8, "active": "Tinkaton"},
         "legal_actions": ["protect", "attack"],
+        "predictors": {
+            "hidden_item_entropy_bits": 1.0,
+            "incoming_ko_roll_probability_gap": 0.25,
+            "persistent_branch_count": 2,
+        },
     }
 
 
