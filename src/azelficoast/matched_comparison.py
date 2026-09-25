@@ -316,6 +316,10 @@ def settle_packet(
 
     for method in METHODS:
         receipt = by_method[method]
+        if receipt.get("packet_digest") != packet["packet_digest"]:
+            raise MatchedComparisonError(
+                f"{method}: receipt belongs to another frozen packet"
+            )
         if receipt.get("input_digest") != packet["input_digest"]:
             raise MatchedComparisonError(f"{method}: receipt used another frozen input")
         if receipt.get("evaluator_digest") != packet["evaluator_digest"]:
@@ -373,9 +377,14 @@ def settle_packet(
         "schema": RESULT_SCHEMA,
         "schema_version": RESULT_SCHEMA_VERSION,
         "packet_digest": packet["packet_digest"],
+        "input_digest": packet["input_digest"],
+        "state_digest": packet["state_digest"],
+        "posterior_digest": packet["posterior_digest"],
         "fixture_id": packet["fixture_id"],
         "battle_tag": packet["battle_tag"],
+        "legal_actions": list(packet["legal_actions"]),
         "posterior_treatment": packet["posterior_treatment"],
+        "showdown_commit": packet["showdown_commit"],
         "opponent_model": packet["opponent_model"],
         "depth": packet["depth"],
         "matched_input": True,
