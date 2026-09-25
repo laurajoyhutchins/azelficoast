@@ -376,34 +376,67 @@ function normalizedOpponentPolicy() {
       }
       return {kind, voluntary_switches: false};
     }
-    if (
-      kind === "repeat-last-or-uniform-legal-moves" ||
-      kind === "repeat-last-observed-move"
-    ) {
-      const preferred = toID(
-        configured.preferred_move || configured.move || source.opponent_response_move
-      );
-      if (!preferred) fail(kind + " requires a preferred move");
-      if (configured.voluntary_switches === true) {
-        fail(kind + " does not yet model voluntary switches");
+    if (kind === "strategy-mixture") {
+      if (configured.weighting !== "equal-active-strategies") {
+        fail("strategy-mixture requires equal-active-strategies weighting");
       }
+      if (configured.voluntary_switches === true) {
+        fail("strategy-mixture does not yet model voluntary switches");
+      }
+      if (!Array.isArray(configured.strategies) || !configured.strategies.length) {
+        fail("strategy-mixture requires at least one strategy");
+      }
+      const allowed = new Set([
+        "simple-heuristics",
+        "max-damage",
+        "repeat-observed-move",
+        "uniform-legal-moves",
+      ]);
+      const seen = new Set();
+      const strategies = configured.strategies.map(raw => {
+        if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+          fail("strategy-mixture strategies must be objects");
+        }
+        const strategyKind = String(raw.kind || "");
+        if (!allowed.has(strategyKind)) {
+          fail("unsupported opponent strategy " + strategyKind);
+        }
+        if (seen.has(strategyKind)) {
+          fail("strategy-mixture contains duplicate strategy " + strategyKind);
+        }
+        seen.add(strategyKind);
+        if (strategyKind === "repeat-observed-move") {
+          const move = toID(raw.move || source.opponent_response_move);
+          if (!move) fail("repeat-observed-move requires a public move");
+          return {kind: strategyKind, move};
+        }
+        return {kind: strategyKind};
+      });
       return {
-        kind: "repeat-last-or-uniform-legal-moves",
-        preferred_move: preferred,
+        kind,
+        weighting: "equal-active-strategies",
+        strategies,
         voluntary_switches: false,
       };
     }
     fail("unsupported opponent_policy kind " + kind);
   }
+
+  const strategies = [
+    {kind: "simple-heuristics"},
+    {kind: "max-damage"},
+    {kind: "uniform-legal-moves"},
+  ];
   const observed = lastOpponentMove();
   if (observed) {
-    return {
-      kind: "repeat-last-or-uniform-legal-moves",
-      preferred_move: observed,
-      voluntary_switches: false,
-    };
+    strategies.push({kind: "repeat-observed-move", move: observed});
   }
-  return {kind: "uniform-legal-moves", voluntary_switches: false};
+  return {
+    kind: "strategy-mixture",
+    weighting: "equal-active-strategies",
+    strategies,
+    voluntary_switches: false,
+  };
 }
 
 const OPPONENT_POLICY = normalizedOpponentPolicy();
@@ -620,7 +653,7 @@ function mechanicsProjectionVariantCount(variants) {
       ability: entry.set.ability,
       item: entry.set.item,
       level: entry.set.level,
-      ...(OPPONENT_POLICY.kind === "uniform-legal-moves"
+      ...(["uniform-legal-moves", "strategy-mixture"].includes(OPPONENT_POLICY.kind)
         ? {moves: entry.set.moves}
         : {}),
       evs: entry.set.evs,
@@ -1087,6 +1120,221 @@ function legalP1Continuations(battle) {
   return [...new Set(choices)].sort();
 }
 
+function uniformMoveDistribution(legalMoves, mode) {
+  const probability = 1 / legalMoves.length;
+  return legalMoves.map(move => ({
+    choice: `move ${move}`,
+    probability,
+    mode,
+  }));
+}
+
+function exactTieDistribution(scored, mode) {
+  if (!scored.length) return [];
+  const best = Math.max(...scored.map(row => row.score));
+  const choices = scored
+    .filter(row => Math.abs(row.score - best) <= 1e-12)
+    .map(row => row.move)
+    .sort();
+  return uniformMoveDistribution(choices, mode);
+}
+
+function expectedHitMultiplier(move) {
+  if (!Array.isArray(move.multihit)) return 1;
+  if (move.multihit.length !== 2) return 1;
+  const low = Number(move.multihit[0]);
+  const high = Number(move.multihit[1]);
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return 1;
+  // This is a policy heuristic, not a mechanics oracle. Exact turn execution remains
+  // Showdown-owned. The mean only ranks candidate attacks for the opponent prior.
+  return (low + high) / 2;
+}
+
+function moveDamageHeuristic(battle, moveId) {
+  const attacker = battle.p2.active[0];
+  const defender = battle.p1.active[0];
+  if (!attacker || !defender) return 0;
+  const move = battle.dex.moves.get(moveId);
+  if (!move.exists || move.category === "Status" || Number(move.basePower) <= 0) {
+    return 0;
+  }
+  const rawAccuracy = move.accuracy === true ? 1 : Number(move.accuracy) / 100;
+  const accuracy = Number.isFinite(rawAccuracy) ? rawAccuracy : 1;
+  const stab = attacker.getTypes().includes(move.type) ? 1.5 : 1;
+  const immune = battle.dex.getImmunity(move, defender);
+  if (!immune) return 0;
+  const effectiveness = 2 ** battle.dex.getEffectiveness(move, defender);
+  const attackStat =
+    move.category === "Physical"
+      ? Number(attacker.storedStats.atk)
+      : Number(attacker.storedStats.spa);
+  const defenseStat =
+    move.category === "Physical"
+      ? Number(defender.storedStats.def)
+      : Number(defender.storedStats.spd);
+  const statRatio =
+    Number.isFinite(attackStat) &&
+    Number.isFinite(defenseStat) &&
+    defenseStat > 0
+      ? attackStat / defenseStat
+      : 1;
+  return (
+    Number(move.basePower) *
+    Math.max(0, accuracy) *
+    expectedHitMultiplier(move) *
+    stab *
+    effectiveness *
+    statRatio
+  );
+}
+
+function maxDamageDistribution(battle, legalMoves) {
+  const scored = legalMoves.map(move => ({
+    move,
+    score: moveDamageHeuristic(battle, move),
+  }));
+  const best = Math.max(...scored.map(row => row.score));
+  if (!(best > 0)) return uniformMoveDistribution(legalMoves, "max-damage-fallback");
+  return exactTieDistribution(scored, "max-damage");
+}
+
+const HAZARD_MOVES = new Map([
+  ["spikes", "spikes"],
+  ["stealthrock", "stealthrock"],
+  ["stickyweb", "stickyweb"],
+  ["toxicspikes", "toxicspikes"],
+]);
+const HAZARD_REMOVAL_MOVES = new Set(["defog", "rapidspin"]);
+
+function simpleHeuristicsDistribution(battle, legalMoves) {
+  const attacker = battle.p2.active[0];
+  const defender = battle.p1.active[0];
+  if (!attacker || !defender) {
+    return uniformMoveDistribution(legalMoves, "simple-heuristics-fallback");
+  }
+
+  const moveObjects = legalMoves.map(move => battle.dex.moves.get(move));
+
+  const hazards = moveObjects
+    .filter(move => {
+      const condition = HAZARD_MOVES.get(move.id);
+      return condition && !battle.p1.sideConditions[condition];
+    })
+    .map(move => move.id)
+    .sort();
+  if (hazards.length) {
+    return uniformMoveDistribution(hazards, "simple-heuristics-hazard");
+  }
+
+  if (Object.keys(battle.p2.sideConditions).length) {
+    const removals = moveObjects
+      .filter(move => HAZARD_REMOVAL_MOVES.has(move.id))
+      .map(move => move.id)
+      .sort();
+    if (removals.length) {
+      return uniformMoveDistribution(removals, "simple-heuristics-hazard-removal");
+    }
+  }
+
+  const hpFraction = attacker.maxhp > 0 ? attacker.hp / attacker.maxhp : 0;
+  if (hpFraction >= 0.8) {
+    const setup = moveObjects
+      .filter(move => {
+        if (move.target !== "self" || !move.boosts) return false;
+        const positive = Object.entries(move.boosts)
+          .filter(([, value]) => Number(value) > 0);
+        if (!positive.length) return false;
+        const total = positive.reduce((sum, [, value]) => sum + Number(value), 0);
+        const room = positive.some(
+          ([stat]) => Number(attacker.boosts[stat] || 0) < 4
+        );
+        return total >= 2 && room;
+      })
+      .map(move => move.id)
+      .sort();
+    if (setup.length) {
+      return uniformMoveDistribution(setup, "simple-heuristics-setup");
+    }
+  }
+
+  if (hpFraction <= 0.5) {
+    const recovery = moveObjects
+      .filter(move => Array.isArray(move.heal) && Number(move.heal[0]) > 0)
+      .map(move => move.id)
+      .sort();
+    if (recovery.length) {
+      return uniformMoveDistribution(recovery, "simple-heuristics-recovery");
+    }
+  }
+
+  return maxDamageDistribution(battle, legalMoves).map(row => ({
+    ...row,
+    mode: "simple-heuristics-damage",
+  }));
+}
+
+function repeatObservedDistribution(strategy, legalMoves) {
+  const move = toID(strategy.move);
+  if (!move || !legalMoves.includes(move)) return null;
+  return [{
+    choice: `move ${move}`,
+    probability: 1,
+    mode: "repeat-observed-move",
+  }];
+}
+
+function strategyDistribution(battle, legalMoves, strategy) {
+  if (strategy.kind === "uniform-legal-moves") {
+    return uniformMoveDistribution(legalMoves, "uniform-legal-moves");
+  }
+  if (strategy.kind === "max-damage") {
+    return maxDamageDistribution(battle, legalMoves);
+  }
+  if (strategy.kind === "simple-heuristics") {
+    return simpleHeuristicsDistribution(battle, legalMoves);
+  }
+  if (strategy.kind === "repeat-observed-move") {
+    return repeatObservedDistribution(strategy, legalMoves);
+  }
+  fail("unsupported normalized opponent strategy " + strategy.kind);
+}
+
+function equalStrategyMixture(battle, legalMoves) {
+  const active = [];
+  for (const strategy of OPPONENT_POLICY.strategies) {
+    const distribution = strategyDistribution(battle, legalMoves, strategy);
+    if (distribution && distribution.length) {
+      active.push({strategy, distribution});
+    }
+  }
+  if (!active.length) {
+    return uniformMoveDistribution(legalMoves, "strategy-mixture-fallback");
+  }
+
+  const mass = new Map();
+  const modes = new Map();
+  const strategyWeight = 1 / active.length;
+  for (const {strategy, distribution} of active) {
+    for (const row of distribution) {
+      mass.set(
+        row.choice,
+        (mass.get(row.choice) || 0) + strategyWeight * row.probability
+      );
+      const priorModes = modes.get(row.choice) || new Set();
+      priorModes.add(strategy.kind);
+      modes.set(row.choice, priorModes);
+    }
+  }
+
+  return [...mass.entries()]
+    .map(([choice, probability]) => ({
+      choice,
+      probability,
+      mode: "strategy-mixture:" + [...modes.get(choice)].sort().join("+"),
+    }))
+    .sort((left, right) => left.choice.localeCompare(right.choice));
+}
+
 function opponentActionDistribution(battle, hiddenReads = null) {
   const request = battle.p2.activeRequest;
   if (!request || request.wait) {
@@ -1120,26 +1368,22 @@ function opponentActionDistribution(battle, hiddenReads = null) {
   )].sort();
   if (!legalMoves.length) fail("opponent policy found no legal move choices");
 
-  const preferred = OPPONENT_POLICY.preferred_move;
-  if (
-    OPPONENT_POLICY.kind === "repeat-last-or-uniform-legal-moves" &&
-    preferred &&
-    legalMoves.includes(preferred)
-  ) {
-    return [{
-      choice: `move ${preferred}`,
-      probability: 1,
-      mode: "repeat-last-observed-move",
-    }];
+  if (hiddenReads) {
+    hiddenReads.add("opponent.active.moves");
+    if (OPPONENT_POLICY.kind === "strategy-mixture") {
+      hiddenReads.add("opponent.active.evs");
+      hiddenReads.add("opponent.active.ivs");
+      hiddenReads.add("opponent.active.exact_hp");
+    }
   }
 
-  if (hiddenReads) hiddenReads.add("opponent.active.moves");
-  const probability = 1 / legalMoves.length;
-  return legalMoves.map(move => ({
-    choice: `move ${move}`,
-    probability,
-    mode: "uniform-legal-moves",
-  }));
+  if (OPPONENT_POLICY.kind === "uniform-legal-moves") {
+    return uniformMoveDistribution(legalMoves, "uniform-legal-moves");
+  }
+  if (OPPONENT_POLICY.kind === "strategy-mixture") {
+    return equalStrategyMixture(battle, legalMoves);
+  }
+  fail("unsupported normalized opponent policy " + OPPONENT_POLICY.kind);
 }
 
 function opponentDistributionForSnapshot(snapshot, hiddenReads = null) {
@@ -1966,8 +2210,8 @@ process.stdout.write(JSON.stringify({
     continuation_decision_horizons: CONTINUATION_DECISION_HORIZONS,
     chance_seed_family: CHANCE_SEED_FAMILY,
     opponent_response: (
-      OPPONENT_POLICY.kind === "repeat-last-or-uniform-legal-moves"
-        ? `repeat ${OPPONENT_POLICY.preferred_move} when legal, otherwise uniform legal moves`
+      OPPONENT_POLICY.kind === "strategy-mixture"
+        ? "equal mixture of simple heuristics, max damage, uniform legal moves, and public move persistence when available"
         : "uniform legal moves"
     ),
     opponent_policy: OPPONENT_POLICY,

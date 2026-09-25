@@ -362,7 +362,7 @@ def _teacher_plan(
             "unit": "transition_evaluations",
             "per_method_limit": compute_budget,
         },
-        "opponent_model": "repeat-last-or-uniform-legal-moves",
+        "opponent_model": "strategy-mixture",
         "depths": [1],
         "confirmatory_predictors": [
             "posterior_world_count",

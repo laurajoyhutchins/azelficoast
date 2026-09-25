@@ -23,10 +23,12 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
     """Live player with learned public-belief policy, exact search, and fallback.
 
     A pinned, built Pokémon Showdown checkout provides posterior reconstruction and
-    complete-turn mechanics. Exact search uses an explicit bounded opponent policy:
-    repeat the current active's last observed move when legal, otherwise distribute
-    mass uniformly across that hidden world's legal moves. Voluntary opponent switches
-    and opponent Terastallization are not yet modeled by that policy. Unsupported
+    complete-turn mechanics. Exact search uses an explicit bounded opponent strategy
+    mixture: a poke-env-style simple heuristic, max-damage play, a uniform exploration
+    floor, and observed-move persistence when available. The components are mixed
+    equally rather than pretending one handcrafted rule is a calibrated human model.
+    Voluntary opponent switches and opponent Terastallization are not yet modeled by
+    that policy. Unsupported
     boundaries fall back to poke-env's simple heuristics rather than inventing semantics.
     """
 

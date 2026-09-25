@@ -79,8 +79,14 @@ def test_probe_source_reconstructs_general_posterior_from_either_showdown_side()
     assert "plausible_items" not in p1_source
     assert p2_source["opponent_response_move"] == "U-turn"
     assert p2_source["opponent_policy"] == {
-        "kind": "repeat-last-or-uniform-legal-moves",
-        "preferred_move": "U-turn",
+        "kind": "strategy-mixture",
+        "weighting": "equal-active-strategies",
+        "strategies": [
+            {"kind": "simple-heuristics"},
+            {"kind": "max-damage"},
+            {"kind": "uniform-legal-moves"},
+            {"kind": "repeat-observed-move", "move": "U-turn"},
+        ],
         "voluntary_switches": False,
     }
 
@@ -112,7 +118,13 @@ def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None
     assert source is not None
     assert "opponent_response_move" not in source
     assert source["opponent_policy"] == {
-        "kind": "uniform-legal-moves",
+        "kind": "strategy-mixture",
+        "weighting": "equal-active-strategies",
+        "strategies": [
+            {"kind": "simple-heuristics"},
+            {"kind": "max-damage"},
+            {"kind": "uniform-legal-moves"},
+        ],
         "voluntary_switches": False,
     }
 
@@ -133,8 +145,14 @@ def test_probe_source_allows_status_move_as_bounded_response() -> None:
     assert source is not None
     assert source["opponent_response_move"] == "Bulk Up"
     assert source["opponent_policy"] == {
-        "kind": "repeat-last-or-uniform-legal-moves",
-        "preferred_move": "Bulk Up",
+        "kind": "strategy-mixture",
+        "weighting": "equal-active-strategies",
+        "strategies": [
+            {"kind": "simple-heuristics"},
+            {"kind": "max-damage"},
+            {"kind": "uniform-legal-moves"},
+            {"kind": "repeat-observed-move", "move": "Bulk Up"},
+        ],
         "voluntary_switches": False,
     }
     assert "plausible_items" not in source
@@ -697,7 +715,7 @@ def test_live_high_margin_route_does_not_require_opponent_response_model() -> No
     assert result.reason == "learned-public-belief"
 
 
-def test_live_low_margin_route_uses_uniform_opponent_model_without_move_history() -> None:
+def test_live_low_margin_route_uses_strategy_mixture_without_move_history() -> None:
     protocol = (
         (
             ("", "player", "p1", "Azelficoast"),
@@ -758,7 +776,13 @@ def test_live_low_margin_route_uses_uniform_opponent_model_without_move_history(
     assert result.action == actions[1]
     assert result.reason == "transition-program-public-belief"
     assert seen_policy == {
-        "kind": "uniform-legal-moves",
+        "kind": "strategy-mixture",
+        "weighting": "equal-active-strategies",
+        "strategies": [
+            {"kind": "simple-heuristics"},
+            {"kind": "max-damage"},
+            {"kind": "uniform-legal-moves"},
+        ],
         "voluntary_switches": False,
     }
 
