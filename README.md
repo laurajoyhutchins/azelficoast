@@ -112,6 +112,10 @@ Simulator and JAX experiments use the optional simulator environment:
 uv sync --extra simulator
 ~~~
 
+Runtime paths, environment variables, live battle-clock budgeting, offline teacher
+timeouts, and credential handling are documented in
+[docs/configuration.md](docs/configuration.md).
+
 ### Run a local battle
 
 poke-env expects a local Pokémon Showdown server on port 8000 by default.
