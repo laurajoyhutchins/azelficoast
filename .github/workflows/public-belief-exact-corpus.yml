@@ -65,15 +65,19 @@ jobs:
           fixture = None
           candidate = None
 
-          with Path("/tmp/azelficoast-evidence/discovery/speed-fork-fixtures.jsonl").open() as stream:
+          evidence_root = Path("/tmp/azelficoast-evidence")
+          fixture_paths = list(evidence_root.rglob("speed-fork-fixtures.jsonl"))
+          candidate_paths = list(evidence_root.rglob("speed-fork-candidates.json"))
+          assert len(fixture_paths) == 1, fixture_paths
+          assert len(candidate_paths) == 1, candidate_paths
+
+          with fixture_paths[0].open() as stream:
               for raw in stream:
                   row = json.loads(raw)
                   if row.get("fixture_id") == fixture_id:
                       fixture = row
                       break
-          candidates = json.loads(
-              Path("/tmp/azelficoast-evidence/discovery/speed-fork-candidates.json").read_text()
-          )
+          candidates = json.loads(candidate_paths[0].read_text())
           candidate = next(
               (
                   row
@@ -210,6 +214,44 @@ jobs:
             /tmp/candidate-source.json \
             > /tmp/candidate-oracle.json
 
+      - name: Generate and certify read-refinement kernel
+        if: steps.extract.outputs.supported == 'true'
+        run: |
+          /usr/bin/time -f '%e' -o /tmp/candidate-kernel-wall-seconds.txt \
+            node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown \
+              /tmp/candidate-source.json \
+              --transition-program-only \
+              > /tmp/candidate-kernel.json
+
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from azelficoast.whole_turn_program import verify_whole_turn_program_set
+
+          oracle = json.loads(Path("/tmp/candidate-oracle.json").read_text())
+          kernel = json.loads(Path("/tmp/candidate-kernel.json").read_text())
+          verification = verify_whole_turn_program_set(kernel, oracle)
+          producer = kernel["producer"]
+          verification["kernel_evidence"] = kernel["kernel_evidence"]
+          verification["producer"] = producer
+          verification["kernel_generation_wall_ms"] = (
+              float(Path("/tmp/candidate-kernel-wall-seconds.txt").read_text().strip())
+              * 1000.0
+          )
+          verification["live_reuse_contract"] = (
+              "exact candidate CI certifies the revision-bound read-refinement kernel; "
+              "live turns validate the kernel boundary and reuse representative executions "
+              "without re-running the exhaustive world/action oracle"
+          )
+          Path("/tmp/candidate-kernel-verification.json").write_text(
+              json.dumps(verification, sort_keys=True),
+              encoding="utf-8",
+          )
+          print(json.dumps(verification, sort_keys=True))
+          PY
+
       - name: Analyze information set
         if: steps.extract.outputs.supported == 'true'
         run: |
@@ -279,6 +321,9 @@ jobs:
             /tmp/candidate-status.json
             /tmp/candidate-source.json
             /tmp/candidate-oracle.json
+            /tmp/candidate-kernel.json
+            /tmp/candidate-kernel-verification.json
+            /tmp/candidate-kernel-wall-seconds.txt
             /tmp/candidate-trace.json
             /tmp/candidate-mining.json
             /tmp/candidate-result.json
