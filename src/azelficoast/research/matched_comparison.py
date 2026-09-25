@@ -189,6 +189,9 @@ def freeze_packet(
 
     fixture_id = public.fixture_id
     battle_tag = public.battle_tag
+    run_id = state.get("run_id")
+    if run_id is not None and (not isinstance(run_id, str) or not run_id):
+        raise MatchedComparisonError("run_id must be a non-empty string when supplied")
     public_state = public.public_state.to_record()
     legal_actions = list(public.legal_actions)
     if belief.treatment != posterior_treatment:
@@ -272,6 +275,7 @@ def freeze_packet(
         "schema_version": PACKET_SCHEMA_VERSION,
         "fixture_id": fixture_id,
         "battle_tag": battle_tag,
+        **({"run_id": run_id} if isinstance(run_id, str) else {}),
         "posterior_treatment": posterior_treatment,
         "opponent_model": checked_plan["opponent_model"],
         "showdown_commit": checked_plan["showdown_commit"],
