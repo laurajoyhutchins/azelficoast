@@ -23,10 +23,11 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
     """Live player with learned public-belief policy, exact search, and fallback.
 
     A pinned, built Pokémon Showdown checkout provides posterior reconstruction and
-    complete-turn mechanics. Reconstructable states may use the learned public-belief
-    policy even when no bounded opponent-response model is available. Exact search is
-    attempted only when that additional model is present; unsupported boundaries fall
-    back to poke-env's simple heuristics rather than inventing semantics.
+    complete-turn mechanics. Exact search uses an explicit bounded opponent policy:
+    repeat the current active's last observed move when legal, otherwise distribute
+    mass uniformly across that hidden world's legal moves. Voluntary opponent switches
+    and opponent Terastallization are not yet modeled by that policy. Unsupported
+    boundaries fall back to poke-env's simple heuristics rather than inventing semantics.
     """
 
     def __init__(

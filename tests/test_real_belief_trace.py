@@ -495,7 +495,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     dependency_block = source.split("const DEPENDENCY_CANDIDATES = [", 1)[1].split(
         "];", 1
     )[0]
-    assert '"opponent.active.moves"' not in dependency_block
+    assert '"opponent.active.moves"' in dependency_block
     assert '"opponent.active.tera_type"' not in dependency_block
 
     assert "mechanics_projection_variant_count" in source
@@ -503,5 +503,13 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
         "execution optimization only; semantic posterior support retains every "
         "generator variant"
     ) in source
-    assert "hidden move fallback would be required" in source
+    assert "function opponentActionDistribution(" in source
+    assert "const currentSpecies = toID(" in source
+    assert "moveSpecies === currentSpecies" in source
+    assert '"uniform-legal-moves"' in source
+    assert '"uniform-forced-switch"' in source
+    assert 'hiddenReads.add("opponent.active.moves")' in source
+    assert "showdown_turn_executions: showdownTurnExecutions" in source
+    assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
+    assert "opponent_policy: OPPONENT_POLICY" in source
     assert "marginalized_hidden" not in source

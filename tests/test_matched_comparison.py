@@ -147,6 +147,24 @@ def test_freeze_packet_gives_both_methods_identical_input_and_budget() -> None:
     assert abs(packet["posterior_support"]["effective_sample_size"] - 1.923076923076923) < 1e-12
 
 
+def test_freeze_packet_accepts_bounded_move_distribution_opponent_model() -> None:
+    plan = _plan()
+    plan["opponent_model"] = "repeat-last-or-uniform-legal-moves"
+
+    packet = freeze_packet(
+        plan=plan,
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=1,
+    )
+
+    assert packet["opponent_model"] == "repeat-last-or-uniform-legal-moves"
+    assert packet["matched_spec"]["opponent_model"] == (
+        "repeat-last-or-uniform-legal-moves"
+    )
+
+
 def test_freeze_packet_carries_one_explicit_matched_experiment_spec() -> None:
     packet = freeze_packet(
         plan=_plan(),

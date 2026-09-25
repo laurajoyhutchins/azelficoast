@@ -182,15 +182,24 @@ Posterior reconstruction does not require an opponent-response policy. A high-ma
 learned decision may therefore use a reconstructable posterior even before the exact
 search path has enough evidence to model the opponent's next choice.
 
-Exact search is stricter. The current bounded opponent model repeats the latest move
-observed from the current opposing active Pokémon. When that evidence is absent,
-Azelficoast reports an explicit opponent-model gap rather than treating posterior
-reconstruction, mechanics execution, and opponent behavior as one failure.
+Exact search uses an explicit bounded opponent policy. If the current opposing active
+has a previously observed move and that move remains legal, the model repeats it. If no
+move has been observed yet, or the preferred move is unavailable, the model assigns
+equal mass to that hidden world's legal moves. Because the opponent knows its own move
+set, this policy may legitimately depend on hidden moves; the TransitionProgram records
+that dependency and Azelficoast integrates over the posterior rather than observing the
+realized set.
+
+The bounded policy does **not** currently assign probability to voluntary switches or
+opponent Terastallization. When Showdown requires a replacement, the policy distributes
+mass uniformly across the reconstructed legal switch targets. These omissions are
+opponent-model limitations, not missing battle mechanics, and should be widened or
+learned independently of the mechanics executor.
 
 The posterior is generator-faithful: known public item evidence constrains the generated
 set support, while unknown items remain uncertain instead of being restricted to Choice
-items. Once an opponent response is available, pinned Showdown executes the complete
-turn, including mechanics that do not have a hand-written Azelficoast kernel.
+items. Pinned Showdown then executes the complete turn, including mechanics that do not
+have a hand-written Azelficoast kernel.
 
 If program production or program search cannot be validated, the existing exhaustive
 analysis path remains available as a compatibility/recovery boundary. Unsupported

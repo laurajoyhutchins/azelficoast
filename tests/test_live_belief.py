@@ -79,8 +79,9 @@ def test_probe_source_reconstructs_general_posterior_from_either_showdown_side()
     assert "plausible_items" not in p1_source
     assert p2_source["opponent_response_move"] == "U-turn"
     assert p2_source["opponent_policy"] == {
-        "kind": "repeat-last-observed-move",
-        "move": "U-turn",
+        "kind": "repeat-last-or-uniform-legal-moves",
+        "preferred_move": "U-turn",
+        "voluntary_switches": False,
     }
 
 
@@ -110,7 +111,10 @@ def test_probe_source_does_not_reuse_previous_active_move_after_switch() -> None
     assert reason == "admitted"
     assert source is not None
     assert "opponent_response_move" not in source
-    assert "opponent_policy" not in source
+    assert source["opponent_policy"] == {
+        "kind": "uniform-legal-moves",
+        "voluntary_switches": False,
+    }
 
 
 def test_probe_source_allows_status_move_as_bounded_response() -> None:
@@ -128,6 +132,11 @@ def test_probe_source_allows_status_move_as_bounded_response() -> None:
     assert reason == "admitted"
     assert source is not None
     assert source["opponent_response_move"] == "Bulk Up"
+    assert source["opponent_policy"] == {
+        "kind": "repeat-last-or-uniform-legal-moves",
+        "preferred_move": "Bulk Up",
+        "voluntary_switches": False,
+    }
     assert "plausible_items" not in source
 
 
@@ -688,7 +697,7 @@ def test_live_high_margin_route_does_not_require_opponent_response_model() -> No
     assert result.reason == "learned-public-belief"
 
 
-def test_live_low_margin_route_reports_missing_opponent_model_before_exact_probe() -> None:
+def test_live_low_margin_route_uses_uniform_opponent_model_without_move_history() -> None:
     protocol = (
         (
             ("", "player", "p1", "Azelficoast"),
@@ -696,17 +705,28 @@ def test_live_low_margin_route_reports_missing_opponent_model_before_exact_probe
         ),
     )
     fixture = live_fixture(_state(), protocol)
+    actions = tuple(fixture.legal_actions)
+    oracle = _program_search_oracle(
+        fixture_id=fixture.fixture_id,
+        showdown_commit="a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        legal_actions=(actions[0], actions[1]),
+    )
+    program = compile_whole_turn_programs(oracle)
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
 
     class LiveEvaluator(_PosteriorSpreadEvaluator):
         def predict(self, inputs) -> BeliefPrediction:
-            return BeliefPrediction(
-                value=0.0,
-                legal_actions=inputs.legal_actions,
-                probabilities=(0.55, 0.45),
-                selected_action=inputs.legal_actions[0],
-                policy_margin=0.10,
-                policy_entropy_bits=0.99,
-            )
+            if inputs.legal_actions == actions:
+                return BeliefPrediction(
+                    value=0.0,
+                    legal_actions=inputs.legal_actions,
+                    probabilities=(0.55, 0.45),
+                    selected_action=actions[0],
+                    policy_margin=0.10,
+                    policy_entropy_bits=0.99,
+                )
+            return super().predict(inputs)
 
     policy = object.__new__(PinnedShowdownBeliefPolicy)
     policy._configuration_error = None
@@ -719,25 +739,28 @@ def test_live_low_margin_route_reports_missing_opponent_model_before_exact_probe
         "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
         "conditioned_on_public_history": True,
         "realized_hidden_state_revealed": False,
-        "legal_actions": list(fixture.legal_actions),
-        "worlds": [
-            {"world_id": "a", "weight": 0.5, "hidden": {"item": "band"}},
-            {"world_id": "b", "weight": 0.5, "hidden": {"item": "scarf"}},
-        ],
+        "legal_actions": list(actions),
+        "worlds": worlds,
     }
+    seen_policy: dict[str, object] = {}
 
-    def unexpected_exact_probe(source):
-        raise AssertionError("missing opponent model should stop before exact search")
+    def program_probe(source):
+        seen_policy.update(source["opponent_policy"])
+        return program
 
-    policy._probe_transition_program = unexpected_exact_probe
-    policy._probe = unexpected_exact_probe
+    policy._probe_transition_program = program_probe
+    policy._probe = lambda source: (_ for _ in ()).throw(
+        AssertionError("TransitionProgram live search expanded the exhaustive oracle")
+    )
 
     result = policy.choose(fixture)
 
-    assert result.action is None
-    assert result.reason == "opponent-model-unavailable"
-    assert result.diagnostics["posterior_available"] is True
-    assert result.diagnostics["learned_route"] == "exact-public-belief-search"
+    assert result.action == actions[1]
+    assert result.reason == "transition-program-public-belief"
+    assert seen_policy == {
+        "kind": "uniform-legal-moves",
+        "voluntary_switches": False,
+    }
 
 
 def test_live_low_margin_route_uses_transition_program_without_full_oracle() -> None:

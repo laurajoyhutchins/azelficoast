@@ -273,8 +273,14 @@ def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None,
     if last_move is not None:
         source["opponent_response_move"] = last_move
         source["opponent_policy"] = {
-            "kind": "repeat-last-observed-move",
-            "move": last_move,
+            "kind": "repeat-last-or-uniform-legal-moves",
+            "preferred_move": last_move,
+            "voluntary_switches": False,
+        }
+    else:
+        source["opponent_policy"] = {
+            "kind": "uniform-legal-moves",
+            "voluntary_switches": False,
         }
 
     return source, "admitted"
@@ -713,15 +719,15 @@ class PinnedShowdownBeliefPolicy:
                     },
                 )
 
-        opponent_response_move = source.get("opponent_response_move")
-        if not isinstance(opponent_response_move, str) or not opponent_response_move:
+        opponent_policy = source.get("opponent_policy")
+        if not isinstance(opponent_policy, Mapping):
             return LiveDecisionResult(
                 action=None,
                 status="fallback",
                 reason="opponent-model-unavailable",
                 diagnostics={
                     "posterior_available": posterior is not None,
-                    "exact_search_blocker": "no-current-opponent-response-policy",
+                    "exact_search_blocker": "no-opponent-policy",
                     **(dict(route.diagnostics) if route is not None else {}),
                 },
             )

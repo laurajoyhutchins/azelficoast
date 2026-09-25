@@ -81,6 +81,7 @@ const CHANCE_SEED_FAMILY = environmentInteger(
 const DEPENDENCY_CANDIDATES = [
   "opponent.active.item",
   "opponent.active.ability",
+  "opponent.active.moves",
   "opponent.active.evs",
   "opponent.active.ivs",
   "opponent.active.exact_hp",
@@ -305,17 +306,82 @@ function observedOpponentMoves() {
 
 function lastOpponentMove() {
   if (source.opponent_response_move) return toID(source.opponent_response_move);
+
+  const opponentSide = requireProtocolOpponentSide();
+  const currentSpecies = toID(
+    fixture.state.opponent_active && fixture.state.opponent_active.species
+  );
+  let activeSpecies = "";
   let last = null;
   for (const batch of fixture.protocol_prefix) {
     for (const message of batch) {
-      if (message[0] === "" && message[1] === "move" && String(message[2] || "").startsWith(requireProtocolOpponentSide())) {
-        last = String(message[3]);
+      if (message[0] !== "" || message.length < 2) continue;
+      const actor = String(message[2] || "");
+      if (!actor.startsWith(opponentSide)) continue;
+
+      if (
+        ["switch", "drag", "replace"].includes(message[1]) &&
+        message.length >= 4
+      ) {
+        activeSpecies = toID(String(message[3] || "").split(",", 1)[0]);
+        continue;
       }
+      if (message[1] !== "move" || message.length < 4) continue;
+
+      let moveSpecies = activeSpecies;
+      if (!moveSpecies && actor.includes(":")) {
+        moveSpecies = toID(actor.split(":", 2)[1]);
+      }
+      if (moveSpecies === currentSpecies) last = String(message[3]);
     }
   }
-  if (!last) fail("fixture contains no opponent move to use as bounded response policy");
-  return toID(last);
+  return last ? toID(last) : null;
 }
+
+function normalizedOpponentPolicy() {
+  const configured = source.opponent_policy;
+  if (configured != null) {
+    if (!configured || typeof configured !== "object" || Array.isArray(configured)) {
+      fail("opponent_policy must be an object");
+    }
+    const kind = String(configured.kind || "");
+    if (kind === "uniform-legal-moves") {
+      if (configured.voluntary_switches === true) {
+        fail("uniform-legal-moves does not yet model voluntary switches");
+      }
+      return {kind, voluntary_switches: false};
+    }
+    if (
+      kind === "repeat-last-or-uniform-legal-moves" ||
+      kind === "repeat-last-observed-move"
+    ) {
+      const preferred = toID(
+        configured.preferred_move || configured.move || source.opponent_response_move
+      );
+      if (!preferred) fail(kind + " requires a preferred move");
+      if (configured.voluntary_switches === true) {
+        fail(kind + " does not yet model voluntary switches");
+      }
+      return {
+        kind: "repeat-last-or-uniform-legal-moves",
+        preferred_move: preferred,
+        voluntary_switches: false,
+      };
+    }
+    fail("unsupported opponent_policy kind " + kind);
+  }
+  const observed = lastOpponentMove();
+  if (observed) {
+    return {
+      kind: "repeat-last-or-uniform-legal-moves",
+      preferred_move: observed,
+      voluntary_switches: false,
+    };
+  }
+  return {kind: "uniform-legal-moves", voluntary_switches: false};
+}
+
+const OPPONENT_POLICY = normalizedOpponentPolicy();
 
 function resolveGeneratorSpecies(requested) {
   const dexSpecies = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0])
@@ -399,6 +465,9 @@ function mechanicsProjectionVariantCount(variants) {
       ability: entry.set.ability,
       item: entry.set.item,
       level: entry.set.level,
+      ...(OPPONENT_POLICY.kind === "uniform-legal-moves"
+        ? {moves: entry.set.moves}
+        : {}),
       evs: entry.set.evs,
       ivs: entry.set.ivs,
     })));
@@ -828,23 +897,67 @@ function legalP1Continuations(battle) {
   return [...new Set(choices)].sort();
 }
 
-function opponentChoice(battle, hiddenReads = null) {
+function opponentActionDistribution(battle, hiddenReads = null) {
   const request = battle.p2.activeRequest;
-  if (!request || request.wait) return "";
+  if (!request || request.wait) {
+    return [{choice: "", probability: 1, mode: "wait"}];
+  }
   if (request.forceSwitch) {
     if (hiddenReads && BENCH_PRIOR) hiddenReads.add(BENCH_FACTOR_FIELD);
-    const target = battle.p2.pokemon.find(pokemon => pokemon.hp && !pokemon.active);
-    return target ? `switch ${target.position + 1}` : "";
+    const switches = battle.p2.pokemon
+      .filter(pokemon => pokemon.hp && !pokemon.active)
+      .map(pokemon => `switch ${pokemon.position + 1}`)
+      .sort();
+    if (!switches.length) {
+      return [{choice: "", probability: 1, mode: "forced-switch-unavailable"}];
+    }
+    const probability = 1 / switches.length;
+    return switches.map(choice => ({
+      choice,
+      probability,
+      mode: "uniform-forced-switch",
+    }));
   }
-  if (request.active) {
-    const moves = request.active[0].moves || [];
-    const locked = lastOpponentMove();
-    if (moves.some(move => move.id === locked && !move.disabled)) return `move ${locked}`;
-    fail(
-      `bounded opponent response ${locked} became unavailable; hidden move fallback would be required`
-    );
+  if (!request.active) {
+    return [{choice: "", probability: 1, mode: "no-action"}];
   }
-  return "";
+
+  const legalMoves = [...new Set(
+    (request.active[0].moves || [])
+      .filter(move => !move.disabled)
+      .map(move => toID(move.id))
+      .filter(Boolean)
+  )].sort();
+  if (!legalMoves.length) fail("opponent policy found no legal move choices");
+
+  const preferred = OPPONENT_POLICY.preferred_move;
+  if (
+    OPPONENT_POLICY.kind === "repeat-last-or-uniform-legal-moves" &&
+    preferred &&
+    legalMoves.includes(preferred)
+  ) {
+    return [{
+      choice: `move ${preferred}`,
+      probability: 1,
+      mode: "repeat-last-observed-move",
+    }];
+  }
+
+  if (hiddenReads) hiddenReads.add("opponent.active.moves");
+  const probability = 1 / legalMoves.length;
+  return legalMoves.map(move => ({
+    choice: `move ${move}`,
+    probability,
+    mode: "uniform-legal-moves",
+  }));
+}
+
+function opponentDistributionForSnapshot(snapshot, hiddenReads = null) {
+  const probe = Battle.fromJSON(snapshot);
+  probe.restart(() => {});
+  const distribution = opponentActionDistribution(probe, hiddenReads);
+  probe.destroy();
+  return distribution;
 }
 
 function observation(battle, logStart) {
@@ -913,6 +1026,25 @@ function utility(battle) {
   return ownMaterial - opponentActive;
 }
 
+function expectedContinuationValue(snapshot, choice, hiddenReads, seedSalt) {
+  const responses = opponentDistributionForSnapshot(snapshot, hiddenReads);
+  let total = 0;
+  for (const [responseIndex, response] of responses.entries()) {
+    let responseSum = 0;
+    for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
+      const battle = cloneBattle(
+        snapshot,
+        seed(i, seedSalt + sha256(choice).charCodeAt(0) + responseIndex * 4099)
+      );
+      battle.makeChoices(choice, response.choice);
+      responseSum += utility(battle);
+      battle.destroy();
+    }
+    total += response.probability * (responseSum / CONTINUATION_CHANCE_SAMPLES);
+  }
+  return total;
+}
+
 function leafContinuationValues(snapshot, hiddenReads, seedSalt) {
   const probe = Battle.fromJSON(snapshot);
   probe.restart(() => {});
@@ -926,18 +1058,7 @@ function leafContinuationValues(snapshot, hiddenReads, seedSalt) {
 
   const values = {};
   for (const choice of choices) {
-    let sum = 0;
-    for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
-      const battle = cloneBattle(
-        snapshot,
-        seed(i, seedSalt + sha256(choice).charCodeAt(0))
-      );
-      const foe = opponentChoice(battle, hiddenReads);
-      battle.makeChoices(choice, foe);
-      sum += utility(battle);
-      battle.destroy();
-    }
-    values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
+    values[choice] = expectedContinuationValue(snapshot, choice, hiddenReads, seedSalt);
   }
   return {continuations: values};
 }
@@ -950,60 +1071,47 @@ function continuationValues(rootSnapshot) {
   if (!choices.length) {
     const value = utility(probe);
     probe.destroy();
-    return {
-      terminal_utility: value,
-      hidden_reads: [],
-    };
+    return {terminal_utility: value, hidden_reads: []};
   }
   probe.destroy();
 
   if (CONTINUATION_DECISION_HORIZONS === 1) {
     const values = {};
     for (const choice of choices) {
-      let sum = 0;
-      for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
-        const battle = cloneBattle(
-          rootSnapshot,
-          seed(i, 10_000 + sha256(choice).charCodeAt(0))
-        );
-        const foe = opponentChoice(battle, hiddenReads);
-        battle.makeChoices(choice, foe);
-        sum += utility(battle);
-        battle.destroy();
-      }
-      values[choice] = sum / CONTINUATION_CHANCE_SAMPLES;
+      values[choice] = expectedContinuationValue(rootSnapshot, choice, hiddenReads, 10_000);
     }
-    return {
-      continuations: values,
-      hidden_reads: [...hiddenReads].sort(),
-    };
+    return {continuations: values, hidden_reads: [...hiddenReads].sort()};
   }
 
   const continuationTransitions = {};
   for (const choice of choices) {
     const outcomes = [];
     const firstSalt = sha256(choice).charCodeAt(0);
-    for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
-      const battle = cloneBattle(
-        rootSnapshot,
-        seed(i, 10_000 + firstSalt)
-      );
-      const logStart = battle.log.length;
-      const foe = opponentChoice(battle, hiddenReads);
-      battle.makeChoices(choice, foe);
-      const nextObservation = observation(battle, logStart);
-      const nextSnapshot = JSON.stringify(battle);
-      const leaf = leafContinuationValues(
-        nextSnapshot,
-        hiddenReads,
-        20_000 + firstSalt * 257 + i * 17
-      );
-      outcomes.push({
-        probability: 1 / CONTINUATION_CHANCE_SAMPLES,
-        observation: nextObservation,
-        ...leaf,
-      });
-      battle.destroy();
+    const responses = opponentDistributionForSnapshot(rootSnapshot, hiddenReads);
+    for (const [responseIndex, response] of responses.entries()) {
+      for (let i = 0; i < CONTINUATION_CHANCE_SAMPLES; i++) {
+        const battle = cloneBattle(
+          rootSnapshot,
+          seed(i, 10_000 + firstSalt + responseIndex * 4099)
+        );
+        const logStart = battle.log.length;
+        battle.makeChoices(choice, response.choice);
+        const nextObservation = observation(battle, logStart);
+        const nextSnapshot = JSON.stringify(battle);
+        const leaf = leafContinuationValues(
+          nextSnapshot,
+          hiddenReads,
+          20_000 + firstSalt * 257 + responseIndex * 4099 + i * 17
+        );
+        outcomes.push({
+          probability: response.probability / CONTINUATION_CHANCE_SAMPLES,
+          observation: nextObservation,
+          opponent_action: response.choice,
+          opponent_policy_mode: response.mode,
+          ...leaf,
+        });
+        battle.destroy();
+      }
     }
     continuationTransitions[choice] = outcomes;
   }
@@ -1066,18 +1174,29 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
   }
 
   function immediateSignature(world, action, benchSpecies) {
-    const battle = buildBattle(world, opponentBenchSet(benchSpecies));
-    battle.prng.setSeed(
-      seed(0, 50_000 + legalActions.indexOf(action)).join(",")
+    const base = buildBattle(world, opponentBenchSet(benchSpecies));
+    const snapshot = JSON.stringify(base);
+    base.destroy();
+    const responses = opponentDistributionForSnapshot(snapshot);
+    const outcomes = [];
+    for (const [responseIndex, response] of responses.entries()) {
+      const battle = cloneBattle(
+        snapshot,
+        seed(0, 50_000 + legalActions.indexOf(action) + responseIndex * 4099)
+      );
+      const logStart = battle.log.length;
+      battle.makeChoices(rootChoice(action), response.choice);
+      outcomes.push({
+        probability: response.probability,
+        observation: observation(battle, logStart),
+        successor: stateSummary(battle, world),
+      });
+      battle.destroy();
+    }
+    outcomes.sort((left, right) =>
+      JSON.stringify(stable(left)).localeCompare(JSON.stringify(stable(right)))
     );
-    const logStart = battle.log.length;
-    battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
-    const signature = sha256({
-      observation: observation(battle, logStart),
-      successor: stateSummary(battle, world),
-    });
-    battle.destroy();
-    return signature;
+    return sha256(outcomes);
   }
 
   const representative = OPPONENT_BENCH_SPECIES;
@@ -1142,7 +1261,7 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
       dynamic_read_chance_samples: CONTINUATION_CHANCE_SAMPLES,
       root_survival_chance_samples: ROOT_CHANCE_SAMPLES,
       continuation_rule:
-        "a bench-species read is recorded only when opponentChoice actually selects a forced switch during the bounded continuation",
+        "a bench-species read is recorded only when the opponent policy actually selects a forced switch during the bounded continuation",
     },
   };
 }
@@ -1225,15 +1344,15 @@ if (posteriorOnly) {
       generator_matches: matched,
       generator_variant_count: variants.length,
       mechanics_projection_variant_count: mechanicsProjectionCount,
-      mechanics_projection_fields: [
-        "opponent.active.moves",
-        "opponent.active.tera_type",
-      ],
+      mechanics_projection_fields:
+        OPPONENT_POLICY.kind === "uniform-legal-moves"
+          ? ["opponent.active.tera_type"]
+          : ["opponent.active.moves", "opponent.active.tera_type"],
       mechanics_projection_scope:
         "execution optimization only; semantic posterior support retains every generator variant",
       observed_opponent_moves: observedOpponentMoves(),
       known_opponent_item: source.known_opponent_item || null,
-      opponent_policy: source.opponent_policy || null,
+      opponent_policy: OPPONENT_POLICY,
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
       opponent_bench_species: OPPONENT_BENCH_SPECIES,
@@ -1250,32 +1369,40 @@ function immediateWholeTurn(world, action) {
 
   const outcomes = [];
   const reads = new Set();
-  for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
-    const battle = cloneBattle(
-      baseSnapshot,
-      seed(i, 1_000 + legalActions.indexOf(action))
-    );
-    const logStart = battle.log.length;
-    const readTrace = instrumentOpponentHiddenReads(battle);
-    try {
-      battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
-    } finally {
-      readTrace.restore();
+  const policyReads = new Set();
+  const responses = opponentDistributionForSnapshot(baseSnapshot, policyReads);
+  for (const field of policyReads) reads.add(field);
+
+  for (const [responseIndex, response] of responses.entries()) {
+    for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
+      const battle = cloneBattle(
+        baseSnapshot,
+        seed(i, 1_000 + legalActions.indexOf(action) + responseIndex * 4099)
+      );
+      const logStart = battle.log.length;
+      const readTrace = instrumentOpponentHiddenReads(battle);
+      try {
+        battle.makeChoices(rootChoice(action), response.choice);
+      } finally {
+        readTrace.restore();
+      }
+      const transitionReads = [...new Set([...policyReads, ...readTrace.reads()])].sort();
+      for (const field of transitionReads) reads.add(field);
+      outcomes.push({
+        probability: response.probability / ROOT_CHANCE_SAMPLES,
+        observation: observation(battle, logStart),
+        successor: stateSummary(battle, world),
+        legal_actions: battle.ended
+          ? ["<terminal>"]
+          : battle.p1.activeRequest?.wait
+            ? ["<wait>"]
+            : legalP1Continuations(battle),
+        transition_reads: transitionReads,
+        opponent_action: response.choice,
+        opponent_policy_mode: response.mode,
+      });
+      battle.destroy();
     }
-    const transitionReads = readTrace.reads();
-    for (const field of transitionReads) reads.add(field);
-    outcomes.push({
-      probability: 1 / ROOT_CHANCE_SAMPLES,
-      observation: observation(battle, logStart),
-      successor: stateSummary(battle, world),
-      legal_actions: battle.ended
-        ? ["<terminal>"]
-        : battle.p1.activeRequest?.wait
-          ? ["<wait>"]
-          : legalP1Continuations(battle),
-      transition_reads: transitionReads,
-    });
-    battle.destroy();
   }
   const semantics = outcomes
     .map(outcome => ({
@@ -1289,6 +1416,8 @@ function immediateWholeTurn(world, action) {
     );
   return {
     outcomes,
+    opponent_action_branch_count: responses.length,
+    showdown_turn_executions: outcomes.length,
     read_fields: [...reads].sort(),
     semantic_hash: sha256PythonCanonical(semantics),
   };
@@ -1310,6 +1439,8 @@ function counterfactualWorld(baseWorld, donorWorld, field) {
     world.variant.item = donorWorld.variant.item;
   } else if (field === "opponent.active.ability") {
     world.variant.ability = donorWorld.variant.ability;
+  } else if (field === "opponent.active.moves") {
+    world.variant.moves = cloneJson(donorWorld.variant.moves);
   } else if (field === "opponent.active.evs") {
     world.variant.evs = cloneJson(donorWorld.variant.evs);
   } else if (field === "opponent.active.ivs") {
@@ -1488,6 +1619,7 @@ function compileLazyWholeTurnPrograms() {
     const effectSignature = "sha256:" + sha256({
       showdown_commit: actualCommit,
       source_fixture_id: fixture.fixture_id,
+      opponent_policy: OPPONENT_POLICY,
       action,
       dependency_fields: dependencyFields,
       partition_key_hash: partitionKeyHash,
@@ -1519,6 +1651,14 @@ function compileLazyWholeTurnPrograms() {
   const classRepresentativeExecutions = cacheRows.filter(
     row => row.roles.has("class-representative")
   ).length;
+  const showdownTurnExecutions = cacheRows.reduce(
+    (sum, row) => sum + row.execution.showdown_turn_executions,
+    0
+  );
+  const opponentActionBranches = cacheRows.reduce(
+    (sum, row) => sum + row.execution.opponent_action_branch_count,
+    0
+  );
   const exhaustiveWorldActionProduct = worlds.length * legalActions.length;
 
   return {
@@ -1532,11 +1672,13 @@ function compileLazyWholeTurnPrograms() {
     programs,
     producer: {
       strategy: "counterfactual-causal-refinement",
+      opponent_policy: OPPONENT_POLICY,
       root_chance_samples: ROOT_CHANCE_SAMPLES,
       unique_world_action_executions: uniqueExecutions,
       causal_probe_executions: causalProbeExecutions,
       class_representative_executions: classRepresentativeExecutions,
-      showdown_turn_executions: uniqueExecutions * ROOT_CHANCE_SAMPLES,
+      opponent_action_branches: opponentActionBranches,
+      showdown_turn_executions: showdownTurnExecutions,
       exhaustive_world_action_product: exhaustiveWorldActionProduct,
       saved_world_action_executions:
         exhaustiveWorldActionProduct - uniqueExecutions,
@@ -1570,31 +1712,37 @@ for (const world of worlds) {
 
   for (const action of legalActions) {
     const outcomes = [];
-    for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
-      const battle = cloneBattle(
-        baseSnapshot,
-        seed(i, 1_000 + legalActions.indexOf(action))
-      );
-      const logStart = battle.log.length;
-      const readTrace = instrumentOpponentHiddenReads(battle);
-      try {
-        battle.makeChoices(rootChoice(action), `move ${lastOpponentMove()}`);
-      } finally {
-        readTrace.restore();
+    const policyReads = new Set();
+    const responses = opponentDistributionForSnapshot(baseSnapshot, policyReads);
+    for (const [responseIndex, response] of responses.entries()) {
+      for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
+        const battle = cloneBattle(
+          baseSnapshot,
+          seed(i, 1_000 + legalActions.indexOf(action) + responseIndex * 4099)
+        );
+        const logStart = battle.log.length;
+        const readTrace = instrumentOpponentHiddenReads(battle);
+        try {
+          battle.makeChoices(rootChoice(action), response.choice);
+        } finally {
+          readTrace.restore();
+        }
+        const transitionReads = [...new Set([...policyReads, ...readTrace.reads()])].sort();
+        const rootObservation = observation(battle, logStart);
+        const successor = stateSummary(battle, world);
+        const rootSnapshot = JSON.stringify(battle);
+        const continuation = continuationValues(rootSnapshot);
+        outcomes.push({
+          probability: response.probability / ROOT_CHANCE_SAMPLES,
+          observation: rootObservation,
+          successor,
+          transition_reads: transitionReads,
+          opponent_action: response.choice,
+          opponent_policy_mode: response.mode,
+          ...continuation,
+        });
+        battle.destroy();
       }
-      const transitionReads = readTrace.reads();
-      const rootObservation = observation(battle, logStart);
-      const successor = stateSummary(battle, world);
-      const rootSnapshot = JSON.stringify(battle);
-      const continuation = continuationValues(rootSnapshot);
-      outcomes.push({
-        probability: 1 / ROOT_CHANCE_SAMPLES,
-        observation: rootObservation,
-        successor,
-        transition_reads: transitionReads,
-        ...continuation,
-      });
-      battle.destroy();
     }
     transitions.push({world_id: world.world_id, action, outcomes});
   }
@@ -1627,7 +1775,12 @@ process.stdout.write(JSON.stringify({
     continuation_chance_samples: CONTINUATION_CHANCE_SAMPLES,
     continuation_decision_horizons: CONTINUATION_DECISION_HORIZONS,
     chance_seed_family: CHANCE_SEED_FAMILY,
-    opponent_response: `repeat observed ${lastOpponentMove()}`,
+    opponent_response: (
+      OPPONENT_POLICY.kind === "repeat-last-or-uniform-legal-moves"
+        ? `repeat ${OPPONENT_POLICY.preferred_move} when legal, otherwise uniform legal moves`
+        : "uniform legal moves"
+    ),
+    opponent_policy: OPPONENT_POLICY,
     continuation_scope:
       CONTINUATION_DECISION_HORIZONS === 1
         ? "all non-Tera player choices at the next decision"
@@ -1639,13 +1792,14 @@ process.stdout.write(JSON.stringify({
     generator_matches: matched,
     generator_variant_count: variants.length,
     mechanics_projection_variant_count: mechanicsProjectionCount,
-    mechanics_projection_fields: [
-      "opponent.active.moves",
-      "opponent.active.tera_type",
-    ],
+    mechanics_projection_fields:
+      OPPONENT_POLICY.kind === "uniform-legal-moves"
+        ? ["opponent.active.tera_type"]
+        : ["opponent.active.moves", "opponent.active.tera_type"],
     mechanics_projection_rule:
       "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
     observed_opponent_moves: observedOpponentMoves(),
+    opponent_policy: OPPONENT_POLICY,
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
     opponent_bench_species: OPPONENT_BENCH_SPECIES,
