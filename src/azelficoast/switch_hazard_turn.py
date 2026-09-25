@@ -21,7 +21,7 @@ from typing import Sequence
 
 import numpy as np
 
-from azelficoast.belief_projection import compile_projection_ids
+from azelficoast.core.projection import compile_projection_ids
 from azelficoast.voluntary_switch_turn import (
     VoluntarySwitchContext,
     voluntary_switch_dependency_key,

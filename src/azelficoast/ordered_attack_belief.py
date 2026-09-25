@@ -12,7 +12,7 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from azelficoast.belief_projection import (
+from azelficoast.core.projection import (
     aggregate_projected_weights,
     compile_projection_ids,
     uniform_integer_weights,
