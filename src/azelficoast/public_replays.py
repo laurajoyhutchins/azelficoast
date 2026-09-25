@@ -93,8 +93,14 @@ def _input_version(inputlog: str) -> str:
     for line in inputlog.splitlines():
         if line.startswith(">version "):
             version = line[len(">version ") :].strip()
-            if version:
+            if (
+                len(version) == 40
+                and all(character in "0123456789abcdef" for character in version)
+            ):
                 return version
+            raise PublicReplayError(
+                f"replay inputlog declares invalid Showdown version {version!r}"
+            )
     raise PublicReplayError("replay inputlog does not declare its Showdown version")
 
 
