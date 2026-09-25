@@ -348,3 +348,27 @@ def test_semantic_analysis_does_not_inherit_conservative_runtime_reads() -> None
     assert semantic["classes_out"] == 4
     assert read_refined["partition_method"] == "dynamic-read-refinement"
     assert read_refined["classes_out"] == 3
+
+
+def test_whole_turn_program_distinguishes_wait_from_terminal_leaf() -> None:
+    oracle = _oracle()
+    transitions = oracle["transitions"]
+    assert isinstance(transitions, list)
+    for transition in transitions:
+        assert isinstance(transition, dict)
+        if transition["action"] != "protect":
+            continue
+        outcomes = transition["outcomes"]
+        assert isinstance(outcomes, list)
+        outcome = outcomes[0]
+        assert isinstance(outcome, dict)
+        outcome["observation"] = {"request": {"wait": True}}
+        outcome["terminal_utility"] = 123.0
+
+    program = program_for_action(compile_whole_turn_programs(oracle), "protect")
+
+    assert {
+        tuple(outcome["legal_actions"])
+        for row in program["classes"]
+        for outcome in row["outcomes"]
+    } == {("<wait>",)}

@@ -374,10 +374,6 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             raise BeliefTraceError(f"{action}: declared read set is malformed")
         declared = list(dict.fromkeys(declared_for_action))
         missing_declared = [field for field in dependency_fields if field not in declared]
-        if missing_declared:
-            raise BeliefTraceError(
-                f"{action}: empirical dependency fields missing from declaration: {missing_declared!r}"
-            )
 
         # Observation classes contain joint hidden-world/chance mass. Chance is
         # evidence, not a hidden fact the determinization baseline knows in advance.
@@ -490,6 +486,11 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
         max_world_aware_choices_per_observation = max(
             choice["world_aware_choice_count"] for choice in public_choices
         )
+
+        if missing_declared:
+            raise BeliefTraceError(
+                f"{action}: empirical dependency fields missing from declaration: {missing_declared!r}"
+            )
 
         action_reports.append(
             {

@@ -16,7 +16,7 @@ PACKET_SCHEMA_VERSION = 2
 RESULT_SCHEMA = "azelficoast.matched-search-comparison-result"
 RESULT_SCHEMA_VERSION = 3
 RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
-RECEIPT_SCHEMA_VERSION = 2
+RECEIPT_SCHEMA_VERSION = 3
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 
@@ -320,6 +320,7 @@ def settle_packet(
     root_values: dict[str, dict[str, float]] = {}
     consumed: dict[str, int] = {}
     evaluator_calls: dict[str, int] = {}
+    transition_program_digests: dict[str, str] = {}
     chosen: dict[str, str] = {}
 
     for method in METHODS:
@@ -348,6 +349,12 @@ def settle_packet(
                 f"{method}: evaluator call count must be a non-negative integer"
             )
         evaluator_calls[method] = calls
+        program_digest = receipt.get("transition_program_digest")
+        if not isinstance(program_digest, str) or not program_digest:
+            raise MatchedComparisonError(
+                f"{method}: receipt lacks transition-program identity"
+            )
+        transition_program_digests[method] = program_digest
         budget = receipt.get("compute_budget")
         if not isinstance(budget, Mapping) or budget != packet["compute_budget"]:
             raise MatchedComparisonError(f"{method}: receipt used another authorized budget")
@@ -378,6 +385,11 @@ def settle_packet(
             )
         chosen[method] = str(action)
 
+    if len(set(transition_program_digests.values())) != 1:
+        raise MatchedComparisonError(
+            "comparison methods consumed different transition programs"
+        )
+
     det_values = root_values["determinization"]
     info_values = root_values["information_set"]
     gaps = {
@@ -406,6 +418,8 @@ def settle_packet(
         "matched_authorized_compute": True,
         "matched_evaluator": True,
         "matched_evaluator_checkpoint": True,
+        "matched_transition_program": True,
+        "transition_program_digest": transition_program_digests["determinization"],
         "evaluator": dict(packet["evaluator"]),
         "evaluator_digest": packet["evaluator_digest"],
         "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],

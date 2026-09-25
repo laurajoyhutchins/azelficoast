@@ -21,6 +21,14 @@ from azelficoast.decision_relevance import (
 )
 from azelficoast.real_belief_trace import BeliefTraceError
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
+from azelficoast.transition_program_search import (
+    TransitionProgramSearchError,
+    search_transition_program,
+)
+from azelficoast.whole_turn_program import (
+    PROGRAM_SET_SCHEMA,
+    PROGRAM_SET_SCHEMA_VERSION,
+)
 
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
@@ -413,6 +421,89 @@ def learned_route_result(
     )
 
 
+def transition_program_belief_result(
+    *,
+    fixture: DecisionFixture,
+    posterior: Mapping[str, Any],
+    transition_program: Mapping[str, Any],
+    evaluator: Any,
+) -> LiveDecisionResult:
+    """Search one verified whole-turn mechanics program under the public belief."""
+
+    if (
+        transition_program.get("schema") != PROGRAM_SET_SCHEMA
+        or transition_program.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
+    ):
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="transition-program-schema-mismatch",
+        )
+    if transition_program.get("source_fixture_id") != fixture.fixture_id:
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="transition-program-fixture-mismatch",
+            diagnostics={
+                "program_fixture_id": transition_program.get("source_fixture_id")
+            },
+        )
+    if transition_program.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="transition-program-revision-mismatch",
+            diagnostics={
+                "showdown_commit": transition_program.get("showdown_commit")
+            },
+        )
+    if transition_program.get("legal_actions") != list(fixture.legal_actions):
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="transition-program-legal-actions-drifted",
+        )
+
+    try:
+        search = search_transition_program(
+            program_set=transition_program,
+            posterior=posterior,
+            method="information_set",
+            evaluator=evaluator,
+        )
+    except TransitionProgramSearchError as error:
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="transition-program-search-failed",
+            diagnostics={"error": str(error)[-1000:]},
+        )
+
+    action = search.get("chosen_action")
+    if not isinstance(action, str) or action not in set(fixture.legal_actions):
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="transition-program-returned-nonlegal-action",
+            diagnostics={"searched_action": action},
+        )
+
+    return LiveDecisionResult(
+        action=action,
+        status="selected",
+        reason="transition-program-public-belief",
+        diagnostics={
+            "learned_route": "transition-program-search",
+            "fixture_id": fixture.fixture_id,
+            "showdown_commit": transition_program.get("showdown_commit"),
+            "transition_program_digest": search.get("transition_program_digest"),
+            "transition_evaluations": search.get("transition_evaluations"),
+            "evaluator_calls": search.get("evaluator_calls"),
+            "public_belief_root_values": dict(search.get("root_values", {})),
+        },
+    )
+
+
 def selective_belief_result(
     *,
     fixture: DecisionFixture,
@@ -500,7 +591,8 @@ class PinnedShowdownBeliefPolicy:
         self,
         source: Mapping[str, Any],
         *,
-        posterior_only: bool,
+        posterior_only: bool = False,
+        transition_program_only: bool = False,
     ) -> Mapping[str, Any]:
         script = Path(__file__).resolve().parents[2] / "scripts" / "probe_real_belief_trace.cjs"
         with tempfile.TemporaryDirectory(prefix="azelficoast-live-belief-") as temp_dir:
@@ -510,8 +602,14 @@ class PinnedShowdownBeliefPolicy:
                 encoding="utf-8",
             )
             command = ["node", str(script), str(self.showdown_root), str(source_path)]
+            if posterior_only and transition_program_only:
+                raise LiveBeliefPolicyError(
+                    "posterior-only and transition-program-only are mutually exclusive"
+                )
             if posterior_only:
                 command.append("--posterior-only")
+            if transition_program_only:
+                command.append("--transition-program-only")
             completed = subprocess.run(
                 command,
                 check=True,
@@ -525,7 +623,7 @@ class PinnedShowdownBeliefPolicy:
         return document
 
     def _probe(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
-        return self._probe_document(source, posterior_only=False)
+        return self._probe_document(source)
 
     def _probe_posterior(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
         document = self._probe_document(source, posterior_only=True)
@@ -534,6 +632,18 @@ class PinnedShowdownBeliefPolicy:
             or document.get("schema_version") != 1
         ):
             raise LiveBeliefPolicyError("unexpected posterior-only probe schema")
+        return document
+
+    def _probe_transition_program(
+        self,
+        source: Mapping[str, Any],
+    ) -> Mapping[str, Any]:
+        document = self._probe_document(source, transition_program_only=True)
+        if (
+            document.get("schema") != PROGRAM_SET_SCHEMA
+            or document.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
+        ):
+            raise LiveBeliefPolicyError("unexpected transition-program probe schema")
         return document
 
     def choose(self, fixture: DecisionFixture) -> LiveDecisionResult:
@@ -554,6 +664,9 @@ class PinnedShowdownBeliefPolicy:
             )
 
         route: LiveDecisionResult | None = None
+        posterior: Mapping[str, Any] | None = None
+        program_failure: dict[str, Any] = {}
+
         if self.learned_evaluator is not None:
             try:
                 posterior = self._probe_posterior(source)
@@ -585,6 +698,60 @@ class PinnedShowdownBeliefPolicy:
                     },
                 )
 
+        if (
+            self.learned_evaluator is not None
+            and posterior is not None
+            and route is not None
+            and route.action is None
+        ):
+            try:
+                transition_program = self._probe_transition_program(source)
+                searched = transition_program_belief_result(
+                    fixture=fixture,
+                    posterior=posterior,
+                    transition_program=transition_program,
+                    evaluator=self.learned_evaluator,
+                )
+                if searched.action is not None:
+                    return LiveDecisionResult(
+                        action=searched.action,
+                        status=searched.status,
+                        reason=searched.reason,
+                        diagnostics={
+                            **dict(route.diagnostics),
+                            **dict(searched.diagnostics),
+                        },
+                    )
+                program_failure = {
+                    "transition_program_fallback_reason": searched.reason,
+                    **dict(searched.diagnostics),
+                }
+            except subprocess.TimeoutExpired:
+                return LiveDecisionResult(
+                    action=None,
+                    status="fallback",
+                    reason="transition-program-search-timeout",
+                    diagnostics={
+                        "timeout_seconds": self.timeout_seconds,
+                        **dict(route.diagnostics),
+                    },
+                )
+            except (
+                OSError,
+                subprocess.CalledProcessError,
+                json.JSONDecodeError,
+                LiveBeliefPolicyError,
+            ) as error:
+                detail = str(error)
+                if isinstance(error, subprocess.CalledProcessError):
+                    detail = (error.stderr or error.stdout or detail).strip()
+                program_failure = {
+                    "transition_program_fallback_reason": "program-probe-failed",
+                    "transition_program_error": detail[-1000:],
+                }
+
+        # Compatibility fallback for unlearned configurations or a failed program
+        # path. New learned search does not require this exhaustive matrix.
         try:
             oracle = self._probe(source)
         except subprocess.TimeoutExpired:
@@ -595,6 +762,7 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={
                     "timeout_seconds": self.timeout_seconds,
                     **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
                 },
             )
         except (
@@ -613,6 +781,7 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={
                     "error": detail[-1000:],
                     **(dict(route.diagnostics) if route is not None else {}),
+                    **program_failure,
                 },
             )
 
@@ -641,5 +810,7 @@ class PinnedShowdownBeliefPolicy:
             diagnostics={
                 **dict(exact.diagnostics),
                 **dict(route.diagnostics),
+                **program_failure,
             },
         )
+

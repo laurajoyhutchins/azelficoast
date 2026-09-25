@@ -12,9 +12,11 @@ from azelficoast.live_belief import (
     live_fixture,
     public_belief_result,
     selective_belief_result,
+    transition_program_belief_result,
 )
 from azelficoast.player import AzelficoastPlayer
 from azelficoast.selective_belief import PolicyMarginSearchGate
+from azelficoast.whole_turn_program import compile_whole_turn_programs
 
 
 def _state(
@@ -280,6 +282,95 @@ class _FakeEvaluator:
         )
 
 
+class _PosteriorSpreadEvaluator:
+    spec = BeliefEvaluatorSpec(
+        public_width=8,
+        world_width=8,
+        action_width=8,
+        hidden_width=8,
+        world_hidden_width=8,
+    )
+    identity = {
+        "checkpoint_digest": "sha256:" + "c" * 64,
+        "observability": "public_belief_only",
+    }
+
+    def predict(self, inputs) -> BeliefPrediction:
+        value = 1.0 - max(inputs.world_weights)
+        probability = 1.0 / len(inputs.legal_actions)
+        return BeliefPrediction(
+            value=value,
+            legal_actions=inputs.legal_actions,
+            probabilities=tuple(probability for _ in inputs.legal_actions),
+            selected_action=min(inputs.legal_actions),
+            policy_margin=0.0,
+            policy_entropy_bits=0.0,
+        )
+
+
+def _program_search_oracle(
+    *,
+    fixture_id: str = "live",
+    showdown_commit: str = "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+    legal_actions: tuple[str, str] = ("risky", "safe"),
+) -> dict[str, object]:
+    reveal_action, preserve_action = legal_actions
+    worlds = [
+        {
+            "world_id": f"{item}-{noise}",
+            "weight": 0.25,
+            "hidden": {"opponent.active.item": item, "noise": noise},
+        }
+        for item in ("Band", "Scarf")
+        for noise in (1, 2)
+    ]
+    transitions: list[dict[str, object]] = []
+    for world in worlds:
+        item = str(world["hidden"]["opponent.active.item"])
+        transitions.extend(
+            [
+                {
+                    "world_id": world["world_id"],
+                    "action": reveal_action,
+                    "outcomes": [
+                        {
+                            "probability": 1.0,
+                            "observation": {"revealed": item},
+                            "successor": {"turn": 9, "revealed": item},
+                            "continuations": {"continue": 0.0},
+                        }
+                    ],
+                },
+                {
+                    "world_id": world["world_id"],
+                    "action": preserve_action,
+                    "outcomes": [
+                        {
+                            "probability": 1.0,
+                            "observation": {"same": True},
+                            "successor": {"turn": 9, "same": True},
+                            "continuations": {"continue": 0.0},
+                        }
+                    ],
+                },
+            ]
+        )
+    return {
+        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema_version": 1,
+        "source_fixture_id": fixture_id,
+        "showdown_commit": showdown_commit,
+        "worlds": worlds,
+        "legal_actions": list(legal_actions),
+        "dependency_candidates": ["opponent.active.item", "noise"],
+        "declared_reads": {
+            reveal_action: ["opponent.active.item"],
+            preserve_action: [],
+        },
+        "transitions": transitions,
+    }
+
+
 def _selective_fixture() -> DecisionFixture:
     return DecisionFixture(
         fixture_id="live",
@@ -287,6 +378,32 @@ def _selective_fixture() -> DecisionFixture:
         protocol_prefix=(),
         control_decisions=(),
     )
+
+
+def test_transition_program_belief_search_uses_successor_beliefs() -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=compile_whole_turn_programs(oracle),
+        evaluator=_PosteriorSpreadEvaluator(),
+    )
+
+    assert result.status == "selected"
+    assert result.action == "safe"
+    assert result.reason == "transition-program-public-belief"
+    assert result.diagnostics["transition_evaluations"] == 3
+    assert result.diagnostics["evaluator_calls"] == 3
+    assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
 
 
 def test_selective_policy_uses_high_margin_learned_action_without_exact_search() -> None:
@@ -482,3 +599,60 @@ def test_live_high_margin_route_skips_transition_oracle_probe() -> None:
     assert result.action == fixture.legal_actions[0]
     assert result.reason == "learned-public-belief"
     assert result.diagnostics["learned_route"] == "direct-policy"
+
+
+
+def test_live_low_margin_route_uses_transition_program_without_full_oracle() -> None:
+    fixture = live_fixture(_state(), _protocol())
+    actions = tuple(fixture.legal_actions)
+    assert len(actions) == 2
+    oracle = _program_search_oracle(
+        fixture_id=fixture.fixture_id,
+        showdown_commit="a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        legal_actions=(actions[0], actions[1]),
+    )
+    program = compile_whole_turn_programs(oracle)
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "schema": "azelficoast.live-belief-posterior",
+        "schema_version": 1,
+        "source_fixture_id": fixture.fixture_id,
+        "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "legal_actions": list(actions),
+        "worlds": worlds,
+    }
+
+    class LiveEvaluator(_PosteriorSpreadEvaluator):
+        def predict(self, inputs) -> BeliefPrediction:
+            if inputs.legal_actions == actions:
+                return BeliefPrediction(
+                    value=0.0,
+                    legal_actions=inputs.legal_actions,
+                    probabilities=(0.55, 0.45),
+                    selected_action=actions[0],
+                    policy_margin=0.10,
+                    policy_entropy_bits=0.99,
+                )
+            return super().predict(inputs)
+
+    policy = object.__new__(PinnedShowdownBeliefPolicy)
+    policy._configuration_error = None
+    policy.learned_evaluator = LiveEvaluator()
+    policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
+    policy._probe_posterior = lambda source: posterior
+    policy._probe_transition_program = lambda source: program
+
+    def unexpected_full_probe(source):
+        raise AssertionError("TransitionProgram live search expanded the exhaustive oracle")
+
+    policy._probe = unexpected_full_probe
+
+    result = policy.choose(fixture)
+
+    assert result.action == actions[1]
+    assert result.reason == "transition-program-public-belief"
+    assert result.diagnostics["learned_route"] == "transition-program-search"
+    assert result.diagnostics["transition_evaluations"] == 3
