@@ -119,10 +119,10 @@ reuse      recurse on each subgroup
 The semantic hidden boundary is explicit and revision-bound. It includes opponent item,
 ability, moves, Tera type, EVs, IVs, and exact HP. The execution dependency candidates
 are narrower: item, ability, EVs, IVs, and exact HP. Hidden moves and Tera remain in the
-posterior but are explicitly marginalized from the online execution key only because
+posterior but are explicitly excluded from the online execution key only because
 this kernel fixes the opponent to a previously observed move and does not permit an
 opponent Tera choice. Exact candidate CI must independently keep proving that
-marginalization against direct Showdown. If the boundary, marginalized-field set,
+nonexecution classification against direct Showdown. If the boundary, nonexecution-semantic-field set,
 algorithm identity, or Showdown revision drifts, Python admission fails closed.
 
 This changes where the expensive proof lives. Candidate CI still constructs the
