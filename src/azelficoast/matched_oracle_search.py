@@ -113,11 +113,10 @@ def _validated_inputs(
             "posterior and transition oracle have different hidden-world support"
         )
 
-    oracle_total = sum(float(world.get("weight", 0)) for world in worlds)
     posterior_total = sum(
         float(world.get("weight", 0)) for world in posterior_by_id.values()
     )
-    if oracle_total <= 0 or posterior_total <= 0:
+    if posterior_total <= 0:
         raise MatchedSearchExecutionError("hidden-world posterior has no positive mass")
 
     for world_id, oracle_world in oracle_by_id.items():
@@ -131,12 +130,13 @@ def _validated_inputs(
             raise MatchedSearchExecutionError(
                 f"{world_id}: posterior hidden state differs from transition oracle"
             )
-        oracle_mass = float(oracle_world.get("weight", 0)) / oracle_total
         posterior_mass = float(posterior_world.get("weight", 0)) / posterior_total
-        if abs(oracle_mass - posterior_mass) > 1e-12:
+        if posterior_mass <= 0:
             raise MatchedSearchExecutionError(
-                f"{world_id}: posterior weight differs from transition oracle"
+                f"{world_id}: posterior weight must be positive"
             )
+        # The oracle owns transition semantics. The posterior owns belief mass.
+        # Reweight the mechanics worlds from the frozen posterior treatment.
         oracle_world["weight"] = posterior_mass
 
     raw_transitions = oracle.get("transitions")
