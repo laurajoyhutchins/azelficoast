@@ -1310,6 +1310,7 @@ function immediateWholeTurn(world, action) {
       probability: 1 / ROOT_CHANCE_SAMPLES,
       observation: observation(battle, logStart),
       successor: stateSummary(battle, world),
+      legal_actions: battle.ended ? ["<terminal>"] : legalP1Continuations(battle),
       transition_reads: transitionReads,
     });
     battle.destroy();
@@ -1319,6 +1320,7 @@ function immediateWholeTurn(world, action) {
       probability: outcome.probability,
       observation: outcome.observation,
       successor: outcome.successor,
+      legal_actions: outcome.legal_actions,
     }))
     .sort((left, right) =>
       JSON.stringify(stable(left)).localeCompare(JSON.stringify(stable(right)))

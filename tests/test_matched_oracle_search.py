@@ -10,6 +10,7 @@ from azelficoast.matched_oracle_search import (
     MatchedSearchExecutionError,
     execute_method,
 )
+from azelficoast.whole_turn_program import compile_whole_turn_programs
 
 
 class _FakeEvaluator:
@@ -186,17 +187,18 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
     det_evaluator = _FakeEvaluator()
     info_evaluator = _FakeEvaluator()
 
+    program = compile_whole_turn_programs(oracle)
     det = execute_method(
         packet=packet,
         posterior=posterior,
-        oracle=oracle,
+        transition_program=program,
         method="determinization",
         evaluator=det_evaluator,
     )
     info = execute_method(
         packet=packet,
         posterior=posterior,
-        oracle=oracle,
+        transition_program=program,
         method="information_set",
         evaluator=info_evaluator,
     )
@@ -205,7 +207,7 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
     assert info["root_values"] == {"wait": 0.5, "reveal": 0.0}
     assert det["chosen_action"] == "reveal"
     assert info["chosen_action"] == "wait"
-    assert det["consumed"] == info["consumed"] == 4
+    assert det["consumed"] == info["consumed"] == 3
     assert det["evaluator_calls"] == det_evaluator.calls == 4
     assert info["evaluator_calls"] == info_evaluator.calls == 3
     assert (
@@ -214,16 +216,17 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
         == _FakeEvaluator.identity["checkpoint_digest"]
     )
     assert (
-        det["transition_oracle_digest"]
-        == info["transition_oracle_digest"]
+        det["transition_program_digest"]
+        == info["transition_program_digest"]
     )
 
     settled = settle_packet(packet=packet, receipts=[det, info])
     assert settled["matched_authorized_compute"] is True
     assert settled["matched_evaluator_checkpoint"] is True
+    assert settled["matched_transition_program"] is True
     assert settled["compute_consumed"] == {
-        "determinization": 4,
-        "information_set": 4,
+        "determinization": 3,
+        "information_set": 3,
     }
     assert settled["evaluator_calls"] == {
         "determinization": 4,
@@ -236,10 +239,11 @@ def test_executor_ignores_historical_leaf_utility_values() -> None:
     oracle = _oracle()
     posterior = _posterior(oracle)
     packet = _packet(oracle, posterior)
+    baseline_program = compile_whole_turn_programs(oracle)
     baseline = execute_method(
         packet=packet,
         posterior=posterior,
-        oracle=oracle,
+        transition_program=baseline_program,
         method="information_set",
         evaluator=_FakeEvaluator(),
     )
@@ -258,10 +262,12 @@ def test_executor_ignores_historical_leaf_utility_values() -> None:
             for action in list(continuations):
                 continuations[action] = 1e12 if action == "fast" else -1e12
 
+    changed_program = compile_whole_turn_programs(changed)
+    assert changed_program == baseline_program
     changed_receipt = execute_method(
         packet=packet,
         posterior=posterior,
-        oracle=changed,
+        transition_program=changed_program,
         method="information_set",
         evaluator=_FakeEvaluator(),
     )
@@ -274,13 +280,14 @@ def test_executor_ignores_historical_leaf_utility_values() -> None:
 def test_executor_fails_before_search_when_budget_cannot_cover_frozen_matrix() -> None:
     oracle = _oracle()
     posterior = _posterior(oracle)
-    packet = _packet(oracle, posterior, limit=3)
+    packet = _packet(oracle, posterior, limit=2)
+    program = compile_whole_turn_programs(oracle)
 
-    with pytest.raises(MatchedSearchExecutionError, match="requires 4 transitions"):
+    with pytest.raises(MatchedSearchExecutionError, match="requires 3 transitions"):
         execute_method(
             packet=packet,
             posterior=posterior,
-            oracle=oracle,
+            transition_program=program,
             method="determinization",
             evaluator=_FakeEvaluator(),
         )
@@ -306,7 +313,7 @@ def test_executor_rejects_posterior_hidden_state_drift() -> None:
         execute_method(
             packet=packet,
             posterior=drifted,
-            oracle=oracle,
+            transition_program=compile_whole_turn_programs(oracle),
             method="information_set",
             evaluator=_FakeEvaluator(),
         )
@@ -329,7 +336,7 @@ def test_executor_rejects_evaluator_checkpoint_drift() -> None:
         execute_method(
             packet=packet,
             posterior=posterior,
-            oracle=oracle,
+            transition_program=compile_whole_turn_programs(oracle),
             method="information_set",
             evaluator=evaluator,
         )

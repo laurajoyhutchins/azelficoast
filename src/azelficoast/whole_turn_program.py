@@ -36,6 +36,26 @@ class WholeTurnProgramError(ValueError):
     """Raised when a whole-turn program cannot be compiled or applied exactly."""
 
 
+def _successor_legal_actions(outcome: Mapping[str, Any]) -> list[str]:
+    raw = outcome.get("legal_actions")
+    if isinstance(raw, list) and all(isinstance(action, str) and action for action in raw):
+        return sorted(dict.fromkeys(raw))
+
+    continuations = outcome.get("continuations")
+    if isinstance(continuations, Mapping) and continuations:
+        return sorted(str(action) for action in continuations)
+
+    terminal = outcome.get("terminal_utility")
+    if isinstance(terminal, (int, float)) and not isinstance(terminal, bool):
+        return ["<terminal>"]
+
+    successor = outcome.get("successor")
+    if isinstance(successor, Mapping) and successor.get("ended") is True:
+        return ["<terminal>"]
+
+    return []
+
+
 def _immediate_distribution(
     transition: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
@@ -44,6 +64,7 @@ def _immediate_distribution(
             "probability": float(outcome["probability"]),
             "observation": copy.deepcopy(outcome.get("observation")),
             "successor": copy.deepcopy(outcome.get("successor")),
+            "legal_actions": _successor_legal_actions(outcome),
         }
         for outcome in transition_outcomes(
             transition,
@@ -425,6 +446,7 @@ def verify_whole_turn_program_set(
                         "probability": float(outcome["probability"]),
                         "observation": copy.deepcopy(outcome.get("observation")),
                         "successor": copy.deepcopy(outcome.get("successor")),
+                        "legal_actions": _successor_legal_actions(outcome),
                     }
                     for outcome in raw_outcomes
                     if isinstance(outcome, Mapping)
@@ -591,6 +613,7 @@ def execute_whole_turn_program(
                     "mass": class_mass * chance,
                     "observation": copy.deepcopy(outcome.get("observation")),
                     "successor": copy.deepcopy(outcome.get("successor")),
+                    "legal_actions": list(outcome.get("legal_actions", [])),
                 }
             )
 

@@ -82,13 +82,14 @@ def _receipt(
 ) -> dict[str, object]:
     return {
         "schema": "azelficoast.matched-search-receipt",
-        "schema_version": 2,
+        "schema_version": 3,
         "packet_digest": packet["packet_digest"],
         "method": method,
         "input_digest": packet["input_digest"],
         "evaluator_digest": packet["evaluator_digest"],
         "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
         "evaluator_calls": 7,
+        "transition_program_digest": "program-sha256",
         "compute_budget": packet["compute_budget"],
         "consumed": consumed,
         "chosen_action": chosen_action,
@@ -175,6 +176,8 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
     assert result["matched_authorized_compute"] is True
     assert result["matched_evaluator"] is True
     assert result["matched_evaluator_checkpoint"] is True
+    assert result["matched_transition_program"] is True
+    assert result["transition_program_digest"] == "program-sha256"
     assert result["evaluator"] == _plan()["evaluator"]
     assert result["evaluator_checkpoint_digest"] == _plan()["evaluator"]["checkpoint_digest"]
     assert result["evaluator_calls"] == {
@@ -286,3 +289,9 @@ def test_settle_packet_rejects_checkpoint_or_evaluator_call_drift() -> None:
     bad_calls["evaluator_calls"] = -1
     with pytest.raises(MatchedComparisonError, match="evaluator call count"):
         settle_packet(packet=packet, receipts=[det, bad_calls])
+
+
+    bad_program = dict(info)
+    bad_program["transition_program_digest"] = "other-program"
+    with pytest.raises(MatchedComparisonError, match="different transition programs"):
+        settle_packet(packet=packet, receipts=[det, bad_program])
