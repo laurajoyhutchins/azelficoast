@@ -105,6 +105,13 @@ for (let index = 0; index < rounds; index++) {
   const seed = seedOffset + index;
   generator.setSeed([seed, seed, seed, seed]);
   const set = generator.randomSet(generatorSpecies, {}, isLead, false);
+  // Forme is public battle information. The Random Battle generator may
+  // consume RNG to choose a cosmetic/mostly-cosmetic forme before building
+  // the set, so conditioning after collapsing the forme would distort the
+  // posterior over the remaining hidden fields.
+  if (toID(set.species || species) !== toID(species)) {
+    continue;
+  }
   if (publicLevel !== null && Number(set.level) !== publicLevel) {
     continue;
   }
