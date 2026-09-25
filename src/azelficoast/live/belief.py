@@ -434,6 +434,7 @@ def transition_program_belief_result(
     posterior: Mapping[str, Any],
     transition_program: Mapping[str, Any],
     evaluator: Any,
+    deadline: DecisionDeadline | None = None,
 ) -> LiveDecisionResult:
     """Search one verified whole-turn mechanics program under the public belief."""
 
@@ -487,6 +488,7 @@ def transition_program_belief_result(
             transport_index=transport_index,
             method="information_set",
             evaluator=evaluator,
+            check_budget=(deadline.check if deadline is not None else None),
         )
     except (
         TransitionProgramSearchError,
@@ -804,6 +806,7 @@ class PinnedShowdownBeliefPolicy:
                     posterior=posterior,
                     transition_program=transition_program,
                     evaluator=self.learned_evaluator,
+                    deadline=deadline,
                 )
                 if searched.action is not None:
                     return LiveDecisionResult(
