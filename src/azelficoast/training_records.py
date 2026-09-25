@@ -166,11 +166,27 @@ def _load_settled_targets(
     if not posteriors:
         raise TrainingRecordError("matched-search posterior artifacts are required")
 
+    packet_digests = {
+        str(packet.get("packet_digest"))
+        for packet in packets
+        if isinstance(packet.get("packet_digest"), str)
+        and packet.get("packet_digest")
+    }
+    if len(packet_digests) != len(packets):
+        raise TrainingRecordError(
+            "matched-search packets must have unique packet_digest values"
+        )
+
     receipts_by_packet: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for receipt in receipts:
         packet_digest = receipt.get("packet_digest")
         if not isinstance(packet_digest, str) or not packet_digest:
             raise TrainingRecordError("search receipt lacks packet_digest")
+        if packet_digest not in packet_digests:
+            raise TrainingRecordError(
+                f"search receipt references packet not supplied to training: "
+                f"{packet_digest}"
+            )
         receipts_by_packet[packet_digest].append(receipt)
 
     targets: dict[tuple[str, str], dict[str, Any]] = {}
@@ -241,11 +257,6 @@ def _load_settled_targets(
             "value": numeric_values[str(chosen_action)],
         }
 
-    if receipts_by_packet:
-        raise TrainingRecordError(
-            "search receipts reference packets not supplied to training: "
-            f"{sorted(receipts_by_packet)[:3]!r}"
-        )
     return targets
 
 
