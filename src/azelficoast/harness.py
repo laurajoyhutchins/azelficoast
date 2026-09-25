@@ -38,6 +38,13 @@ def _positive_float(value: str) -> float:
     return parsed
 
 
+def _unit_float(value: str) -> float:
+    parsed = float(value)
+    if not 0.0 <= parsed <= 1.0:
+        raise argparse.ArgumentTypeError("must be within [0, 1]")
+    return parsed
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="azelficoast",
@@ -75,6 +82,28 @@ def _build_parser() -> argparse.ArgumentParser:
         type=_positive_float,
         default=float(os.getenv("AZELFICOAST_BELIEF_TIMEOUT_SECONDS", "20")),
         help="maximum seconds for one live public-belief probe (default: 20)",
+    )
+    parser.add_argument(
+        "--evaluator-checkpoint",
+        type=Path,
+        default=(
+            Path(os.environ["AZELFICOAST_EVALUATOR_CHECKPOINT"])
+            if os.getenv("AZELFICOAST_EVALUATOR_CHECKPOINT")
+            else None
+        ),
+        help=(
+            "verified learned policy/value checkpoint; without this, live behavior "
+            "remains exact public-belief search"
+        ),
+    )
+    parser.add_argument(
+        "--search-policy-margin",
+        type=_unit_float,
+        default=float(os.getenv("AZELFICOAST_SEARCH_POLICY_MARGIN", "1.0")),
+        help=(
+            "run exact search when learned top-two policy margin is at or below this "
+            "threshold; 1.0 is conservative shadow mode (default: 1.0)"
+        ),
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -188,6 +217,8 @@ def _live_player(
     *,
     showdown_root: Path | None,
     belief_timeout: float,
+    evaluator_checkpoint: Path | None,
+    search_policy_margin: float,
 ) -> AzelficoastPlayer:
     return AzelficoastPlayer(
         account_configuration=AccountConfiguration(username, password),
@@ -198,6 +229,8 @@ def _live_player(
         decision_log=decisions,
         showdown_root=showdown_root,
         belief_timeout_seconds=belief_timeout,
+        evaluator_checkpoint=evaluator_checkpoint,
+        search_policy_margin=search_policy_margin,
     )
 
 
@@ -243,6 +276,8 @@ async def _run_local(
     *,
     showdown_root: Path | None,
     belief_timeout: float,
+    evaluator_checkpoint: Path | None,
+    search_policy_margin: float,
 ) -> None:
     player = AzelficoastPlayer(
         battle_format=BATTLE_FORMAT,
@@ -251,6 +286,8 @@ async def _run_local(
         decision_log=decisions,
         showdown_root=showdown_root,
         belief_timeout_seconds=belief_timeout,
+        evaluator_checkpoint=evaluator_checkpoint,
+        search_policy_margin=search_policy_margin,
     )
     opponent = RandomPlayer(
         battle_format=BATTLE_FORMAT,
@@ -270,6 +307,8 @@ async def _run_live(args: argparse.Namespace) -> None:
         args.decisions,
         showdown_root=args.showdown_root,
         belief_timeout=args.belief_timeout,
+        evaluator_checkpoint=args.evaluator_checkpoint,
+        search_policy_margin=args.search_policy_margin,
     )
 
     if args.command == "challenge":
@@ -299,6 +338,8 @@ async def _async_main(args: argparse.Namespace) -> None:
             args.replays,
             showdown_root=args.showdown_root,
             belief_timeout=args.belief_timeout,
+            evaluator_checkpoint=args.evaluator_checkpoint,
+            search_policy_margin=args.search_policy_margin,
         )
     else:
         await _run_live(args)
