@@ -754,6 +754,12 @@ class PinnedShowdownBeliefPolicy:
                 )
                 if route.action is not None:
                     return route
+            except DecisionDeadlineExceeded:
+                return LiveDecisionResult(
+                    action=None,
+                    status="fallback",
+                    reason="decision-deadline-exhausted",
+                )
             except Exception as error:
                 route = LiveDecisionResult(
                     action=None,
