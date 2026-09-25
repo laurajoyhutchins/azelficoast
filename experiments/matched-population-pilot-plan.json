@@ -1,0 +1,32 @@
+{
+  "schema": "azelficoast.matched-search-comparison-plan",
+  "schema_version": 1,
+  "posterior_treatments": [
+    "generator_faithful",
+    "practical"
+  ],
+  "compute_budget": {
+    "unit": "transition_evaluations",
+    "per_method_limit": 65536
+  },
+  "opponent_model": "fixed_observed_response",
+  "depths": [
+    1
+  ],
+  "confirmatory_predictors": [
+    "legal_action_count",
+    "incoming_ko_roll_probability_gap",
+    "opponent_public_hp_fraction"
+  ],
+  "cluster_unit": "battle_tag",
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "inference": {
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 1729
+  },
+  "provenance": {
+    "cohort": "canonical 10-state outcome-blind population from PR #46",
+    "predictor_selection": "top three prior numeric Spearman associations with value bias from PR #46: legal action count rho 0.8002, KO-roll gap rho 0.7028, opponent public HP fraction rho 0.6789",
+    "purpose": "pipeline-validating matched-compute posterior-stratified pilot; not the final large population claim"
+  }
+}
