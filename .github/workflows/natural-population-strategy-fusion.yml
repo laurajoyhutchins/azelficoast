@@ -17,6 +17,8 @@ on:
       - "tests/test_population_study.py"
       - "tests/test_natural_disagreements.py"
       - ".github/workflows/natural-population-strategy-fusion.yml"
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
   workflow_dispatch:
 
 permissions:
