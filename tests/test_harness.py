@@ -106,12 +106,15 @@ def test_training_improve_parsing() -> None:
             "models/incumbent",
             "--epochs",
             "3",
+            "--max-validation-posterior-stress-regression",
+            "0.05",
         ]
     )
     assert args.training_command == "improve"
     assert args.dataset.name == "training.jsonl"
     assert str(args.incumbent) == "models/incumbent"
     assert args.epochs == 3
+    assert args.max_validation_posterior_stress_regression == 0.05
 
 
 
