@@ -1,0 +1,248 @@
+name: matched-pilot-evaluator-checkpoint
+
+on:
+  pull_request:
+    paths:
+      - "experiments/matched-pilot-evaluator-source.json"
+      - "src/azelficoast/belief_evaluator.py"
+      - "src/azelficoast/belief_training.py"
+      - ".github/workflows/matched-pilot-evaluator-checkpoint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: matched-pilot-evaluator-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python with simulator
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: "true"
+
+      - name: Restore exact public-belief training evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10827611687/zip" \
+            -o /tmp/policy-boundary.zip
+          rm -rf /tmp/policy-boundary
+          mkdir -p /tmp/policy-boundary
+          unzip -q /tmp/policy-boundary.zip -d /tmp/policy-boundary
+
+      - name: Train and freeze evaluator
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY' | tee /tmp/matched-pilot-checkpoint-summary.json
+          import json
+          import math
+          from pathlib import Path
+
+          from azelficoast.belief_evaluator import (
+              BeliefEvaluatorSpec,
+              build_evaluator_input,
+              init_params,
+              write_checkpoint,
+          )
+          from azelficoast.belief_training import TrainingExample, train_examples
+
+          source = json.loads(
+              Path("experiments/matched-pilot-evaluator-source.json").read_text()
+          )
+          evidence_root = Path("/tmp/policy-boundary")
+          documents = []
+          for path in sorted(evidence_root.rglob("*.json")):
+              document = json.loads(path.read_text())
+              if isinstance(document, dict):
+                  documents.append((path, document))
+
+          def one(schema):
+              matches = [
+                  document
+                  for _, document in documents
+                  if document.get("schema") == schema
+              ]
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f"expected one {schema} document, found {len(matches)}"
+                  )
+              return matches[0]
+
+          oracle = one("azelficoast.real-belief-transition-oracle")
+          trace = one("azelficoast.real-belief-decision-trace")
+          fixture_id = source["fixture_id"]
+          if oracle["source_fixture_id"] != fixture_id:
+              raise SystemExit("transition oracle fixture differs from frozen source")
+          if trace["source_fixture_id"] != fixture_id:
+              raise SystemExit("search trace fixture differs from frozen source")
+          if oracle["showdown_commit"] != source["provenance"].get(
+              "showdown_commit",
+              oracle["showdown_commit"],
+          ):
+              raise SystemExit("Showdown revision drifted")
+
+          legal_actions = list(source["public_state"]["legal_actions"])
+          if oracle["legal_actions"] != legal_actions:
+              raise SystemExit("oracle legal actions differ from frozen source")
+          public = trace["public_belief"]
+          root_values = public["root_values"]
+          if set(root_values) != set(legal_actions):
+              raise SystemExit("search target does not cover frozen legal actions")
+          selected = public["chosen_action"]
+          if selected not in legal_actions:
+              raise SystemExit("search selected a nonlegal action")
+          search_return = float(public["value"])
+          if not math.isclose(
+              search_return,
+              float(root_values[selected]),
+              rel_tol=1e-12,
+              abs_tol=1e-12,
+          ):
+              raise SystemExit("selected search value differs from root values")
+
+          posterior = {
+              "conditioned_on_public_history": True,
+              "realized_hidden_state_revealed": False,
+              "worlds": oracle["worlds"],
+          }
+          spec = BeliefEvaluatorSpec(
+              public_width=128,
+              world_width=128,
+              action_width=64,
+              hidden_width=96,
+              world_hidden_width=96,
+          )
+          inputs = build_evaluator_input(
+              public_state=source["public_state"],
+              posterior=posterior,
+              legal_actions=legal_actions,
+              spec=spec,
+          )
+
+          # The exact search utility is bounded by the repository's established
+          # material-utility envelope [-1, 6]. Normalize it to the value head's
+          # [-1, 1] range, then combine it equally with eventual battle outcome.
+          normalized_search = max(
+              -1.0,
+              min(1.0, (2.0 * search_return - 5.0) / 7.0),
+          )
+          outcome = float(source["eventual_battle_outcome"])
+          value_target = 0.5 * outcome + 0.5 * normalized_search
+          policy_target = tuple(
+              1.0 if action == selected else 0.0
+              for action in legal_actions
+          )
+
+          seed = 1729
+          epochs = 64
+          learning_rate = 3e-4
+          policy_weight = 1.0
+          params = init_params(spec, seed=seed)
+          trained, losses = train_examples(
+              params,
+              [TrainingExample(
+                  inputs=inputs,
+                  value_target=value_target,
+                  policy_target=policy_target,
+              )],
+              epochs=epochs,
+              learning_rate=learning_rate,
+              policy_weight=policy_weight,
+          )
+          destination = Path("/tmp/matched-pilot-checkpoint")
+          manifest = write_checkpoint(
+              destination,
+              trained,
+              spec,
+              metadata={
+                  "purpose": (
+                      "matched-population pipeline checkpoint; "
+                      "not a model-strength claim"
+                  ),
+                  "training_example_count": 1,
+                  "training_battle_tag": source["battle_tag"],
+                  "training_fixture_id": fixture_id,
+                  "terminal_event_index": source["terminal_event_index"],
+                  "search_artifact_id": source["provenance"]["search_artifact_id"],
+                  "source_artifact_id": source["provenance"]["source_artifact_id"],
+                  "source_artifact_digest": source["provenance"][
+                      "source_artifact_digest"
+                  ],
+                  "policy_target": "exact_public_belief_search_action",
+                  "value_target": (
+                      "0.5*eventual_battle_outcome + "
+                      "0.5*normalized_exact_public_belief_search_return"
+                  ),
+                  "search_utility_bounds": [-1.0, 6.0],
+                  "search_return": search_return,
+                  "normalized_search_return": normalized_search,
+                  "eventual_battle_outcome": outcome,
+                  "combined_value_target": value_target,
+                  "seed": seed,
+                  "epochs": epochs,
+                  "learning_rate": learning_rate,
+                  "policy_weight": policy_weight,
+                  "initial_loss": losses[0],
+                  "final_loss": losses[-1],
+              },
+          )
+          summary = {
+              "schema": "azelficoast.matched-pilot-evaluator-checkpoint-build",
+              "schema_version": 1,
+              "evaluator": manifest["evaluator"],
+              "training_battle_tag": source["battle_tag"],
+              "training_fixture_id": fixture_id,
+              "selected_action": selected,
+              "search_return": search_return,
+              "normalized_search_return": normalized_search,
+              "eventual_battle_outcome": outcome,
+              "combined_value_target": value_target,
+              "initial_loss": losses[0],
+              "final_loss": losses[-1],
+          }
+          (destination / "build-summary.json").write_text(
+              json.dumps(summary, sort_keys=True) + "\n"
+          )
+          print(json.dumps(summary, sort_keys=True))
+          PY
+
+      - name: Verify checkpoint round trip
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from azelficoast.belief_evaluator import BeliefEvaluatorRuntime
+
+          runtime = BeliefEvaluatorRuntime.from_checkpoint(
+              "/tmp/matched-pilot-checkpoint"
+          )
+          summary = json.loads(
+              Path("/tmp/matched-pilot-checkpoint/build-summary.json").read_text()
+          )
+          assert runtime.identity == summary["evaluator"], (
+              runtime.identity,
+              summary["evaluator"],
+          )
+          assert summary["training_battle_tag"] == "battle-gen9randombattle-373"
+          assert summary["final_loss"] < summary["initial_loss"], summary
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matched-pilot-frozen-evaluator
+          path: /tmp/matched-pilot-checkpoint
+          if-no-files-found: error
