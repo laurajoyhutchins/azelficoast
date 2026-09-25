@@ -58,7 +58,7 @@ def _packet(fixture: str, battle: str, treatment: str, depth: int) -> dict[str, 
             "treatment": treatment,
             "conditioned_on_public_history": True,
             "realized_hidden_state_revealed": False,
-            "worlds": [{"world_id": "w", "weight": 1.0}],
+            "worlds": [{"world_id": "w", "weight": 1.0, "hidden": {"item": treatment}}],
         },
         posterior_treatment=treatment,
         depth=depth,
@@ -134,6 +134,15 @@ def test_population_requires_complete_state_posterior_depth_matrix() -> None:
     assert abs(row["mean_value_optimism"] - 0.2) < 1e-12
     assert abs(row["mean_regret"] - 0.05) < 1e-12
     assert row["policy_disagreement_rate"] == 1.0
+    assert row["mean_posterior_support_size"] == 1.0
+    assert row["mean_posterior_entropy_bits"] == 0.0
+    assert row["mean_posterior_effective_sample_size"] == 1.0
+    assert row["mean_posterior_maximum_mass"] == 1.0
+    assert len(aggregate["posterior_sensitivity_rows"]) == 2
+    sensitivity = aggregate["posterior_sensitivity_rows"][0]
+    assert sensitivity["posterior_treatment_count"] == 2
+    assert sensitivity["mean_value_optimism_span"] == 0.0
+    assert sensitivity["mean_regret_span"] == 0.0
 
 
 def test_population_refuses_missing_treatment_cell() -> None:

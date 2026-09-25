@@ -217,3 +217,51 @@ def test_checkpoint_rejects_parameter_tampering(tmp_path) -> None:
 
     with pytest.raises(BeliefEvaluatorError, match="content digest"):
         load_checkpoint(destination)
+
+
+
+def test_hidden_world_provenance_and_sample_count_are_not_model_features() -> None:
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": [
+            {
+                "world_id": "team-a",
+                "weight": 1.0,
+                "sample_count": 17,
+                "provenance": {"generator_seed": 123},
+                "hidden": {
+                    "team": [
+                        {
+                            "species": "rotomwash",
+                            "item": "choicescarf",
+                            "moves": ["hydropump", "voltswitch"],
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    changed = {
+        **posterior,
+        "worlds": [
+            {
+                **posterior["worlds"][0],
+                "sample_count": 999,
+                "provenance": {"generator_seed": 999999},
+            }
+        ],
+    }
+
+    first = build_evaluator_input(
+        public_state={"turn": 12},
+        posterior=posterior,
+        legal_actions=["attack"],
+    )
+    second = build_evaluator_input(
+        public_state={"turn": 12},
+        posterior=changed,
+        legal_actions=["attack"],
+    )
+
+    assert first.world_features == second.world_features

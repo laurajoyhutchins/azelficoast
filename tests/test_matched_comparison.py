@@ -66,8 +66,8 @@ def _posterior(*, revealed: bool = False) -> dict[str, object]:
         "conditioned_on_public_history": True,
         "realized_hidden_state_revealed": revealed,
         "worlds": [
-            {"world_id": "band", "weight": 0.6},
-            {"world_id": "scarf", "weight": 0.4},
+            {"world_id": "band", "weight": 0.6, "hidden": {"item": "band"}},
+            {"world_id": "scarf", "weight": 0.4, "hidden": {"item": "scarf"}},
         ],
     }
 
@@ -123,6 +123,8 @@ def test_freeze_packet_gives_both_methods_identical_input_and_budget() -> None:
         }
     ) == 1
     assert packet["opponent_model"] == "fixed_observed_response"
+    assert packet["posterior_support"]["support_size"] == 2
+    assert abs(packet["posterior_support"]["effective_sample_size"] - 1.923076923076923) < 1e-12
 
 
 def test_freeze_packet_rejects_realized_hidden_state_as_oracle() -> None:
@@ -171,6 +173,7 @@ def test_settle_packet_measures_bias_and_regret_under_matched_budget() -> None:
     assert result["input_digest"] == packet["input_digest"]
     assert result["state_digest"] == packet["state_digest"]
     assert result["posterior_digest"] == packet["posterior_digest"]
+    assert result["posterior_support"] == packet["posterior_support"]
     assert result["showdown_commit"] == packet["showdown_commit"]
     assert result["legal_actions"] == packet["legal_actions"]
     assert result["matched_authorized_compute"] is True

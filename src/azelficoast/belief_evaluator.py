@@ -161,11 +161,21 @@ def build_evaluator_input(
         if not math.isfinite(weight) or weight <= 0:
             raise BeliefEvaluatorError("hidden world weight must be positive and finite")
 
-        semantic_world = {
-            str(key): value
-            for key, value in world.items()
-            if key not in {"weight", "world_id", "id"}
-        }
+        hidden = world.get("hidden")
+        if isinstance(hidden, Mapping):
+            semantic_world = dict(hidden)
+        else:
+            semantic_world = {
+                str(key): value
+                for key, value in world.items()
+                if key not in {
+                    "weight",
+                    "world_id",
+                    "id",
+                    "provenance",
+                    "sample_count",
+                }
+            }
         world_rows.append(hashed_features(semantic_world, width=spec.world_width))
         raw_weights.append(weight)
 

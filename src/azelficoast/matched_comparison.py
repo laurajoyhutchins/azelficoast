@@ -9,6 +9,11 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.posterior_validity import (
+    PosteriorValidityError,
+    posterior_diagnostics,
+)
+
 PLAN_SCHEMA = "azelficoast.matched-search-comparison-plan"
 PLAN_SCHEMA_VERSION = 2
 PACKET_SCHEMA = "azelficoast.matched-search-comparison-packet"
@@ -21,7 +26,14 @@ EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 
 METHODS = ("determinization", "information_set")
-POSTERIOR_TREATMENTS = ("oracle", "generator_faithful", "practical")
+POSTERIOR_TREATMENTS = (
+    "oracle",
+    "generator_faithful",
+    "practical",
+    "flattened",
+    "sharpened",
+    "widened_support",
+)
 OPPONENT_MODELS = ("fixed_observed_response", "two_sided_information_sets")
 BUDGET_UNITS = ("transition_evaluations",)
 
@@ -211,6 +223,10 @@ def freeze_packet(
     worlds = posterior.get("worlds")
     if not isinstance(worlds, list) or not worlds:
         raise MatchedComparisonError("posterior must contain hidden-world support")
+    try:
+        posterior_support = posterior_diagnostics(posterior)
+    except PosteriorValidityError as error:
+        raise MatchedComparisonError(f"invalid posterior support: {error}") from error
 
     state_digest = _sha256(
         {
@@ -248,6 +264,7 @@ def freeze_packet(
         "depth": int(depth),
         "state_digest": state_digest,
         "posterior_digest": posterior_digest,
+        "posterior_support": posterior_support,
         "evaluator": evaluator,
         "evaluator_digest": evaluator_digest,
         "input_digest": input_digest,
@@ -438,6 +455,7 @@ def settle_packet(
         "input_digest": packet["input_digest"],
         "state_digest": packet["state_digest"],
         "posterior_digest": packet["posterior_digest"],
+        "posterior_support": dict(packet["posterior_support"]),
         "fixture_id": packet["fixture_id"],
         "battle_tag": packet["battle_tag"],
         "legal_actions": list(packet["legal_actions"]),

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from azelficoast.belief_evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.router_ablation import (
     RouterCase,
+    evaluate_admitted_counterfactual,
     summarize_observed_routes,
     threshold_sweep,
 )
+from azelficoast.selective_belief import PolicyMarginSearchGate
 
 
 def _cases() -> list[RouterCase]:
@@ -63,3 +66,111 @@ def test_threshold_sweep_exposes_search_and_fallback_mixture() -> None:
     assert rows[2]["search_count"] == 2
     assert rows[2]["fallback_count"] == 1
     assert rows[1]["mean_regret"] < rows[0]["mean_regret"]
+
+
+
+class _CounterfactualEvaluator:
+    spec = BeliefEvaluatorSpec(
+        public_width=8,
+        world_width=8,
+        action_width=8,
+        hidden_width=8,
+        world_hidden_width=8,
+    )
+
+    def predict(self, inputs) -> BeliefPrediction:
+        if inputs.legal_actions == ("risky", "safe"):
+            return BeliefPrediction(
+                value=0.0,
+                legal_actions=inputs.legal_actions,
+                probabilities=(0.9, 0.1),
+                selected_action="risky",
+                policy_margin=0.8,
+                policy_entropy_bits=0.4,
+            )
+        value = 1.0 if "good" in inputs.legal_actions else 0.0
+        probability = 1.0 / len(inputs.legal_actions)
+        return BeliefPrediction(
+            value=value,
+            legal_actions=inputs.legal_actions,
+            probabilities=tuple(probability for _ in inputs.legal_actions),
+            selected_action=min(inputs.legal_actions),
+            policy_margin=0.0,
+            policy_entropy_bits=0.0,
+        )
+
+
+def _counterfactual_program() -> dict[str, object]:
+    return {
+        "schema": "azelficoast.whole-turn-transition-program-set",
+        "schema_version": 1,
+        "source_fixture_id": "fixture",
+        "showdown_commit": "pinned",
+        "world_ids": ["w1", "w2"],
+        "legal_actions": ["risky", "safe"],
+        "dependency_candidates": [],
+        "programs": [
+            {
+                "action": "risky",
+                "classes_out": 1,
+                "classes": [
+                    {
+                        "class_id": "risky",
+                        "member_world_ids": ["w1", "w2"],
+                        "outcomes": [
+                            {
+                                "probability": 1.0,
+                                "observation": {"kind": "same"},
+                                "successor": {"turn": 2},
+                                "legal_actions": ["bad"],
+                            }
+                        ],
+                    }
+                ],
+            },
+            {
+                "action": "safe",
+                "classes_out": 1,
+                "classes": [
+                    {
+                        "class_id": "safe",
+                        "member_world_ids": ["w1", "w2"],
+                        "outcomes": [
+                            {
+                                "probability": 1.0,
+                                "observation": {"kind": "same"},
+                                "successor": {"turn": 2},
+                                "legal_actions": ["good"],
+                            }
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def test_admitted_counterfactual_uses_same_support_for_direct_and_search() -> None:
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": [
+            {"world_id": "w1", "weight": 0.5, "hidden": {"item": "a"}},
+            {"world_id": "w2", "weight": 0.5, "hidden": {"item": "b"}},
+        ],
+    }
+    case = evaluate_admitted_counterfactual(
+        case_id="fixture",
+        public_state={"turn": 1},
+        legal_actions=["risky", "safe"],
+        posterior=posterior,
+        transition_program=_counterfactual_program(),
+        evaluator=_CounterfactualEvaluator(),
+        search_gate=PolicyMarginSearchGate(search_if_margin_at_most=0.9),
+        fallback_action="risky",
+    )
+
+    assert case.actual_route == "search"
+    assert case.direct_regret == 1.0
+    assert case.search_regret == 0.0
+    assert case.fallback_regret == 1.0

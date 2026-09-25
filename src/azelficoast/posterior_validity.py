@@ -232,6 +232,7 @@ def power_reweight_posterior(
 
     result = copy.deepcopy(dict(posterior))
     result["worlds"] = worlds
+    result["treatment"] = treatment
     result["robustness_treatment"] = {
         "kind": "power-reweight",
         "name": treatment,
@@ -295,6 +296,7 @@ def widen_posterior_support(
 
     result = copy.deepcopy(dict(posterior))
     result["worlds"] = worlds
+    result["treatment"] = treatment
     result["robustness_treatment"] = {
         "kind": "support-mixture",
         "name": treatment,

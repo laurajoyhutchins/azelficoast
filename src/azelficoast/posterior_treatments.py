@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.posterior_validity import power_reweight_posterior
 from azelficoast.real_belief_trace import (
     SCHEMA as ORACLE_SCHEMA,
     SCHEMA_VERSION as ORACLE_SCHEMA_VERSION,
@@ -223,6 +224,18 @@ def build_posterior(
         return practical_posterior(oracle)
     if treatment == "oracle":
         return oracle_posterior(oracle)
+    if treatment == "flattened":
+        return power_reweight_posterior(
+            generator_faithful_posterior(oracle),
+            exponent=0.0,
+            treatment="flattened",
+        )
+    if treatment == "sharpened":
+        return power_reweight_posterior(
+            generator_faithful_posterior(oracle),
+            exponent=2.0,
+            treatment="sharpened",
+        )
     raise PosteriorTreatmentError(f"unknown posterior treatment {treatment!r}")
 
 
@@ -232,7 +245,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--treatment",
         required=True,
-        choices=("oracle", "generator_faithful", "practical"),
+        choices=("oracle", "generator_faithful", "practical", "flattened", "sharpened"),
     )
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)

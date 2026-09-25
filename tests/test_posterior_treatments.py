@@ -6,6 +6,7 @@ import pytest
 
 from azelficoast.posterior_treatments import (
     PosteriorTreatmentError,
+    build_posterior,
     generator_faithful_posterior,
     oracle_posterior,
     practical_posterior,
@@ -155,3 +156,21 @@ def test_generator_faithful_rejects_unbound_world_provenance() -> None:
         match="not bound to the reconstruction",
     ):
         generator_faithful_posterior(oracle)
+
+
+
+def test_support_preserving_prior_stress_treatments() -> None:
+    flattened = build_posterior(_oracle(), treatment="flattened")
+    sharpened = build_posterior(_oracle(), treatment="sharpened")
+
+    assert flattened["treatment"] == "flattened"
+    assert [world["weight"] for world in flattened["worlds"]] == [0.25] * 4
+    assert flattened["robustness_treatment"]["support_changed"] is False
+
+    expected = [0.45**2, 0.15**2, 0.10**2, 0.30**2]
+    total = sum(expected)
+    assert sharpened["treatment"] == "sharpened"
+    assert all(
+        abs(world["weight"] - weight / total) < 1e-12
+        for world, weight in zip(sharpened["worlds"], expected, strict=True)
+    )
