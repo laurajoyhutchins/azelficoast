@@ -37,7 +37,8 @@ from azelficoast.belief.training import TrainingExample, train_examples
 from azelficoast.research.training_records import TRAINING_SCHEMA, TRAINING_SCHEMA_VERSION
 
 IMPROVEMENT_RECEIPT_SCHEMA = "azelficoast.evaluator-improvement-receipt"
-IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 3
+IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 4
+POSTERIOR_STRESS_TREATMENTS = ("flattened", "sharpened")
 PROMOTION_SETTLEMENT_SCHEMA = "azelficoast.evaluator-promotion-settlement"
 PROMOTION_SETTLEMENT_SCHEMA_VERSION = 1
 VALUE_TARGET_SOURCES = ("public_belief_search_return", "eventual_battle_outcome")
@@ -70,6 +71,7 @@ class AdmissionPolicy:
     min_validation_total_improvement: float = 1e-6
     max_validation_value_mse_regression: float = 0.0
     max_validation_policy_cross_entropy_regression: float = 0.0
+    max_validation_posterior_stress_regression: float = 0.0
 
     def __post_init__(self) -> None:
         for name, value in self.as_record().items():
@@ -82,6 +84,9 @@ class AdmissionPolicy:
             "max_validation_value_mse_regression": self.max_validation_value_mse_regression,
             "max_validation_policy_cross_entropy_regression": (
                 self.max_validation_policy_cross_entropy_regression
+            ),
+            "max_validation_posterior_stress_regression": (
+                self.max_validation_posterior_stress_regression
             ),
         }
 
@@ -318,6 +323,116 @@ def evaluate_examples(
         policy_cross_entropy=policy_cross_entropy,
         policy_accuracy=correct / count,
     )
+
+
+def _posterior_stress_input(
+    inputs: BeliefEvaluatorInput,
+    *,
+    treatment: str,
+) -> BeliefEvaluatorInput:
+    """Reweight one validated belief input without changing its support."""
+
+    if treatment not in POSTERIOR_STRESS_TREATMENTS:
+        raise ImprovementError(f"unsupported posterior stress treatment {treatment!r}")
+    if not inputs.world_weights:
+        raise ImprovementError("posterior stress requires hidden-world support")
+
+    if treatment == "flattened":
+        raw = tuple(1.0 for _ in inputs.world_weights)
+    else:
+        raw = tuple(weight * weight for weight in inputs.world_weights)
+    mass = sum(raw)
+    if not math.isfinite(mass) or mass <= 0.0:
+        raise ImprovementError("posterior stress produced invalid probability mass")
+    weights = tuple(value / mass for value in raw)
+    return BeliefEvaluatorInput(
+        public_features=inputs.public_features,
+        world_features=inputs.world_features,
+        world_weights=weights,
+        action_features=inputs.action_features,
+        legal_actions=inputs.legal_actions,
+    )
+
+
+def evaluate_posterior_stress(
+    params: Mapping[str, Any],
+    examples: Sequence[TrainingExample],
+    *,
+    policy_weight: float = 1.0,
+) -> dict[str, Any]:
+    """Measure held-out evaluator sensitivity to plausible prior reweighting.
+
+    Teacher targets are intentionally held fixed. This is a robustness/sensitivity
+    check, not an alternate-posterior oracle-label experiment.
+    """
+
+    results: dict[str, dict[str, float | int]] = {}
+    for treatment in POSTERIOR_STRESS_TREATMENTS:
+        stressed = tuple(
+            TrainingExample(
+                inputs=_posterior_stress_input(example.inputs, treatment=treatment),
+                value_target=example.value_target,
+                policy_target=example.policy_target,
+            )
+            for example in examples
+        )
+        results[treatment] = evaluate_examples(
+            params,
+            stressed,
+            policy_weight=policy_weight,
+        ).as_record()
+    worst_treatment = max(
+        sorted(results),
+        key=lambda name: float(results[name]["total_loss"]),
+    )
+    return {
+        "treatments": results,
+        "worst_treatment": worst_treatment,
+        "worst_total_loss": float(results[worst_treatment]["total_loss"]),
+        "target_semantics": "nominal-settled-search-target-held-fixed",
+    }
+
+
+def evaluate_posterior_robustness(
+    incumbent: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    *,
+    policy: AdmissionPolicy,
+) -> dict[str, Any]:
+    """Require the candidate not to become more fragile than the incumbent."""
+
+    incumbent_treatments = _mapping(incumbent.get("treatments"), "incumbent.treatments")
+    candidate_treatments = _mapping(candidate.get("treatments"), "candidate.treatments")
+    regressions: dict[str, float] = {}
+    for treatment in POSTERIOR_STRESS_TREATMENTS:
+        incumbent_metrics = _mapping(
+            incumbent_treatments.get(treatment),
+            f"incumbent.treatments.{treatment}",
+        )
+        candidate_metrics = _mapping(
+            candidate_treatments.get(treatment),
+            f"candidate.treatments.{treatment}",
+        )
+        regressions[treatment] = float(candidate_metrics["total_loss"]) - float(
+            incumbent_metrics["total_loss"]
+        )
+    worst_treatment = max(sorted(regressions), key=regressions.__getitem__)
+    worst_regression = regressions[worst_treatment]
+    passed = (
+        worst_regression <= policy.max_validation_posterior_stress_regression
+    )
+    return {
+        "passed": passed,
+        "policy": {
+            "max_validation_posterior_stress_regression": (
+                policy.max_validation_posterior_stress_regression
+            )
+        },
+        "regressions": regressions,
+        "worst_treatment": worst_treatment,
+        "worst_regression": worst_regression,
+        "target_semantics": "nominal-settled-search-target-held-fixed",
+    }
 
 
 def evaluate_hostile_invariants(
@@ -664,6 +779,21 @@ def improve_checkpoint(
     candidate_test = evaluate_examples(
         candidate_params, dataset.examples("test"), policy_weight=policy_weight
     )
+    incumbent_posterior_stress = evaluate_posterior_stress(
+        incumbent_params,
+        dataset.examples("validation"),
+        policy_weight=policy_weight,
+    )
+    candidate_posterior_stress = evaluate_posterior_stress(
+        candidate_params,
+        dataset.examples("validation"),
+        policy_weight=policy_weight,
+    )
+    posterior_robustness = evaluate_posterior_robustness(
+        incumbent_posterior_stress,
+        candidate_posterior_stress,
+        policy=admission_policy,
+    )
     admission = decide_admission(
         incumbent_validation,
         candidate_validation,
@@ -675,14 +805,24 @@ def improve_checkpoint(
     )
     admission = {
         **admission,
-        "admitted": bool(admission["admitted"] and hostile["passed"]),
+        "admitted": bool(
+            admission["admitted"]
+            and hostile["passed"]
+            and posterior_robustness["passed"]
+        ),
         "checks": {
             **dict(admission["checks"]),
             "hostile_representation_invariance": bool(hostile["passed"]),
+            "posterior_weight_robustness": bool(posterior_robustness["passed"]),
         },
         "failed_checks": [
             *list(admission["failed_checks"]),
             *([] if hostile["passed"] else ["hostile_representation_invariance"]),
+            *(
+                []
+                if posterior_robustness["passed"]
+                else ["posterior_weight_robustness"]
+            ),
         ],
     }
 
@@ -717,6 +857,13 @@ def improve_checkpoint(
                 **hostile,
                 "used_for_admission": True,
                 "target_labels_consulted": False,
+            },
+            "posterior_stress": {
+                "incumbent": incumbent_posterior_stress,
+                "candidate": candidate_posterior_stress,
+                "comparison": posterior_robustness,
+                "used_for_admission": True,
+                "alternate_teacher_targets_recomputed": False,
             },
         },
         "admission": admission,
@@ -759,4 +906,9 @@ def improve_checkpoint(
             "candidate": candidate_test.as_record(),
         },
         "hostile": hostile,
+        "posterior_stress": {
+            "incumbent": incumbent_posterior_stress,
+            "candidate": candidate_posterior_stress,
+            "comparison": posterior_robustness,
+        },
     }
