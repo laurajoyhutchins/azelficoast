@@ -57,9 +57,27 @@ def test_fetch_replay_requires_reconstructible_random_battle_inputlog(monkeypatc
             "id": "gen9randombattle-1",
             "format": "[Gen 9] Random Battle",
             "log": "|win|Alice",
+            "inputlog": ">version old-showdown\n>start {}",
         },
     )
     with pytest.raises(PublicReplayError, match="inputlog"):
+        fetch_public_replay(
+            {"id": "gen9randombattle-1", "rating": 1500, "uploadtime": 1}
+        )
+
+
+def test_fetch_replay_rejects_generator_revision_drift(monkeypatch) -> None:
+    monkeypatch.setattr(
+        public_replays,
+        "_get_json",
+        lambda _url: {
+            "id": "gen9randombattle-1",
+            "format": "[Gen 9] Random Battle",
+            "log": "|win|Alice",
+            "inputlog": ">version deadbeef\n>start {}",
+        },
+    )
+    with pytest.raises(PublicReplayError, match="does not match pinned"):
         fetch_public_replay(
             {"id": "gen9randombattle-1", "rating": 1500, "uploadtime": 1}
         )
