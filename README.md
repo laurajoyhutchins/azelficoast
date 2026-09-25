@@ -157,6 +157,33 @@ uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
 
 Policies can also be supplied as package.module:policy_object, allowing new search methods to be compared on identical information histories.
 
+### Build policy/value training records
+
+Training records are joined from real completed battle traces, not synthetic state
+snapshots. Every emitted record keeps only the public information available before
+that decision, then attaches two value signals: the eventual battle outcome and the
+public-belief searched return.
+
+~~~bash
+uv run azelficoast training build artifacts/decisions.jsonl \
+  --output artifacts/training.jsonl
+~~~
+
+Policy labels are never copied from the heuristic behavior player. A decision is
+emitted only when it has a public-belief search target. Deeper search can relabel an
+existing content-addressed fixture and takes precedence over the bounded live search:
+
+~~~bash
+uv run azelficoast training build artifacts/decisions.jsonl \
+  --search-annotation artifacts/deeper-public-belief.json \
+  --output artifacts/training.jsonl
+~~~
+
+The output keeps the search-selected action as a one-hot policy target and preserves
+searched root values when available. Heuristic behavior is provenance only. Dataset
+assignment is hashed from the battle identity, so every decision from one battle is
+forced into the same train, validation, or test split.
+
 ## Evidence model
 
 The repository tries to keep claims narrower than the code around them.
@@ -179,6 +206,7 @@ Generated output is not treated as verified merely because it was produced. Nega
 | Live player and fallback boundary | [src/azelficoast/player.py](src/azelficoast/player.py) |
 | Battle harness and trace capture | [src/azelficoast/harness.py](src/azelficoast/harness.py) |
 | Frozen decision corpora | [src/azelficoast/corpus.py](src/azelficoast/corpus.py) |
+| Policy/value training records | [src/azelficoast/training_records.py](src/azelficoast/training_records.py) |
 | Live hidden-world reconstruction | [src/azelficoast/live_belief.py](src/azelficoast/live_belief.py) |
 | Public-belief / fusion analysis | [src/azelficoast/fusion_search.py](src/azelficoast/fusion_search.py) |
 | Natural-state mining | [src/azelficoast/real_belief_miner.py](src/azelficoast/real_belief_miner.py) |
