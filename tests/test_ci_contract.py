@@ -113,6 +113,12 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
     assert checked, "expected at least one uv-managed workflow"
 
 
+def test_training_workflow_observes_replay_bridge_changes() -> None:
+    source = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
+
+    assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
+
+
 def test_repository_evidence_replaces_historical_artifact_runtime_dependencies() -> None:
     manifest = ROOT / "experiments" / "evidence" / "canonical-evidence.json"
     bundle = ROOT / "experiments" / "evidence" / "canonical-evidence.tar.gz"
