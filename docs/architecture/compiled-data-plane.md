@@ -135,3 +135,70 @@ The next useful experiment is matched:
 If the packed representation only improves throughput, it is still useful. If learned
 embeddings over source-native IDs also improve sample efficiency or playing strength,
 that becomes a separate measured result rather than an assumption.
+
+
+## Packed evaluator treatment
+
+The first consumer of the compiled data plane is a research-only evaluator treatment in
+`azelficoast.belief.packed_evaluator`.
+
+It deliberately holds two surfaces constant with the existing evaluator:
+
+- public state still uses the existing stable hashed feature contract;
+- legal actions still use the existing stable hashed feature contract.
+
+Only hidden-world encoding changes. Instead of flattening each hidden world into hashed
+feature buckets, the treatment consumes the Showdown-bound joint posterior pack directly:
+
+```text
+joint posterior particle
+        |
+        v
+species / forme / ability / item / moves / tera / nature / role embeddings
+        |
+        v
+per-Pokémon encoder
+        |
+        v
+permutation-invariant team mean + variance
+        |
+        v
+world representation
+        |
+        v
+posterior-weighted mean + variance + entropy
+        |
+        v
+shared public-belief policy/value trunk
+```
+
+Move order and team order are treated as incidental representation. Move embeddings are
+mask-pooled and team members are pooled as a set. Posterior particles retain their
+scientific weights, and duplicate equivalent support atoms therefore preserve predictions
+when their total mass is unchanged.
+
+The packed treatment shares the existing deterministic Adam implementation rather than
+introducing a second optimizer path.
+
+## Matched representation experiment
+
+`azelficoast.research.evaluator_representation_experiment` compares the existing hashed
+hidden-world evaluator against the packed treatment over the same frozen training records.
+It fixes split membership, targets, public/action feature widths, optimizer settings,
+epochs, and random seed.
+
+The receipt reports separately:
+
+- representation encoding wall time;
+- dense input bytes;
+- model parameter count;
+- training wall time and examples/second;
+- validation inference examples/second;
+- value MSE;
+- policy cross-entropy;
+- policy accuracy;
+- total policy/value loss before and after training.
+
+The experiment is descriptive. It does not promote either model and does not infer battle
+strength from validation loss. A later battle panel can test playing strength after a
+representation treatment has earned further attention.
