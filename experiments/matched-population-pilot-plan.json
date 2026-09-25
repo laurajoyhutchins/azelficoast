@@ -35,13 +35,12 @@
     }
   },
   "evaluator_checkpoint": {
-    "artifact_id": 10875025443,
-    "artifact_name": "matched-pilot-frozen-evaluator",
-    "training_source": "experiments/matched-pilot-evaluator-source.json",
+    "source": "experiments/matched-pilot-evaluator-source.json",
+    "builder": "azelficoast.matched_pilot_evaluator",
+    "checkpoint_digest": "sha256:a06c3ee1bf8c30954b46236f14236cdeaefdf835cecaa50fc6011fa10d27d823",
     "training_example_count": 1,
     "training_battle_tag": "battle-gen9randombattle-373",
     "training_fixture_id": "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a",
-    "build_workflow": ".github/workflows/matched-pilot-evaluator-checkpoint.yml",
     "purpose": "pipeline-validating frozen evaluator; not a model-strength claim"
   },
   "inference": {
