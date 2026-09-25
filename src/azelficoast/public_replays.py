@@ -227,6 +227,7 @@ def freeze_public_replay(replay: PublicReplay, root: str | Path) -> dict[str, An
         "rating": replay.rating,
         "uploadtime": replay.uploadtime,
         "source_locator": f"{REPLAY_ORIGIN}/{replay.replay_id}",
+        "source_showdown_version": _input_version(replay.inputlog),
     }
 
 
@@ -534,6 +535,27 @@ async def _trace_side(
             )
         choice = choices[choice_index]
         choice_index += 1
+        if choice in {"default", "forfeit"}:
+            records.append(
+                {
+                    "schema": TRACE_SCHEMA,
+                    "schema_version": TRACE_SCHEMA_VERSION,
+                    "run_id": run_id,
+                    "event_index": event_index,
+                    "observed_at": observed_at,
+                    "kind": "decision_exclusion",
+                    "battle_tag": battle_tag,
+                    "request_index": choice_index - 1,
+                    "reason": f"recorded-{choice}-has-no-exact-human-action-label",
+                    "source": {
+                        "kind": "public-showdown-replay",
+                        "replay_id": replay.replay_id,
+                        "side": side,
+                    },
+                }
+            )
+            event_index += 1
+            continue
         action = _recorded_action(choice, request, legal_actions)
         records.append(
             {
@@ -559,7 +581,11 @@ async def _trace_side(
         event_index += 1
         decision_index += 1
 
-    leftovers = [choice for choice in choices[choice_index:] if choice not in {"default"}]
+    leftovers = [
+        choice
+        for choice in choices[choice_index:]
+        if choice not in {"default", "forfeit"}
+    ]
     if leftovers:
         raise PublicReplayError(
             f"{replay.replay_id}/{side}: {len(leftovers)} recorded choices were not consumed"
