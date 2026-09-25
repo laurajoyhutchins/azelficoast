@@ -71,5 +71,20 @@
     "The exact continuation horizon remains one further player decision.",
     "Material utility is not claimed to equal competitive win probability.",
     "Structural associations are descriptive predictors, not causal effects."
-  ]
+  ],
+  "frozen_cohort": {
+    "workflow_run_id": 36089504420,
+    "artifact_id": 10844299570,
+    "artifact_name": "natural-population-selection",
+    "artifact_digest": "sha256:9322548a28a5a7049f7d82fc045ae53686ec49ec114dfc2c74cf104bf2661d4d",
+    "manifest_sha256": "5af2cbd55502e302cf7e8971cdf09fb943dfd7ed3c5d1401730dd21ffd67cb3d",
+    "head_sha": "3f8021ed10d15afeef489c4b184cf47b9066ecc7",
+    "frozen_before_any_exact_policy_value": true,
+    "source_decision_state_count": 6485,
+    "bounded_candidate_count": 15,
+    "eligible_count": 13,
+    "selected_count": 13,
+    "selected_battle_count": 8,
+    "overflow_sampling_applied": false
+  }
 }
