@@ -124,10 +124,17 @@ def battle_view(battle: AbstractBattle) -> dict[str, Any]:
 class DecisionTraceWriter:
     """Append-only JSONL evidence for one player's observable battle history."""
 
-    def __init__(self, path: str | Path, *, run_id: str | None = None):
+    def __init__(
+        self,
+        path: str | Path,
+        *,
+        run_id: str | None = None,
+        source: Mapping[str, Any] | None = None,
+    ):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.run_id = run_id or uuid4().hex
+        self.source = dict(source) if source is not None else None
         self._event_index = 0
         self._decision_index: dict[str, int] = {}
         self._protocol_index: dict[str, int] = {}
@@ -139,6 +146,7 @@ class DecisionTraceWriter:
             "run_id": self.run_id,
             "event_index": self._event_index,
             "observed_at": datetime.now(UTC).isoformat(),
+            **({"source": dict(self.source)} if self.source is not None else {}),
             **record,
         }
         self._event_index += 1

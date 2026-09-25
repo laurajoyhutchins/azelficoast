@@ -302,6 +302,14 @@ def build_fixtures(
                     )
                 control["decision_metadata"] = copy.deepcopy(dict(decision_metadata))
 
+            source = record.get("source")
+            if source is not None:
+                if not isinstance(source, Mapping):
+                    raise CorpusError(
+                        f"run {run_id!r} event {event_index}: malformed source provenance"
+                    )
+                control["source"] = copy.deepcopy(dict(source))
+
             if fixture_id not in fixtures:
                 fixtures[fixture_id] = {
                     "state": state,

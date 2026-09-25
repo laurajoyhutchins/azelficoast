@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.player import SimpleHeuristicsPlayer
@@ -37,6 +37,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         self,
         *args: Any,
         decision_log: str | Path | None = None,
+        trace_source: Mapping[str, Any] | None = None,
         showdown_root: str | Path | None = None,
         belief_timeout_seconds: float = 20.0,
         evaluator_checkpoint: str | Path | None = None,
@@ -53,7 +54,9 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
         if evaluator_checkpoint is not None and showdown_root is None:
             raise ValueError("evaluator_checkpoint requires showdown_root")
         self._decision_trace = (
-            DecisionTraceWriter(decision_log) if decision_log is not None else None
+            DecisionTraceWriter(decision_log, source=trace_source)
+            if decision_log is not None
+            else None
         )
         self._protocol_history: dict[str, list[list[list[str]]]] = {}
         self._belief_policy = belief_policy
