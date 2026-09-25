@@ -128,6 +128,26 @@ def aggregate_population(
             raise MatchedPopulationError("population contains an unmatched evaluator")
         if row.get("evaluator") != checked_plan["evaluator"]:
             raise MatchedPopulationError("population mixed evaluator checkpoints")
+        support = row.get("posterior_support")
+        if not isinstance(support, Mapping):
+            raise MatchedPopulationError("population result lacks posterior support diagnostics")
+        for field in (
+            "support_size",
+            "entropy_bits",
+            "effective_sample_size",
+            "minimum_mass",
+            "maximum_mass",
+        ):
+            value = support.get(field)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not math.isfinite(float(value))
+                or float(value) < 0.0
+            ):
+                raise MatchedPopulationError(
+                    f"population result has invalid posterior support field {field}"
+                )
 
         fixture_id = str(row.get("fixture_id"))
         treatment = str(row.get("posterior_treatment"))
@@ -192,8 +212,54 @@ def aggregate_population(
                         seed=seed + 1,
                     ),
                     "policy_disagreement_rate": _mean(disagreement_values),
+                    "mean_posterior_support_size": _mean(
+                        [float(row["posterior_support"]["support_size"]) for row in stratum]
+                    ),
+                    "mean_posterior_entropy_bits": _mean(
+                        [float(row["posterior_support"]["entropy_bits"]) for row in stratum]
+                    ),
+                    "mean_posterior_effective_sample_size": _mean(
+                        [
+                            float(row["posterior_support"]["effective_sample_size"])
+                            for row in stratum
+                        ]
+                    ),
+                    "mean_posterior_maximum_mass": _mean(
+                        [float(row["posterior_support"]["maximum_mass"]) for row in stratum]
+                    ),
                 }
             )
+
+    posterior_sensitivity_rows: list[dict[str, Any]] = []
+    for depth in checked_plan["depths"]:
+        rows_at_depth = [
+            row for row in figure_rows if int(row["depth"]) == int(depth)
+        ]
+        optimism = [float(row["mean_value_optimism"]) for row in rows_at_depth]
+        regret = [float(row["mean_regret"]) for row in rows_at_depth]
+        disagreement = [
+            float(row["policy_disagreement_rate"]) for row in rows_at_depth
+        ]
+        posterior_sensitivity_rows.append(
+            {
+                "depth": int(depth),
+                "posterior_treatment_count": len(rows_at_depth),
+                "posterior_treatments": [
+                    str(row["posterior_treatment"]) for row in rows_at_depth
+                ],
+                "mean_value_optimism_range": [min(optimism), max(optimism)],
+                "mean_value_optimism_span": max(optimism) - min(optimism),
+                "mean_regret_range": [min(regret), max(regret)],
+                "mean_regret_span": max(regret) - min(regret),
+                "policy_disagreement_rate_range": [
+                    min(disagreement),
+                    max(disagreement),
+                ],
+                "policy_disagreement_rate_span": (
+                    max(disagreement) - min(disagreement)
+                ),
+            }
+        )
 
     return {
         "schema": AGGREGATE_SCHEMA,
@@ -214,6 +280,7 @@ def aggregate_population(
             "seed": seed,
         },
         "figure_rows": figure_rows,
+        "posterior_sensitivity_rows": posterior_sensitivity_rows,
     }
 
 
