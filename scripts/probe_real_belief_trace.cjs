@@ -85,13 +85,13 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.ivs",
   "opponent.active.exact_hp",
 ];
-const KERNEL_MARGINALIZED_HIDDEN_FIELDS = [
+const KERNEL_NONEXECUTION_SEMANTIC_FIELDS = [
   "opponent.active.moves",
   "opponent.active.tera_type",
 ];
 const KERNEL_HIDDEN_BOUNDARY = [
   ...DEPENDENCY_CANDIDATES,
-  ...KERNEL_MARGINALIZED_HIDDEN_FIELDS,
+  ...KERNEL_NONEXECUTION_SEMANTIC_FIELDS,
 ].sort();
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
 
@@ -1518,7 +1518,7 @@ function compileLazyWholeTurnPrograms() {
       algorithm: "representative-dynamic-read-refinement",
       hidden_boundary: KERNEL_HIDDEN_BOUNDARY,
       execution_dependency_candidates: DEPENDENCY_CANDIDATES,
-      marginalized_hidden_fields: KERNEL_MARGINALIZED_HIDDEN_FIELDS,
+      nonexecution_semantic_fields: KERNEL_NONEXECUTION_SEMANTIC_FIELDS,
       chance_seed_family: CHANCE_SEED_FAMILY,
       root_chance_samples: ROOT_CHANCE_SAMPLES,
       opponent_policy_kind: "repeat-last-observed-move",
@@ -1529,9 +1529,9 @@ function compileLazyWholeTurnPrograms() {
         "reused only when every member agrees on every hidden field read by its " +
         "representative execution under the fixed chance-seed family.",
       non_claim:
-        "Moves and Tera remain semantic posterior fields but are marginalized from the " +
+        "Moves and Tera remain semantic posterior fields but are excluded from the " +
         "online execution key only under this fixed opponent-policy/no-opponent-Tera scope. " +
-        "Exact candidate CI must keep proving that marginalization against direct Showdown. " +
+        "Exact candidate CI must keep proving that nonexecution classification against direct Showdown. " +
         "The kernel does not generalize across another revision or policy surface.",
     },
     programs,
