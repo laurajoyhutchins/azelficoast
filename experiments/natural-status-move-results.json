@@ -1,0 +1,68 @@
+{
+  "schema": "azelficoast.natural-status-move-results",
+  "schema_version": 1,
+  "source": {
+    "treatment": "experiments/natural-status-move-treatment.json",
+    "workflow_run_id": 36075547586,
+    "artifact_id": 10840097547,
+    "artifact_digest": "sha256:6f71233d3d0053b26e55cafee350bfe298ca0d6f351e3bbd7be72ebfed0f599c",
+    "head_sha": "7060b5eb431b58a8d6ae5efb75fca0e85a73787b",
+    "fixture_id": "f7e71c77ecee4543e2a48533ef65071ff35f02360f1768adc0701140c68e937f",
+    "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc"
+  },
+  "result": {
+    "experiment_valid": true,
+    "generator_matches": 2048,
+    "hidden_world_count": 18,
+    "legal_action_count": 12,
+    "strategy_fusion_observation_count": 0,
+    "policy_disagreement": false,
+    "determinization": {
+      "chosen_action": "/choose switch Oinkologne",
+      "value": 4.2082416881876785
+    },
+    "public_belief": {
+      "chosen_action": "/choose switch Oinkologne",
+      "value": 4.2082416881876785
+    }
+  },
+  "surviving_hidden_support": {
+    "opponent.active.item": ["Heavy-Duty Boots"],
+    "opponent.active.ability": ["Pressure"],
+    "opponent.active.moves": [
+      ["bravebird", "freezedry", "roost", "substitute"],
+      ["bravebird", "freezedry", "roost", "uturn"],
+      ["bravebird", "freezedry", "haze", "roost"]
+    ],
+    "opponent.active.tera_type": ["Ground", "Steel"],
+    "opponent.active.exact_hp": [254, 255, 256]
+  },
+  "factorization": {
+    "move_set_count": 3,
+    "tera_type_count": 2,
+    "exact_hp_count": 3,
+    "world_count": 18
+  },
+  "empirical_dependency_result": {
+    "hidden_reads_required_by_switches": [],
+    "hidden_reads_required_by_tail_glow": [],
+    "hidden_reads_required_by_damaging_roots": ["opponent.active.exact_hp"],
+    "item_required_by_any_root": false,
+    "ability_required_by_any_root": false,
+    "move_set_required_by_any_root": false,
+    "tera_type_required_by_any_root": false
+  },
+  "interpretation": {
+    "hypothesis": "supported",
+    "status_move_generality": "The existing pinned-Showdown oracle executes the natural Roost response without status-specific transition semantics.",
+    "belief_effect": "After public generator conditioning collapses item and ability, the remaining hidden move-set and Tera uncertainty is irrelevant to every root transition in this bounded horizon. Only exact HP partitions damaging roots.",
+    "promotion_implication": "Do not add a generic status-move item prior. A future live extension should consume generator-conditioned support and should avoid invoking public-belief machinery when the surviving hidden dimensions are transition-irrelevant."
+  },
+  "non_claims": [
+    "This treatment fixes the opponent root response to repeated observed Roost.",
+    "The opponent reconstruction includes one surviving public bench species.",
+    "The utility is the existing material proxy and the horizon is one further decision.",
+    "This single treatment does not establish that every status-move state is belief-trivial.",
+    "This result does not by itself widen the live admission gate."
+  ]
+}
