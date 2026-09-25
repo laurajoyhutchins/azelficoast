@@ -6,6 +6,7 @@ on:
     paths:
       - "scripts/sample_joint_random_battle_posterior.cjs"
       - "src/azelficoast/joint_posterior.py"
+      - "src/azelficoast/posterior_validity.py"
       - "src/azelficoast/belief_evaluator.py"
       - "src/azelficoast/live_belief.py"
       - "tests/test_joint_posterior.py"
