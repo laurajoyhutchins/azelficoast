@@ -19,7 +19,7 @@ simulator = [
 ]
 
 [project.scripts]
-azelficoast = "azelficoast.harness:main"
+azelficoast = "azelficoast.live.harness:main"
 
 [dependency-groups]
 dev = [
