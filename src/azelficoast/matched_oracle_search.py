@@ -253,6 +253,34 @@ def _leaf_actions(outcome: Mapping[str, Any]) -> set[str]:
     )
 
 
+def _public_successor_state(outcome: Mapping[str, Any]) -> dict[str, Any]:
+    """Project transition evidence to the state observable by the evaluator.
+
+    The Showdown transition oracle keeps exact opposing HP/max-HP in successor
+    evidence when mechanics changed it so dependency analysis remains exact.
+    Those values are not public Random Battle information. The protocol/request
+    observation is the authority for what became visible, so retain it while
+    removing the hidden exact opposing HP fields from the structural successor.
+    """
+
+    successor = outcome.get("successor")
+    if not isinstance(successor, Mapping):
+        raise MatchedSearchExecutionError(
+            "learned leaf evaluation requires successor transition evidence"
+        )
+    public_successor = copy.deepcopy(dict(successor))
+    opponent_active = public_successor.get("p2_active")
+    if isinstance(opponent_active, Mapping):
+        projected = dict(opponent_active)
+        projected.pop("hp", None)
+        projected.pop("maxhp", None)
+        public_successor["p2_active"] = projected
+    return {
+        "observation": copy.deepcopy(outcome.get("observation")),
+        "successor": public_successor,
+    }
+
+
 def _learned_successor_value(
     members: Sequence[Mapping[str, Any]],
     *,
@@ -270,22 +298,19 @@ def _learned_successor_value(
             "successor information set has no probability mass"
         )
 
-    successors = [member["outcome"].get("successor") for member in members]
-    if any(not isinstance(successor, Mapping) for successor in successors):
-        raise MatchedSearchExecutionError(
-            "learned leaf evaluation requires a public successor state"
-        )
-    successor_by_digest = {
-        _canonical(successor): successor
-        for successor in successors
-        if isinstance(successor, Mapping)
+    public_states = [
+        _public_successor_state(member["outcome"])
+        for member in members
+    ]
+    public_state_by_digest = {
+        _canonical(public_state): public_state
+        for public_state in public_states
     }
-    if len(successor_by_digest) != 1:
+    if len(public_state_by_digest) != 1:
         raise MatchedSearchExecutionError(
-            "one public observation mapped to multiple successor public states"
+            "one public observation mapped to multiple projected public states"
         )
-    successor = next(iter(successor_by_digest.values()))
-    assert isinstance(successor, Mapping)
+    public_state = next(iter(public_state_by_digest.values()))
 
     action_sets = [_leaf_actions(member["outcome"]) for member in members]
     common_actions = set(action_sets[0])
@@ -324,7 +349,7 @@ def _learned_successor_value(
         "worlds": evaluator_worlds,
     }
     return evaluator.value(
-        public_state=successor,
+        public_state=public_state,
         posterior=posterior,
         legal_actions=sorted(common_actions),
     )
