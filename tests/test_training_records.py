@@ -104,6 +104,7 @@ def _search_evidence(
     fixture,
     battle_tag: str,
     *,
+    run_id: str | None = None,
     posterior: dict[str, object] | None = None,
     info_values: dict[str, float] | None = None,
 ):
@@ -115,6 +116,7 @@ def _search_evidence(
     state = {
         "fixture_id": fixture.fixture_id,
         "battle_tag": battle_tag,
+        **({"run_id": run_id} if run_id is not None else {}),
         "public_state": dict(fixture.state),
         "legal_actions": list(fixture.legal_actions),
         "predictors": {"entropy": 1.0, "branch_count": 2},
@@ -438,3 +440,66 @@ def test_training_rejects_receipt_from_another_packet(tmp_path) -> None:
             search_receipt_paths=paths[1],
             posterior_paths=paths[2],
         )
+
+
+
+def test_same_battle_tag_in_distinct_runs_keeps_distinct_teacher_targets(tmp_path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    rows = []
+    for run, won in (("run-a", True), ("run-b", False)):
+        rows.extend(
+            [
+                _record(
+                    run=run,
+                    event=0,
+                    kind="protocol",
+                    room="battle-repeat",
+                    protocol_index=0,
+                    messages=[["", "turn", "4"]],
+                ),
+                _record(
+                    run=run,
+                    event=1,
+                    kind="decision",
+                    battle_tag="battle-repeat",
+                    decision_index=0,
+                    state=_state("battle-repeat"),
+                    chosen_action="/choose move psychic",
+                ),
+                _record(
+                    run=run,
+                    event=2,
+                    kind="terminal",
+                    battle_tag="battle-repeat",
+                    won=won,
+                    lost=not won,
+                    tied=False,
+                    final_state={},
+                ),
+            ]
+        )
+    _write_trace(trace, rows)
+    [fixture] = build_fixtures([trace])
+    evidence = [
+        _search_evidence(
+            fixture,
+            str(control["battle_tag"]),
+            run_id=str(control["run_id"]),
+        )
+        for control in fixture.control_decisions
+    ]
+    paths = _write_evidence(tmp_path, evidence)
+
+    records, summary = build_training_records(
+        [trace],
+        search_packet_paths=paths[0],
+        search_receipt_paths=paths[1],
+        posterior_paths=paths[2],
+    )
+
+    assert len(records) == 2
+    assert len({row["battle_id"] for row in records}) == 2
+    assert {
+        row["provenance"]["run_id"] for row in records
+    } == {"run-a", "run-b"}
+    assert summary["battle_count"] == 2
