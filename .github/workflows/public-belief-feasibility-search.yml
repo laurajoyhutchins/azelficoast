@@ -2,6 +2,7 @@ name: public-belief-feasibility-search
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - ".github/workflows/public-belief-feasibility-search.yml"
       - "src/azelficoast/harness.py"

@@ -2,6 +2,7 @@ name: exhausted-bench-real-belief
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "scripts/probe_real_belief_trace.cjs"
       - ".github/workflows/exhausted-bench-real-belief.yml"
@@ -10,6 +11,10 @@ on:
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   exact:

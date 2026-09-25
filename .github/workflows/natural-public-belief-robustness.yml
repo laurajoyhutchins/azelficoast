@@ -2,6 +2,7 @@ name: natural-public-belief-robustness
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "scripts/probe_real_belief_trace.cjs"
       - "experiments/natural-public-belief-robustness-plan.json"

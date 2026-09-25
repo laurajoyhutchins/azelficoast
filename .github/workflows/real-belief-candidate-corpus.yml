@@ -2,6 +2,7 @@ name: real-belief-candidate-corpus
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "scripts/probe_real_belief_trace.cjs"
       - "src/azelficoast/real_belief_trace.py"
@@ -13,6 +14,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   candidate-corpus:

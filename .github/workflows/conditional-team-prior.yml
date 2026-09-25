@@ -2,6 +2,7 @@ name: conditional-team-prior
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "scripts/evaluate_conditional_team_prior.cjs"
       - ".github/workflows/conditional-team-prior.yml"

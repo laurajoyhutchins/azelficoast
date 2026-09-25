@@ -2,6 +2,7 @@ name: public-belief-exact-corpus
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
@@ -12,6 +13,10 @@ on:
 permissions:
   contents: read
   actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   exact-candidate:
