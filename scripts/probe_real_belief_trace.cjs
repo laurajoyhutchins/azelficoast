@@ -1310,7 +1310,11 @@ function immediateWholeTurn(world, action) {
       probability: 1 / ROOT_CHANCE_SAMPLES,
       observation: observation(battle, logStart),
       successor: stateSummary(battle, world),
-      legal_actions: battle.ended ? ["<terminal>"] : legalP1Continuations(battle),
+      legal_actions: battle.ended
+        ? ["<terminal>"]
+        : battle.p1.activeRequest?.wait
+          ? ["<wait>"]
+          : legalP1Continuations(battle),
       transition_reads: transitionReads,
     });
     battle.destroy();
