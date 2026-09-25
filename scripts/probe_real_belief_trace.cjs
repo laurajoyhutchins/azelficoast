@@ -1381,13 +1381,9 @@ function matchupPressure(battle, attacker, defender) {
   const attackerSpeed = Number(attacker.species?.baseStats?.spe || 0);
   const defenderSpeed = Number(defender.species?.baseStats?.spe || 0);
   const speed = attackerSpeed > defenderSpeed ? 0.1 : attackerSpeed < defenderSpeed ? -0.1 : 0;
-  const publicView = publicOpponentView(attacker.species?.name);
-  const publicHp = Number(publicView && publicView.hp_fraction);
-  const hp = Number.isFinite(publicHp)
-    ? publicHp
-    : attacker.maxhp > 0
-      ? attacker.hp / attacker.maxhp
-      : 0;
+  // The opponent knows its own exact HP. From Azelficoast's perspective this is
+  // private information carried by the hidden world, not leaked public state.
+  const hp = attacker.maxhp > 0 ? attacker.hp / attacker.maxhp : 0;
   return offensive - defensive + speed + 0.4 * hp;
 }
 
@@ -1404,12 +1400,12 @@ function legalOpponentSwitches(battle) {
   return battle.p2.pokemon
     .filter(pokemon => {
       if (pokemon.hp <= 0 || pokemon.active) return false;
+      if (JOINT_OPPONENT_POSTERIOR) return true;
       const view = publicOpponentView(pokemon.species.name);
       if (!view || view.fainted) return false;
       const hpFraction = Number(view.hp_fraction);
-      // Full health has one exact public interpretation. Damaged bench HP is still
-      // percentage-censored and needs its own posterior before it can be switched in
-      // without inventing an exact value.
+      // The active-only live posterior has no bench-set/HP support. Keep that
+      // cheaper path conservative; joint teacher worlds may use every private bench.
       return Number.isFinite(hpFraction) && Math.abs(hpFraction - 1) <= 1e-12;
     })
     .map(pokemon => ({
@@ -1751,6 +1747,7 @@ function opponentActionDistribution(battle, hiddenReads = null) {
   }
   if (request.forceSwitch) {
     if (hiddenReads && BENCH_PRIOR) hiddenReads.add(BENCH_FACTOR_FIELD);
+    if (hiddenReads && JOINT_OPPONENT_POSTERIOR) hiddenReads.add("opponent.bench");
     const switches = battle.p2.pokemon
       .filter(pokemon => pokemon.hp && !pokemon.active)
       .map(pokemon => `switch ${pokemon.position + 1}`)
@@ -1787,6 +1784,9 @@ function opponentActionDistribution(battle, hiddenReads = null) {
       hiddenReads.add("opponent.active.tera_type");
       if (legalSwitches.length && BENCH_PRIOR) {
         hiddenReads.add(BENCH_FACTOR_FIELD);
+      }
+      if (legalSwitches.length && JOINT_OPPONENT_POSTERIOR) {
+        hiddenReads.add("opponent.bench");
       }
     }
   }
@@ -1865,13 +1865,16 @@ function stateSummary(battle, world) {
 }
 
 function utility(battle) {
-  const ownMaterial = battle.p1.pokemon.reduce(
+  const material = side => side.pokemon.reduce(
     (sum, pokemon) => sum + (pokemon.maxhp ? pokemon.hp / pokemon.maxhp : 0),
     0
   );
+  if (JOINT_OPPONENT_POSTERIOR) {
+    return material(battle.p1) - material(battle.p2);
+  }
   const opponent = battle.p2.active[0];
   const opponentActive = opponent && opponent.maxhp ? opponent.hp / opponent.maxhp : 0;
-  return ownMaterial - opponentActive;
+  return material(battle.p1) - opponentActive;
 }
 
 function expectedContinuationValue(snapshot, choice, hiddenReads, seedSalt) {
