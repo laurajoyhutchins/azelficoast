@@ -90,3 +90,49 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: /tmp/azelficoast-research/${{ matrix.experiment }}
           if-no-files-found: error
+
+  certify:
+    needs: [plan, exact]
+    if: always() && needs.plan.result == 'success'
+    name: certify exact head
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require selected exact evidence
+        env:
+          SELECTED_COUNT: ${{ needs.plan.outputs.count }}
+          EXACT_RESULT: ${{ needs.exact.result }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MATRIX: ${{ needs.plan.outputs.matrix }}
+        run: |
+          set -euo pipefail
+          if [[ "${SELECTED_COUNT}" != "0" && "${EXACT_RESULT}" != "success" ]]; then
+            echo "candidate research failed: exact jobs=${EXACT_RESULT}" >&2
+            exit 1
+          fi
+
+          mkdir -p /tmp/candidate-research-certificate
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          matrix = json.loads(os.environ["MATRIX"])
+          certificate = {
+              "schema": "azelficoast.candidate-research-certificate",
+              "git_sha": os.environ["HEAD_SHA"],
+              "selected_experiments": [
+                  entry["experiment"] for entry in matrix["include"]
+              ],
+              "passed": True,
+          }
+          Path("/tmp/candidate-research-certificate/certificate.json").write_text(
+              json.dumps(certificate, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-research-certificate
+          path: /tmp/candidate-research-certificate/certificate.json
+          if-no-files-found: error

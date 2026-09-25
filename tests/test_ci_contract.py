@@ -201,3 +201,14 @@ def test_status_move_workflow_uses_only_canonical_source() -> None:
     assert "/tmp/azelficoast-evidence/status-source.json" in source
     assert "/tmp/status-source.json" not in source
     assert "/tmp/status-source-summary.json" not in source
+
+
+def test_candidate_research_emits_one_exact_head_certificate() -> None:
+    source = (WORKFLOWS / "candidate-research.yml").read_text(encoding="utf-8")
+
+    assert "\n  certify:\n" in source
+    assert "needs: [plan, exact]" in source
+    assert "if: always() && needs.plan.result == 'success'" in source
+    assert '"schema": "azelficoast.candidate-research-certificate"' in source
+    assert '"git_sha": os.environ["HEAD_SHA"]' in source
+    assert "name: candidate-research-certificate" in source
