@@ -1,0 +1,91 @@
+name: switch-intimidate-experiment
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - "src/azelficoast/gen9_damage.py"
+      - "src/azelficoast/gen9_attack.py"
+      - "src/azelficoast/voluntary_switch_turn.py"
+      - "src/azelficoast/switch_hazard_turn.py"
+      - "src/azelficoast/staged_attack.py"
+      - "src/azelficoast/switch_intimidate_turn.py"
+      - "src/azelficoast/switch_intimidate_experiment.py"
+      - "scripts/generate_showdown_switch_intimidate_fixtures.cjs"
+      - "tests/test_switch_intimidate_turn.py"
+      - ".github/workflows/switch-intimidate-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  switch-intimidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: "true"
+
+      - name: Restore verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+        with:
+          sha: a5df8274e85b0889bf2a9b3422a08b39732374fc
+          path: /tmp/pokemon-showdown
+          save-cache: "false"
+
+      - name: Generate exact Intimidate switch fixtures
+        run: |
+          node scripts/generate_showdown_switch_intimidate_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/switch-intimidate-fixtures.json
+
+      - name: Test Intimidate switch machinery
+        run: uv run pytest tests/test_switch_intimidate_turn.py
+
+      - name: Run Intimidate switch experiment
+        run: |
+          uv run python -m azelficoast.switch_intimidate_experiment             /tmp/switch-intimidate-fixtures.json             | tee /tmp/switch-intimidate-result.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/switch-intimidate-result.json").read_text()
+          )
+          assert result["passed"] is True, result
+          assert result["fixture_count"] == 256, result
+          assert result["showdown_exact"] is True, result
+          assert result["hazard_damage_events_exact"] is True, result
+          assert result["hazards_before_intimidate_exact"] is True, result
+          assert result["intimidate_stage_state_exact"] is True, result
+          assert result["rng_request_shape_exact"] is True, result
+          assert result["hazard_ko_skips_intimidate_fixture_count"] > 0, result
+          assert result["boots_enable_intimidate_fixture_count"] > 0, result
+
+          projection = result["projection"]
+          assert projection["logical_world_count"] == 4096, result
+          assert projection["execution_class_count"] == 100, result
+          assert projection["hazard_ko_class_count"] == 1, result
+          assert projection["survivor_miss_class_count"] == 3, result
+          assert projection["survivor_hit_class_count"] == 96, result
+          assert projection["untouched_bench_factor_collapsed"] is True, result
+          assert projection["direct_equals_projected"] is True, result
+          assert projection["reduction_factor"] == 40.96, result
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: switch-intimidate-evidence
+          path: |
+            /tmp/switch-intimidate-fixtures.json
+            /tmp/switch-intimidate-result.json
+          if-no-files-found: error
