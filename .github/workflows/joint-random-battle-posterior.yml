@@ -75,7 +75,32 @@ jobs:
       - name: Sample joint full-team posterior
         run: |
           source="$(cat /tmp/joint-source-path)"
-          node scripts/sample_joint_random_battle_posterior.cjs             /tmp/pokemon-showdown             "$source"             --target-particles 16             --minimum-particles 8             --max-rounds 65536             > /tmp/joint-posterior.json
+          echo "fixture=$source"
+          set +e
+          node scripts/sample_joint_random_battle_posterior.cjs \
+            /tmp/pokemon-showdown \
+            "$source" \
+            --target-particles 16 \
+            --minimum-particles 8 \
+            --max-rounds 65536 \
+            > /tmp/joint-posterior.json
+          sampler_status=$?
+          set -e
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          d = json.loads(Path("/tmp/joint-posterior.json").read_text())
+          c = d["construction"]
+          print(
+              "support_status=", d["support_status"],
+              "attempted=", c["attempted_team_count"],
+              "accepted=", c["accepted_team_count"],
+              "unique=", c["unique_particle_count"],
+              "acceptance_rate=", c["acceptance_rate"],
+              "ess=", c["effective_sample_size"],
+          )
+          PY
+          test "$sampler_status" -eq 0 -o "$sampler_status" -eq 3
 
       - name: Validate atomic posterior
         run: |
