@@ -1985,7 +1985,7 @@ function declaredReads(action) {
 }
 
 function factoredBenchAudit(worlds, legalActions, transitions) {
-  if (!BENCH_PRIOR) return null;
+  if (JOINT_OPPONENT_POSTERIOR || !BENCH_PRIOR) return null;
 
   const rootSurvivalByAction = Object.fromEntries(
     legalActions.map(action => [
@@ -2117,69 +2117,293 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
   };
 }
 
-const {matched, itemCounts, variants} = generatorVariants();
-const mechanicsProjectionCount = mechanicsProjectionVariantCount(variants);
-if (
-  source.expected_generator_rounds != null &&
-  Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
-) {
-  fail(
-    `expected generator rounds ${source.expected_generator_rounds}, probe uses ${GENERATOR_ROUNDS}`
-  );
+function jointVariant(member) {
+  return {
+    species: toID(member.species),
+    ability: member.ability,
+    item: member.item,
+    level: Number(member.level),
+    moves: [...member.moves].map(toID).sort(),
+    evs: {...member.evs},
+    ivs: {...member.ivs},
+    teraType: member.tera_type,
+    gender: member.gender || null,
+    role: member.role || null,
+    nature: member.nature || "Serious",
+    wasLead: member.was_lead === true,
+  };
 }
-if (source.expected_item_counts != null) {
-  const expectedCounts = stable(source.expected_item_counts);
-  const observedCounts = stable(itemCounts);
-  if (JSON.stringify(expectedCounts) !== JSON.stringify(observedCounts)) {
-    fail(
-      `exact hidden-world prior drift: expected ${JSON.stringify(expectedCounts)}, got ${JSON.stringify(observedCounts)}`
+
+function showdownSetFromJoint(member) {
+  const variant = jointVariant(member);
+  return {
+    species: variant.species,
+    level: variant.level,
+    gender: variant.gender || undefined,
+    ability: variant.ability,
+    item: variant.item || "",
+    moves: variant.moves,
+    teraType: variant.teraType,
+    nature: variant.nature,
+    evs: {...variant.evs},
+    ivs: {...variant.ivs},
+  };
+}
+
+function jointMemberHpStates(member) {
+  const variant = jointVariant(member);
+  const view = publicOpponentView(variant.species);
+  if (!view) {
+    const maxhp = exactMaxHpForVariant(variant);
+    return [{exactHp: maxhp, maxhp, status: ""}];
+  }
+  const rawCurrentHp = view.current_hp;
+  const numericCurrentHp =
+    rawCurrentHp == null ? Number.NaN : Number(rawCurrentHp);
+  const fainted =
+    view.fainted === true ||
+    view.status === "FNT" ||
+    numericCurrentHp === 0;
+  if (fainted) {
+    const maxhp = exactMaxHpForVariant(variant);
+    return [{exactHp: 0, maxhp, status: ""}];
+  }
+  const hpFraction = Number(view.hp_fraction);
+  const observedPercent = Number.isFinite(numericCurrentHp)
+    ? numericCurrentHp
+    : Number.isFinite(hpFraction)
+      ? Math.round(100 * hpFraction)
+      : Number.NaN;
+  const {maxhp, support} = hpSupportForObservedPercent(
+    variant,
+    observedPercent
+  );
+  const status = view.status && view.status !== "FNT" ? toID(view.status) : "";
+  return support.map(exactHp => ({exactHp, maxhp, status}));
+}
+
+function jointOpponentWorlds() {
+  if (!JOINT_OPPONENT_POSTERIOR) return null;
+  const document = JOINT_OPPONENT_POSTERIOR;
+  if (
+    document.schema !== "azelficoast.joint-random-battle-posterior" ||
+    document.schema_version !== 1 ||
+    document.showdown_commit !== actualCommit ||
+    document.conditioned_on_public_history !== true ||
+    document.realized_hidden_state_revealed !== false ||
+    document.support_status !== "sufficient" ||
+    !document.construction ||
+    document.construction.preserves_joint_team_set_correlations !== true ||
+    !Array.isArray(document.worlds) ||
+    !document.worlds.length
+  ) {
+    fail("joint opponent posterior violates the exact-search contract");
+  }
+
+  const currentSpecies = toID(fixture.state.opponent_active.species);
+  const byId = new Map();
+
+  for (const particle of document.worlds) {
+    const particleWeight = Number(particle && particle.weight);
+    const team = particle && particle.hidden && particle.hidden.team;
+    if (!(particleWeight > 0) || !Array.isArray(team) || !team.length) {
+      fail("joint opponent posterior contains a malformed particle");
+    }
+
+    if (team.some(member => {
+      const species = toID(member && member.species);
+      return species === "zoroark" || species === "zoroarkhisui";
+    })) {
+      fail(
+        "joint opponent posterior contains Illusion state whose generated team order " +
+        "is not retained by the current particle schema"
+      );
+    }
+
+    const activeMember = team.find(
+      member => toID(member && member.species) === currentSpecies
     );
+    if (!activeMember) {
+      fail("joint opponent particle does not contain the public active species");
+    }
+
+    const ordered = [
+      activeMember,
+      ...team
+        .filter(member => member !== activeMember)
+        .sort((left, right) =>
+          toID(left.species).localeCompare(toID(right.species))
+        ),
+    ];
+    const hpStates = ordered.map(jointMemberHpStates);
+    const assignments = [];
+
+    function expand(index, rows) {
+      if (index === hpStates.length) {
+        assignments.push(rows);
+        return;
+      }
+      for (const state of hpStates[index]) {
+        expand(index + 1, [...rows, state]);
+      }
+    }
+    expand(0, []);
+
+    const assignmentWeight = particleWeight / assignments.length;
+    for (const assignment of assignments) {
+      const activeVariant = jointVariant(ordered[0]);
+      const activeState = assignment[0];
+      const bench = ordered.slice(1).map((member, index) => ({
+        species: toID(member.species),
+        set: showdownSetFromJoint(member),
+        variant: jointVariant(member),
+        exactHp: assignment[index + 1].exactHp,
+        maxhp: assignment[index + 1].maxhp,
+        status: assignment[index + 1].status,
+      }));
+      const hidden = {
+        "opponent.active.item": activeVariant.item,
+        "opponent.active.ability": activeVariant.ability,
+        "opponent.active.moves": activeVariant.moves,
+        "opponent.active.tera_type": activeVariant.teraType,
+        "opponent.active.evs": activeVariant.evs,
+        "opponent.active.ivs": activeVariant.ivs,
+        "opponent.active.exact_hp": activeState.exactHp,
+        "opponent.bench": bench.map(row => ({
+          species: row.species,
+          level: row.variant.level,
+          ability: row.variant.ability,
+          item: row.variant.item,
+          moves: row.variant.moves,
+          tera_type: row.variant.teraType,
+          evs: row.variant.evs,
+          ivs: row.variant.ivs,
+          exact_hp: row.exactHp,
+          max_hp: row.maxhp,
+          status: row.status || null,
+        })),
+      };
+      const worldId = sha256(hidden);
+      const existing = byId.get(worldId);
+      if (existing) {
+        existing.weight += assignmentWeight;
+        existing.sample_count += Number(particle.sample_count || 0);
+        continue;
+      }
+      byId.set(worldId, {
+        world_id: worldId,
+        weight: assignmentWeight,
+        hidden,
+        variant: activeVariant,
+        exactHp: activeState.exactHp,
+        opponent_max_hp: activeState.maxhp,
+        opponentBench: bench,
+        sample_count: Number(particle.sample_count || 0),
+      });
+    }
+  }
+
+  if (!byId.size) fail("joint opponent posterior has no supported particles");
+  const worlds = [...byId.values()];
+  const total = worlds.reduce((sum, world) => sum + world.weight, 0);
+  for (const world of worlds) world.weight /= total;
+  return {
+    worlds,
+    treatment: String(document.construction.posterior_treatment || ""),
+    posteriorSha256: String(document.posterior_sha256 || ""),
+    particleCount: document.worlds.length,
+  };
+}
+
+const jointSupport = jointOpponentWorlds();
+let matched = 0;
+let itemCounts = {};
+let variants = [];
+let mechanicsProjectionCount = 0;
+if (!jointSupport) {
+  const activeSupport = generatorVariants();
+  matched = activeSupport.matched;
+  itemCounts = activeSupport.itemCounts;
+  variants = activeSupport.variants;
+  mechanicsProjectionCount = mechanicsProjectionVariantCount(variants);
+  if (
+    source.expected_generator_rounds != null &&
+    Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
+  ) {
+    fail(
+      `expected generator rounds ${source.expected_generator_rounds}, probe uses ${GENERATOR_ROUNDS}`
+    );
+  }
+  if (source.expected_item_counts != null) {
+    const expectedCounts = stable(source.expected_item_counts);
+    const observedCounts = stable(itemCounts);
+    if (JSON.stringify(expectedCounts) !== JSON.stringify(observedCounts)) {
+      fail(
+        `exact hidden-world prior drift: expected ${JSON.stringify(expectedCounts)}, got ${JSON.stringify(observedCounts)}`
+      );
+    }
   }
 }
 
 const worldById = new Map();
-for (const entry of variants) {
-  const {maxhp, support} = hpSupportForVariant(entry.set);
-  for (const exactHp of support) {
-    const hidden = {
-      "opponent.active.item": entry.set.item,
-      "opponent.active.ability": entry.set.ability,
-      "opponent.active.moves": entry.set.moves,
-      "opponent.active.tera_type": entry.set.teraType,
-      "opponent.active.evs": entry.set.evs,
-      "opponent.active.ivs": entry.set.ivs,
-      "opponent.active.exact_hp": exactHp,
-    };
-    const worldId = sha256(hidden);
-    if (worldById.has(worldId)) {
-      fail(`duplicate semantic hidden-world identity: ${worldId}`);
+if (jointSupport) {
+  for (const world of jointSupport.worlds) worldById.set(world.world_id, world);
+} else {
+  for (const entry of variants) {
+    const {maxhp, support} = hpSupportForVariant(entry.set);
+    for (const exactHp of support) {
+      const hidden = {
+        "opponent.active.item": entry.set.item,
+        "opponent.active.ability": entry.set.ability,
+        "opponent.active.moves": entry.set.moves,
+        "opponent.active.tera_type": entry.set.teraType,
+        "opponent.active.evs": entry.set.evs,
+        "opponent.active.ivs": entry.set.ivs,
+        "opponent.active.exact_hp": exactHp,
+      };
+      const worldId = sha256(hidden);
+      if (worldById.has(worldId)) {
+        fail(`duplicate semantic hidden-world identity: ${worldId}`);
+      }
+      worldById.set(worldId, {
+        world_id: worldId,
+        weight: (entry.count / matched) / support.length,
+        hidden,
+        variant: entry.set,
+        exactHp,
+        opponent_max_hp: maxhp,
+        generator_count: entry.count,
+      });
     }
-    worldById.set(worldId, {
-      world_id: worldId,
-      weight: (entry.count / matched) / support.length,
-      hidden,
-      variant: entry.set,
-      exactHp,
-      opponent_max_hp: maxhp,
-      generator_count: entry.count,
-    });
   }
 }
 const worlds = [...worldById.values()];
 if (worlds.length < 2) fail("real trace did not reconstruct multiple hidden worlds");
+
+const posteriorTreatment = jointSupport
+  ? jointSupport.treatment
+  : "generator_faithful";
+if (!posteriorTreatment) fail("posterior treatment identity is empty");
 
 const legalActions = fixture.state.legal_actions.map(String);
 const outputWorlds = worlds.map(world => ({
   world_id: world.world_id,
   weight: world.weight,
   hidden: world.hidden,
-  provenance: {
-    generator_count: world.generator_count,
-    generator_rounds: GENERATOR_ROUNDS,
-    generator_variant_count: 1,
-    opponent_max_hp: world.opponent_max_hp,
-    hp_prior: "uniform-within-public-percentage-bucket",
-  },
+  provenance: jointSupport
+    ? {
+        joint_particle_sample_count: world.sample_count,
+        joint_posterior_sha256: jointSupport.posteriorSha256,
+        active_max_hp: world.opponent_max_hp,
+        hp_prior: "uniform-within-each-revealed-public-percentage-bucket",
+      }
+    : {
+        generator_count: world.generator_count,
+        generator_rounds: GENERATOR_ROUNDS,
+        generator_variant_count: 1,
+        opponent_max_hp: world.opponent_max_hp,
+        hp_prior: "uniform-within-public-percentage-bucket",
+      },
 }));
 
 if (posteriorOnly) {
@@ -2190,24 +2414,38 @@ if (posteriorOnly) {
     showdown_commit: actualCommit,
     conditioned_on_public_history: true,
     realized_hidden_state_revealed: false,
-    reconstruction: {
-      generator_rounds: GENERATOR_ROUNDS,
-      generator_matches: matched,
-      generator_variant_count: variants.length,
-      mechanics_projection_variant_count: mechanicsProjectionCount,
-      mechanics_projection_fields:
-        OPPONENT_POLICY.kind === "uniform-legal-moves"
-          ? ["opponent.active.tera_type"]
-          : ["opponent.active.moves", "opponent.active.tera_type"],
-      mechanics_projection_scope:
-        "execution optimization only; semantic posterior support retains every generator variant",
-      observed_opponent_moves: observedOpponentMoves(),
-      known_opponent_item: source.known_opponent_item || null,
-      opponent_policy: OPPONENT_POLICY,
-      hidden_world_count: outputWorlds.length,
-      own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
-      opponent_bench_species: OPPONENT_BENCH_SPECIES,
-    },
+    treatment: posteriorTreatment,
+    reconstruction: jointSupport
+      ? {
+          kind: "joint-team-particles-with-dynamic-hp",
+          joint_posterior_sha256: jointSupport.posteriorSha256,
+          joint_particle_count: jointSupport.particleCount,
+          preserves_joint_team_set_correlations: true,
+          damaged_revealed_bench_hp:
+            "uniform-exact-hp-support-within-public-percentage-bucket",
+          opponent_policy: OPPONENT_POLICY,
+          hidden_world_count: outputWorlds.length,
+          own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+        }
+      : {
+          kind: "active-set-generator-posterior",
+          generator_rounds: GENERATOR_ROUNDS,
+          generator_matches: matched,
+          generator_variant_count: variants.length,
+          mechanics_projection_variant_count: mechanicsProjectionCount,
+          mechanics_projection_fields:
+            OPPONENT_POLICY.kind === "uniform-legal-moves"
+              ? ["opponent.active.tera_type"]
+              : ["opponent.active.moves", "opponent.active.tera_type"],
+          mechanics_projection_scope:
+            "execution optimization only; semantic posterior support retains every generator variant",
+          observed_opponent_moves: observedOpponentMoves(),
+          known_opponent_item: source.known_opponent_item || null,
+          opponent_policy: OPPONENT_POLICY,
+          hidden_world_count: outputWorlds.length,
+          own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
+          opponent_bench_species: OPPONENT_BENCH_SPECIES,
+        },
     legal_actions: legalActions,
     worlds: outputWorlds,
   }, null, 2) + "\n");
