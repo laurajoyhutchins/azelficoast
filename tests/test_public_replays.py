@@ -318,7 +318,7 @@ def test_public_import_manifest_marks_identifiers_and_human_actions_non_authorit
     async def fake_reconstruct(_replay, *, showdown_root):
         return rows
 
-    monkeypatch.setattr(public_replays, "reconstruct_replay_trace", fake_reconstruct)
+    monkeypatch.setattr(public_replays, "_reconstruct_replay_trace", fake_reconstruct)
 
     result = public_replays.import_public_replays(
         showdown_root=tmp_path / "showdown",
