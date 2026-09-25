@@ -366,7 +366,10 @@ def _input_players(inputlog: str) -> dict[str, dict[str, Any]]:
 
 
 def _has_recoverable_hidden_truth(inputlog: str) -> bool:
-    players = _input_player_options(inputlog)
+    try:
+        players = _input_player_options(inputlog)
+    except PublicReplayError:
+        return False
     for options in players.values():
         team = options.get("team")
         seed = options.get("seed")
