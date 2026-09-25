@@ -218,7 +218,7 @@ def _validate_program_shape(
             )
         if set(boundary) != set(candidates).union(nonexecution):
             raise MechanicsContractError(
-                "read-refinement kernel boundary does not match execution plus marginalized fields"
+                "read-refinement kernel boundary does not match execution plus nonexecution semantic fields"
             )
         if set(boundary) != observed_hidden_fields:
             raise MechanicsContractError(
