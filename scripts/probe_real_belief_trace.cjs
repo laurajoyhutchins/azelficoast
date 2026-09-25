@@ -85,6 +85,14 @@ const DEPENDENCY_CANDIDATES = [
   "opponent.active.ivs",
   "opponent.active.exact_hp",
 ];
+const KERNEL_MARGINALIZED_HIDDEN_FIELDS = [
+  "opponent.active.moves",
+  "opponent.active.tera_type",
+];
+const KERNEL_HIDDEN_BOUNDARY = [
+  ...DEPENDENCY_CANDIDATES,
+  ...KERNEL_MARGINALIZED_HIDDEN_FIELDS,
+].sort();
 const BENCH_FACTOR_FIELD = "opponent.bench.species";
 
 const actualCommit = execFileSync(
@@ -1289,6 +1297,7 @@ function immediateWholeTurn(world, action) {
     );
   return {
     outcomes,
+    program_outcomes: semantics,
     read_fields: [...reads].sort(),
     semantic_hash: sha256PythonCanonical(semantics),
   };
@@ -1310,6 +1319,10 @@ function counterfactualWorld(baseWorld, donorWorld, field) {
     world.variant.item = donorWorld.variant.item;
   } else if (field === "opponent.active.ability") {
     world.variant.ability = donorWorld.variant.ability;
+  } else if (field === "opponent.active.moves") {
+    world.variant.moves = cloneJson(donorWorld.variant.moves);
+  } else if (field === "opponent.active.tera_type") {
+    world.variant.teraType = donorWorld.variant.teraType;
   } else if (field === "opponent.active.evs") {
     world.variant.evs = cloneJson(donorWorld.variant.evs);
   } else if (field === "opponent.active.ivs") {
@@ -1374,7 +1387,6 @@ function compileLazyWholeTurnPrograms() {
       record = {
         execution: immediateWholeTurn(world, action),
         roles: new Set(),
-        synthetic: String(world.world_id).startsWith("counterfactual-"),
       };
       executionCache.set(key, record);
     }
@@ -1383,102 +1395,78 @@ function compileLazyWholeTurnPrograms() {
   }
 
   for (const action of legalActions) {
-    const representative = orderedWorlds[0];
-    const baseline = executeWorld(representative, action, "causal-baseline");
-    const observedFields = new Set(baseline.read_fields);
-    const pendingFields = [...observedFields];
-    const causalFields = new Set();
-    const probes = [];
-
-    for (let cursor = 0; cursor < pendingFields.length; cursor++) {
-      const field = pendingFields[cursor];
-      const donorsByValue = new Map();
-      for (const donor of orderedWorlds) {
-        const valueKey = JSON.stringify(stable(donor.hidden[field]));
-        if (!donorsByValue.has(valueKey)) donorsByValue.set(valueKey, donor);
-      }
-
-      const baselineValue = JSON.stringify(stable(representative.hidden[field]));
-      if (donorsByValue.size <= 1) continue;
-
-      for (const [valueKey, donor] of donorsByValue) {
-        if (valueKey === baselineValue) continue;
-        const counterfactual = counterfactualWorld(representative, donor, field);
-        const execution = executeWorld(counterfactual, action, "causal-probe");
-        for (const discovered of execution.read_fields) {
-          if (!observedFields.has(discovered)) {
-            observedFields.add(discovered);
-            pendingFields.push(discovered);
-          }
-        }
-        const changed = execution.semantic_hash !== baseline.semantic_hash;
-        probes.push({
-          field,
-          donor_world_id: donor.world_id,
-          semantic_changed: changed,
-          baseline_semantic_hash: baseline.semantic_hash,
-          candidate_semantic_hash: execution.semantic_hash,
-        });
-        if (changed) {
-          causalFields.add(field);
-          break;
-        }
-      }
-    }
-
-    // Causal interventions can miss interactions between fields or boundaries
-    // where a one-unit change alters a sampled whole-turn result. Any varying
-    // field observed by Showdown is therefore retained as a conservative
-    // partition key; causalFields remains the narrower intervention evidence.
-    const varyingObservedFields = [...observedFields].filter((field) => {
-      const values = new Set(
-        orderedWorlds.map((world) => JSON.stringify(stable(world.hidden[field])))
-      );
-      return values.size > 1;
-    });
-    const dependencyFields = [...new Set([...causalFields, ...varyingObservedFields])].sort();
-    const groups = new Map();
-    for (const world of orderedWorlds) {
-      const key = JSON.stringify(projectionKey(world, dependencyFields));
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(world);
-    }
-
+    const pending = [orderedWorlds];
     const classes = [];
-    for (const [key, members] of [...groups.entries()].sort(([left], [right]) =>
-      left.localeCompare(right)
-    )) {
-      const representativeWorld = [...members].sort((left, right) =>
+    const dependencyFields = new Set();
+
+    while (pending.length) {
+      const members = [...pending.pop()].sort((left, right) =>
         left.world_id.localeCompare(right.world_id)
-      )[0];
+      );
+      const representativeWorld = members[0];
       const execution = executeWorld(
         representativeWorld,
         action,
         "class-representative"
       );
+      const readFields = [...execution.read_fields].sort();
+      const unknownReads = readFields.filter(
+        field => !DEPENDENCY_CANDIDATES.includes(field)
+      );
+      if (unknownReads.length) {
+        fail(
+          `${action}: read-refinement kernel observed fields outside its hidden boundary: ` +
+          JSON.stringify(unknownReads)
+        );
+      }
+      for (const field of readFields) dependencyFields.add(field);
+
+      const groups = new Map();
+      for (const world of members) {
+        const key = JSON.stringify(projectionKey(world, readFields));
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(world);
+      }
+
+      if (groups.size > 1) {
+        const partitions = [...groups.values()]
+          .map(group => [...group].sort((left, right) =>
+            left.world_id.localeCompare(right.world_id)
+          ))
+          .sort((left, right) =>
+            left[0].world_id.localeCompare(right[0].world_id)
+          );
+        for (const group of partitions.reverse()) pending.push(group);
+        continue;
+      }
+
+      const projection = projectionKey(representativeWorld, readFields);
       const memberWorldIds = members.map(world => world.world_id).sort();
       const classId = "transition-class-" + sha256({
         action,
-        causal_fields: [...causalFields].sort(),
-        key,
+        read_fields: readFields,
+        key: projection,
         semantic_hash: execution.semantic_hash,
       }).slice(0, 24);
       classes.push({
         class_id: classId,
-        read_fields: [...observedFields].sort(),
-        causal_fields: [...causalFields].sort(),
-        projection_key: projectionKey(representativeWorld, dependencyFields),
+        read_fields: readFields,
+        projection_key: projection,
         representative_world_id: representativeWorld.world_id,
         member_world_ids: memberWorldIds,
         semantic_hash: execution.semantic_hash,
-        outcomes: execution.outcomes,
+        outcomes: execution.program_outcomes,
       });
     }
 
+    classes.sort((left, right) =>
+      left.representative_world_id.localeCompare(right.representative_world_id)
+    );
+    const fields = [...dependencyFields].sort();
     const partitionKeyHash = sha256({
       action,
-      partition_method: "counterfactual-causal-refinement",
-      fields: dependencyFields,
+      partition_method: "instrumented-read-kernel",
+      fields,
       classes: classes.map(row => ({
         class_id: row.class_id,
         members: row.member_world_ids,
@@ -1489,33 +1477,27 @@ function compileLazyWholeTurnPrograms() {
       showdown_commit: actualCommit,
       source_fixture_id: fixture.fixture_id,
       action,
-      dependency_fields: dependencyFields,
+      dependency_fields: fields,
       partition_key_hash: partitionKeyHash,
     });
 
     programs.push({
       action,
       effect_signature: effectSignature,
-      dependency_fields: dependencyFields,
-      observed_read_fields: [...observedFields].sort(),
-      partition_method: "counterfactual-causal-refinement",
+      dependency_fields: fields,
+      partition_method: "instrumented-read-kernel",
       representative_world_count: classes.length,
       worlds_in: worlds.length,
       classes_out: classes.length,
       world_reduction: worlds.length - classes.length,
       reduction_fraction: 1 - classes.length / worlds.length,
       partition_key_hash: partitionKeyHash,
-      causal_probe_count: probes.length,
-      causal_probes: probes,
       classes,
     });
   }
 
   const cacheRows = [...executionCache.values()];
   const uniqueExecutions = cacheRows.length;
-  const causalProbeExecutions = cacheRows.filter(
-    row => row.roles.has("causal-probe")
-  ).length;
   const classRepresentativeExecutions = cacheRows.filter(
     row => row.roles.has("class-representative")
   ).length;
@@ -1529,12 +1511,34 @@ function compileLazyWholeTurnPrograms() {
     world_ids: worlds.map(world => world.world_id).sort(),
     legal_actions: legalActions,
     dependency_candidates: DEPENDENCY_CANDIDATES,
+    kernel_evidence: {
+      schema: "azelficoast.core.read-refinement-kernel",
+      schema_version: 1,
+      mechanics_revision: actualCommit,
+      algorithm: "representative-dynamic-read-refinement",
+      hidden_boundary: KERNEL_HIDDEN_BOUNDARY,
+      execution_dependency_candidates: DEPENDENCY_CANDIDATES,
+      marginalized_hidden_fields: KERNEL_MARGINALIZED_HIDDEN_FIELDS,
+      chance_seed_family: CHANCE_SEED_FAMILY,
+      root_chance_samples: ROOT_CHANCE_SAMPLES,
+      opponent_policy_kind: "repeat-last-observed-move",
+      opponent_tera_enabled: false,
+      claim:
+        "For this pinned execution kernel, hidden-world differences can affect the " +
+        "root transition only through the instrumented hidden boundary. A class is " +
+        "reused only when every member agrees on every hidden field read by its " +
+        "representative execution under the fixed chance-seed family.",
+      non_claim:
+        "Moves and Tera remain semantic posterior fields but are marginalized from the " +
+        "online execution key only under this fixed opponent-policy/no-opponent-Tera scope. " +
+        "Exact candidate CI must keep proving that marginalization against direct Showdown. " +
+        "The kernel does not generalize across another revision or policy surface.",
+    },
     programs,
     producer: {
-      strategy: "counterfactual-causal-refinement",
+      strategy: "representative-dynamic-read-refinement",
       root_chance_samples: ROOT_CHANCE_SAMPLES,
       unique_world_action_executions: uniqueExecutions,
-      causal_probe_executions: causalProbeExecutions,
       class_representative_executions: classRepresentativeExecutions,
       showdown_turn_executions: uniqueExecutions * ROOT_CHANCE_SAMPLES,
       exhaustive_world_action_product: exhaustiveWorldActionProduct,
@@ -1544,13 +1548,13 @@ function compileLazyWholeTurnPrograms() {
         1 - uniqueExecutions / exhaustiveWorldActionProduct,
     },
     claim:
-      "Candidate dependency fields are retained only when a one-field " +
-      "counterfactual intervention changes the complete pinned-Showdown turn " +
-      "semantics. Final classes are independently verifiable against the direct oracle.",
+      "Execution classes are produced by a revision-bound runtime read kernel: " +
+      "execute one representative, record the hidden boundary actually read, " +
+      "split on those values, and recurse only when the support disagrees.",
     non_claim:
-      "One-factor interventions do not prove absence of higher-order field " +
-      "interactions or generalization beyond this support. The direct oracle verifier " +
-      "must reject any causally proposed class that merges different turn semantics.",
+      "Online admission trusts the read-refinement kernel contract rather than " +
+      "re-executing every support member. Exact candidate CI must independently " +
+      "compare kernel classes with the exhaustive pinned-Showdown oracle.",
   };
 }
 
