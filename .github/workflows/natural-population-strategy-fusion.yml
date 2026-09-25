@@ -1,4 +1,4 @@
-# Candidate-only hosted evidence; ordinary PR edits use ci.yml only.
+# Candidate-only hosted evidence; ordinary PR edits run ci.yml only.
 name: natural-population-strategy-fusion
 
 on:
