@@ -65,6 +65,7 @@ def _candidate(fixture_id: str) -> dict[str, object]:
         "item_weights": {"Choice Band": 0.5, "Choice Scarf": 0.5},
         "persistent_protect_actions": [{"action": "/choose move protect"}],
         "persistent_switches": [],
+        "sample_rounds": 2048,
     }
 
 
@@ -114,6 +115,8 @@ def _plan(source_count: int, max_exact: int = 128) -> dict[str, object]:
         },
         "showdown_commit": "pinned",
         "admissibility": {
+            "generator_rounds": 2048,
+            "mechanics_screen_rounds": 512,
             "max_exact_states": max_exact,
             "overflow_selection": "hash",
         },
@@ -133,10 +136,12 @@ def test_freeze_population_uses_outcome_blind_hash_sampling(tmp_path) -> None:
         "schema": "azelficoast.natural-fusion-candidates",
         "persistent_only": True,
         "candidates": [_candidate("fixture-a"), _candidate("fixture-b")],
+        "excluded_fixtures": [],
     }
     mechanics = {
         "schema": "azelficoast.public-belief-speed-fork-mechanics",
         "showdown_commit": "pinned",
+        "rounds": 512,
         "cases": [_mechanics("fixture-a"), _mechanics("fixture-b")],
     }
 
