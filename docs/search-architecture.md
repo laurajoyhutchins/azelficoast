@@ -34,8 +34,17 @@ for every member of the supplied finite support.
 The important distinction is:
 
 - **Showdown answers what the turn means.**
+- **The posterior records which hidden worlds remain scientifically plausible.**
 - **The program records which distinctions search actually has to execute.**
 - **Search consumes the verified program, not the exhaustive oracle matrix.**
+
+Posterior support and execution compression are deliberately different objects. A
+hidden field may be irrelevant to the current root transition while remaining
+meaningful to the posterior, learned evaluator, or later decisions. In particular,
+moves and Tera type are retained in semantic Random Battle worlds even when the
+current fixed-response mechanics program proves that it can execute several such
+worlds through one class. The compression belongs in `TransitionProgram.classes`;
+it must not delete or merge posterior worlds.
 
 ## TransitionProgram contract
 

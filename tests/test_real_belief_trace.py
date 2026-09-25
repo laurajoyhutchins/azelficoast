@@ -448,14 +448,14 @@ def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
         analyze_oracle(document)
 
 
-def test_showdown_probe_factors_only_unread_generator_variant_state() -> None:
+def test_showdown_probe_preserves_semantic_support_before_execution_projection() -> None:
     source = (
         Path(__file__).resolve().parents[1]
         / "scripts"
         / "probe_real_belief_trace.cjs"
     ).read_text(encoding="utf-8")
 
-    assert "function executionClasses(variants)" in source
+    assert "function mechanicsProjectionVariantCount(variants)" in source
     assert '"opponent.active.item": entry.set.item' in source
     assert '"opponent.active.ability": entry.set.ability' in source
     assert '"opponent.active.evs": entry.set.evs' in source
@@ -465,9 +465,10 @@ def test_showdown_probe_factors_only_unread_generator_variant_state() -> None:
     world_block = source.split("const worldById = new Map();", 1)[1].split(
         "const worlds = [...worldById.values()];", 1
     )[0]
-    assert '"opponent.active.moves"' not in world_block
-    assert '"opponent.active.tera_type"' not in world_block
-    assert "for (const entry of executionVariants)" in world_block
+    assert '"opponent.active.moves": entry.set.moves' in world_block
+    assert '"opponent.active.tera_type": entry.set.teraType' in world_block
+    assert "for (const entry of variants)" in world_block
+    assert "mechanicsProjection" not in world_block
 
     dependency_block = source.split("const DEPENDENCY_CANDIDATES = [", 1)[1].split(
         "];", 1
@@ -475,6 +476,10 @@ def test_showdown_probe_factors_only_unread_generator_variant_state() -> None:
     assert '"opponent.active.moves"' not in dependency_block
     assert '"opponent.active.tera_type"' not in dependency_block
 
+    assert "mechanics_projection_variant_count" in source
+    assert (
+        "execution optimization only; semantic posterior support retains every "
+        "generator variant"
+    ) in source
     assert "hidden move fallback would be required" in source
-    assert '"hidden_fallback": "fail-closed"' not in source
-    assert 'hidden_fallback: "fail-closed"' in source
+    assert "marginalized_hidden" not in source
