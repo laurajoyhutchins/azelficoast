@@ -12,7 +12,7 @@ from azelficoast.matched_population import (
 def _plan() -> dict[str, object]:
     return {
         "schema": "azelficoast.matched-search-comparison-plan",
-        "schema_version": 3,
+        "schema_version": 2,
         "posterior_treatments": ["generator_faithful", "practical"],
         "compute_budget": {
             "unit": "transition_evaluations",
