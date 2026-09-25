@@ -160,6 +160,7 @@ Generated output is not treated as verified merely because it was produced. Nega
 | Dependency-aware belief execution | [src/azelficoast/class_native_belief.py](src/azelficoast/class_native_belief.py) |
 | Population study machinery | [src/azelficoast/population_study.py](src/azelficoast/population_study.py) |
 | Frozen research evidence | [experiments/](experiments/) |
+| Historical experiment narrative | [docs/research-notebook.md](docs/research-notebook.md) |
 
 ## Scope
 
