@@ -1,0 +1,39 @@
+{
+  "schema": "azelficoast.natural-public-belief-robustness-plan",
+  "schema_version": 1,
+  "source_fixture_id": "e3486d3564d1f2fe2310e86ce2acf2bfbc5ee4840b75308d7421893fafed5812",
+  "source_exact_artifact": {
+    "workflow_run_id": 36055203000,
+    "artifact_id": 10832550259,
+    "digest": "sha256:25ed4d78ebc210e0ccc69bcb05741e47688716d9bbbb6138736ff4b994097443"
+  },
+  "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+  "root_chance_samples": 32,
+  "continuation_chance_samples": 32,
+  "chance_seed_families": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "preregistered_causal_pattern": {
+    "root_action": "/choose move protect",
+    "immediate_empirically_required_hidden_reads": [],
+    "observable_classes_out": 1,
+    "world_aware_continuation_by_item": {
+      "Choice Band": "move gigatonhammer",
+      "Choice Scarf": "move protect"
+    }
+  },
+  "preregistered_root_actions": {
+    "determinization": "/choose move protect",
+    "public_belief": "/choose move gigatonhammer"
+  },
+  "robustness_supported_iff": [
+    "all four treatments are valid",
+    "all four preserve the preregistered item-conditioned continuation split after Protect",
+    "all four choose Protect under determinization",
+    "all four choose Gigaton Hammer under public-belief search"
+  ],
+  "scientific_contract": "A valid failure of any robustness criterion is retained as evidence and must not be converted into a workflow failure."
+}
