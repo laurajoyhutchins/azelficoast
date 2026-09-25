@@ -10,6 +10,7 @@ from azelficoast.whole_turn_program import (
     compile_whole_turn_programs,
     execute_whole_turn_program,
     program_for_action,
+    verify_whole_turn_program_set,
 )
 
 
@@ -240,7 +241,10 @@ def _instrumented_branching_oracle() -> dict[str, object]:
 
 def test_dynamic_read_refinement_keeps_branch_local_dependencies_local() -> None:
     program = program_for_action(
-        compile_whole_turn_programs(_instrumented_branching_oracle()),
+        compile_whole_turn_programs(
+            _instrumented_branching_oracle(),
+            partition_strategy="dynamic_reads",
+        ),
         "turn",
     )
 
@@ -280,4 +284,67 @@ def test_dynamic_read_refinement_fails_closed_on_missing_instrumentation() -> No
         WholeTurnProgramError,
         match="instrumented transition reads are incomplete",
     ):
-        compile_whole_turn_programs(oracle)
+        compile_whole_turn_programs(
+            oracle,
+            partition_strategy="dynamic_reads",
+        )
+
+
+def test_direct_oracle_verifies_read_refined_program() -> None:
+    oracle = _instrumented_branching_oracle()
+    program_set = compile_whole_turn_programs(
+        oracle,
+        partition_strategy="dynamic_reads",
+    )
+
+    certificate = verify_whole_turn_program_set(program_set, oracle)
+
+    assert certificate["world_count"] == 4
+    assert certificate["action_count"] == 1
+    assert certificate["verified_class_count"] == 3
+    assert certificate["representative_world_executions"] == 3
+    assert certificate["exhaustive_world_action_product"] == 4
+    assert certificate["saved_world_action_evaluations"] == 1
+    assert certificate["reduction_fraction"] == pytest.approx(0.25)
+
+
+def test_direct_oracle_rejects_semantically_invalid_lazy_class() -> None:
+    oracle = _instrumented_branching_oracle()
+    program_set = compile_whole_turn_programs(
+        oracle,
+        partition_strategy="dynamic_reads",
+    )
+    program = program_for_action(program_set, "turn")
+    classes = program["classes"]
+    assert isinstance(classes, list)
+
+    bx = next(row for row in classes if row["member_world_ids"] == ["b-x"])
+    bx["member_world_ids"] = ["b-x", "b-y"]
+    program["classes"] = [
+        row for row in classes if row["member_world_ids"] != ["b-y"]
+    ]
+    program["classes_out"] = 2
+
+    with pytest.raises(
+        WholeTurnProgramError,
+        match="merges semantically different world",
+    ):
+        verify_whole_turn_program_set(program_set, oracle)
+
+
+def test_semantic_analysis_does_not_inherit_conservative_runtime_reads() -> None:
+    oracle = _instrumented_branching_oracle()
+
+    semantic = program_for_action(compile_whole_turn_programs(oracle), "turn")
+    read_refined = program_for_action(
+        compile_whole_turn_programs(
+            oracle,
+            partition_strategy="dynamic_reads",
+        ),
+        "turn",
+    )
+
+    assert semantic["partition_method"] == "finite-support-minimal-semantics"
+    assert semantic["classes_out"] == 4
+    assert read_refined["partition_method"] == "dynamic-read-refinement"
+    assert read_refined["classes_out"] == 3
