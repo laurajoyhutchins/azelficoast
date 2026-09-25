@@ -40,7 +40,6 @@ from azelficoast.research.training_records import (
     _terminal_outcomes,
     write_training_records,
 )
-from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 PUBLIC_PRETRAINING_BUILD_SCHEMA = "azelficoast.public-pretraining-build"
 PUBLIC_PRETRAINING_BUILD_SCHEMA_VERSION = 1
@@ -66,17 +65,32 @@ class PublicPosteriorSource(Protocol):
 
 
 class PinnedShowdownPublicPosteriorSource:
-    """Generate the same generator-faithful posterior used by live belief reasoning."""
-
-    showdown_commit = PINNED_SHOWDOWN_COMMIT
+    """Generate a posterior against the exact revision of the supplied checkout."""
 
     def __init__(self, showdown_root: str | Path, *, timeout_seconds: float = 20.0) -> None:
+        root = Path(showdown_root)
+        try:
+            completed = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=min(timeout_seconds, 5.0),
+            )
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            raise PublicPretrainingError(
+                f"cannot read public-pretraining Showdown revision: {error}"
+            ) from error
+        self.showdown_commit = completed.stdout.strip()
         self.engine = PinnedShowdownBeliefPolicy(
-            showdown_root,
+            root,
             timeout_seconds=timeout_seconds,
+            showdown_commit=self.showdown_commit,
         )
         if not self.engine.configured:
-            raise PublicPretrainingError("pinned Showdown posterior source is not configured")
+            raise PublicPretrainingError(
+                "exact-revision Showdown posterior source is not configured"
+            )
 
     def posterior(
         self, fixture: DecisionFixture
@@ -87,7 +101,10 @@ class PinnedShowdownPublicPosteriorSource:
             protocol_prefix=fixture.protocol_prefix,
             control_decisions=(),
         )
-        source, admission = build_probe_source(probe_fixture)
+        source, admission = build_probe_source(
+            probe_fixture,
+            showdown_commit=self.showdown_commit,
+        )
         if source is None:
             return PosteriorExclusion(admission)
         try:
@@ -129,9 +146,12 @@ def _human_metadata(control: Mapping[str, Any]) -> Mapping[str, Any] | None:
         return None
     replay_id = metadata.get("source_replay_id")
     side = metadata.get("source_side")
+    source_showdown_version = metadata.get("source_showdown_version")
     if not isinstance(replay_id, str) or not replay_id:
         return None
     if side not in {"p1", "p2"}:
+        return None
+    if not isinstance(source_showdown_version, str) or not source_showdown_version:
         return None
     return metadata
 
@@ -166,12 +186,20 @@ def build_public_pretraining_records(
         excluded["non_public_human_decision"] += (
             len(fixture.control_decisions) - len(human_controls)
         )
-        if not human_controls:
+        compatible_controls: list[Mapping[str, Any]] = []
+        for control in compatible_controls:
+            metadata = _human_metadata(control)
+            assert metadata is not None
+            if metadata["source_showdown_version"] != posterior_source.showdown_commit:
+                excluded["source-showdown-version-mismatch"] += 1
+                continue
+            compatible_controls.append(control)
+        if not compatible_controls:
             continue
 
         posterior_result = posterior_source.posterior(fixture)
         if isinstance(posterior_result, PosteriorExclusion):
-            excluded[posterior_result.reason] += len(human_controls)
+            excluded[posterior_result.reason] += len(compatible_controls)
             continue
         posterior = dict(posterior_result)
         posterior_digest = matched_digest(posterior)
@@ -254,6 +282,7 @@ def build_public_pretraining_records(
                             "replay_id": metadata["source_replay_id"],
                             "side": metadata["source_side"],
                             "rating": metadata.get("source_rating"),
+                            "showdown_commit": metadata["source_showdown_version"],
                             "scientific_search_teacher": False,
                         },
                         "value_target": {
