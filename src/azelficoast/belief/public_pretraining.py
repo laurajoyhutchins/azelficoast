@@ -73,7 +73,7 @@ class PinnedShowdownPublicPosteriorSource:
     def __init__(self, showdown_root: str | Path, *, timeout_seconds: float = 20.0) -> None:
         self.engine = PinnedShowdownBeliefPolicy(
             showdown_root,
-            timeout_seconds=timeout_seconds,
+            operation_timeout_seconds=timeout_seconds,
         )
         if not self.engine.configured:
             raise PublicPretrainingError("pinned Showdown posterior source is not configured")
