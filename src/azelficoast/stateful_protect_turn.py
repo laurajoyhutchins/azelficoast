@@ -19,7 +19,7 @@ from typing import Sequence
 
 import numpy as np
 
-from azelficoast.belief_projection import compile_projection_ids
+from azelficoast.core.projection import compile_projection_ids
 from azelficoast.gen9_two_attack_turn import (
     P1_ACTION_ATTACK,
     P1_ACTION_PROTECT,

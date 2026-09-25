@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from azelficoast.belief_evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.router_ablation import (
+from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
+from azelficoast.research.router_ablation import (
     RouterCase,
     evaluate_admitted_counterfactual,
     summarize_observed_routes,
     threshold_sweep,
 )
-from azelficoast.selective_belief import PolicyMarginSearchGate
+from azelficoast.search.selective import PolicyMarginSearchGate
 
 
 def _cases() -> list[RouterCase]:

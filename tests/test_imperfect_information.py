@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from azelficoast.corpus import DecisionFixture, load_policy
-from azelficoast.imperfect_information import (
+from azelficoast.search.imperfect_information import (
     GAME_KEY,
     DeterminizationPolicy,
     ImperfectInformationError,
@@ -89,10 +89,10 @@ def test_negative_control_agrees_when_hidden_world_is_revealed() -> None:
 
 def test_policies_load_through_corpus_plugin_boundary() -> None:
     determinization = load_policy(
-        "azelficoast.imperfect_information:determinization"
+        "azelficoast.search.imperfect_information:determinization"
     )
     public_belief = load_policy(
-        "azelficoast.imperfect_information:public_belief"
+        "azelficoast.search.imperfect_information:public_belief"
     )
 
     fixture = _fixture(reveal=False)

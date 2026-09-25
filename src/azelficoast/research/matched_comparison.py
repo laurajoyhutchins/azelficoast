@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.posterior_validity import (
+from azelficoast.belief.validity import (
     PosteriorValidityError,
     posterior_diagnostics,
 )

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import copy
 
-from azelficoast.belief_evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.transition_program_search import search_transition_program
+from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
+from azelficoast.search.transition_program import search_transition_program
 
 
 class _PublicContinuationEvaluator:

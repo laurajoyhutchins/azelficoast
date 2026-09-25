@@ -5,10 +5,10 @@ on:
     types: [ready_for_review]
     paths:
       - "scripts/sample_joint_random_battle_posterior.cjs"
-      - "src/azelficoast/joint_posterior.py"
-      - "src/azelficoast/posterior_validity.py"
-      - "src/azelficoast/belief_evaluator.py"
-      - "src/azelficoast/live_belief.py"
+      - "src/azelficoast/belief/joint_posterior.py"
+      - "src/azelficoast/belief/validity.py"
+      - "src/azelficoast/belief/evaluator.py"
+      - "src/azelficoast/live/belief.py"
       - "tests/test_joint_posterior.py"
       - "tests/test_joint_posterior_sampler.py"
       - "tests/test_belief_evaluator.py"
@@ -110,7 +110,7 @@ jobs:
           import json
           from pathlib import Path
 
-          from azelficoast.joint_posterior import (
+          from azelficoast.belief.joint_posterior import (
               evaluator_posterior,
               posterior_validity_record,
               validate_joint_posterior,

@@ -13,15 +13,15 @@ from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
-from azelficoast.belief_evaluator import build_evaluator_input
+from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.corpus import DecisionFixture
-from azelficoast.decision_relevance import (
+from azelficoast.search.decision_relevance import (
     DecisionRelevanceError,
     analyze_quotiented_oracle,
 )
 from azelficoast.real_belief_trace import BeliefTraceError
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
-from azelficoast.transition_program_search import (
+from azelficoast.search.transition_program import (
     TransitionProgramSearchError,
     search_transition_program,
 )
@@ -594,7 +594,7 @@ class PinnedShowdownBeliefPolicy:
         posterior_only: bool = False,
         transition_program_only: bool = False,
     ) -> Mapping[str, Any]:
-        script = Path(__file__).resolve().parents[2] / "scripts" / "probe_real_belief_trace.cjs"
+        script = Path(__file__).resolve().parents[3] / "scripts" / "probe_real_belief_trace.cjs"
         with tempfile.TemporaryDirectory(prefix="azelficoast-live-belief-") as temp_dir:
             source_path = Path(temp_dir) / "source.json"
             source_path.write_text(

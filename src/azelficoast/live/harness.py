@@ -13,10 +13,10 @@ from typing import Sequence
 from poke_env import AccountConfiguration, ShowdownServerConfiguration
 from poke_env.player import Player, RandomPlayer
 
-from azelficoast.belief_coverage import summarize_traces
+from azelficoast.belief.coverage import summarize_traces
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
-from azelficoast.player import AzelficoastPlayer
-from azelficoast.training_records import build_training_dataset
+from azelficoast.live.player import AzelficoastPlayer
+from azelficoast.research.training_records import build_training_dataset
 
 BATTLE_FORMAT = "gen9randombattle"
 DEFAULT_RESULTS = Path("artifacts/results.jsonl")

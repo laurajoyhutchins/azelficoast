@@ -4,13 +4,13 @@ import math
 
 import pytest
 
-from azelficoast.belief_evaluator import (
+from azelficoast.belief.evaluator import (
     BeliefEvaluatorSpec,
     build_evaluator_input,
     init_params,
     loss,
 )
-from azelficoast.belief_training import TrainingExample, init_adam, train_step
+from azelficoast.belief.training import TrainingExample, init_adam, train_step
 
 
 def test_one_adam_step_is_finite_and_updates_state() -> None:

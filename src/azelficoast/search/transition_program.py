@@ -6,7 +6,7 @@ import copy
 import math
 from typing import Any, Mapping, Sequence
 
-from azelficoast.belief_evaluator import build_evaluator_input
+from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.core.search import (
     SEARCH_METHODS,
     PartialInformationSearchError,

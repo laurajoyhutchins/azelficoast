@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.corpus import DecisionFixture, load_corpus
-from azelficoast.live_belief import build_probe_source
+from azelficoast.live.belief import build_probe_source
 
 PLAN_SCHEMA = "azelficoast.large-margin-strategy-fusion-plan"
 PLAN_SCHEMA_VERSION = 1

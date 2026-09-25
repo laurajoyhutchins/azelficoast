@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.matched_comparison import (
+from azelficoast.research.matched_comparison import (
     MatchedComparisonError,
     freeze_packet,
     settle_packet,

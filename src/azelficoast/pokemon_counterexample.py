@@ -9,7 +9,7 @@ from itertools import product
 from typing import Any
 
 from azelficoast.corpus import DecisionFixture
-from azelficoast.imperfect_information import (
+from azelficoast.search.imperfect_information import (
     GAME_KEY,
     DeterminizationPolicy,
     PublicBeliefPolicy,

@@ -4,7 +4,7 @@ import argparse
 
 import pytest
 
-from azelficoast.harness import _build_parser, _positive_int, _resolve_live_credentials
+from azelficoast.live.harness import _build_parser, _positive_int, _resolve_live_credentials
 
 
 def test_challenge_parsing() -> None:

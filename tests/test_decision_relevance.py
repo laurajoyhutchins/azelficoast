@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from azelficoast.decision_relevance import (
+from azelficoast.search.decision_relevance import (
     DecisionRelevanceError,
     analyze_quotiented_oracle,
     decision_relevance_quotient,

@@ -11,8 +11,8 @@ on:
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"
       - "scripts/probe_real_belief_trace.cjs"
-      - "src/azelficoast/decision_relevance.py"
-      - "src/azelficoast/live_belief.py"
+      - "src/azelficoast/search/decision_relevance.py"
+      - "src/azelficoast/live/belief.py"
       - "tests/test_decision_relevance.py"
       - "tests/test_live_belief.py"
       - ".github/workflows/decision-relevance-quotient.yml"
@@ -58,9 +58,9 @@ jobs:
 
       - name: Analyze exact quotients
         run: |
-          uv run python -m azelficoast.decision_relevance             /tmp/status-oracle.json             > /tmp/status-quotient.json
+          uv run python -m azelficoast.search.decision_relevance             /tmp/status-oracle.json             > /tmp/status-quotient.json
 
-          uv run python -m azelficoast.decision_relevance             /tmp/fusion-oracle.json             > /tmp/fusion-quotient.json
+          uv run python -m azelficoast.search.decision_relevance             /tmp/fusion-oracle.json             > /tmp/fusion-quotient.json
 
           uv run python -m azelficoast.real_belief_trace             /tmp/status-oracle.json             > /tmp/status-full.json
 

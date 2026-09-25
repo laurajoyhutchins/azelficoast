@@ -36,7 +36,7 @@ The determinization baseline solves each sampled world as if its hidden state wi
 Run the reference experiment directly:
 
 ```bash
-uv run python -m azelficoast.imperfect_information
+uv run python -m azelficoast.search.imperfect_information
 ```
 
 The preregistered treatment requires determinization to overvalue the unrevealed `guess` branch while public-belief search chooses the costly but informative `scout` branch. A negative control then reveals the world for free; both solvers must agree there.
@@ -45,10 +45,10 @@ Both policies also implement the corpus policy interface:
 
 ```bash
 uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
-  --policy azelficoast.imperfect_information:determinization
+  --policy azelficoast.search.imperfect_information:determinization
 
 uv run azelficoast corpus evaluate artifacts/corpus.jsonl \
-  --policy azelficoast.imperfect_information:public_belief
+  --policy azelficoast.search.imperfect_information:public_belief
 ```
 
 This is intentionally not yet a Pokémon-strength search engine. It establishes the strategy-fusion failure and the information-set-preserving correction on the exact interface that later Pokémon world models will use.

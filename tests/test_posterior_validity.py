@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from azelficoast.posterior_validity import (
+from azelficoast.belief.validity import (
     PosteriorValidityError,
     aggregate_realized_support,
     posterior_diagnostics,

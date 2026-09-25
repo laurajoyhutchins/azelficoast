@@ -10,7 +10,7 @@ It is also building the machinery needed to make that comparison on real Pokémo
 
 ## Matched experiment contract
 
-The central experiment is executable, not a naming convention. `matched_comparison.py`
+The central experiment is executable, not a naming convention. `research/matched_comparison.py`
 freezes one public decision state, one posterior, one Showdown revision, one depth,
 and one compute ceiling into paired determinization and information-set work packets.
 Settlement fails closed if either method changes the input, legal actions, budget,
@@ -18,7 +18,7 @@ evaluator identity, transition-program identity, or chosen-action semantics. Tra
 compute is accounted in verified whole-turn execution classes consumed, rather than
 silently charging the exhaustive hidden-world × action matrix after compression.
 
-`matched_population.py` then requires the complete natural-state × posterior × depth
+`research/matched_population.py` then requires the complete natural-state × posterior × depth
 matrix and emits battle-clustered bootstrap rows for value optimism, regret, and policy
 disagreement. The posterior treatment and opponent model remain explicit in every
 packet and result.
@@ -28,11 +28,11 @@ observed opponent response. A result is marked as preserving two-player informat
 sets only when the executable opponent-model contract says so.
 
 ~~~bash
-python -m azelficoast.matched_comparison freeze PLAN STATE POSTERIOR \
+python -m azelficoast.research.matched_comparison freeze PLAN STATE POSTERIOR \
   --posterior-treatment generator_faithful --depth 2 --output packet.json
-python -m azelficoast.matched_comparison settle packet.json DET.json INFO.json \
+python -m azelficoast.research.matched_comparison settle packet.json DET.json INFO.json \
   --output result.json
-python -m azelficoast.matched_population PLAN COHORT RESULTS \
+python -m azelficoast.research.matched_population PLAN COHORT RESULTS \
   --output aggregate.json
 ~~~
 
@@ -208,19 +208,19 @@ Generated output is not treated as verified merely because it was produced. In p
 
 | Area | Entry point |
 | --- | --- |
-| Live player and fallback boundary | [src/azelficoast/player.py](src/azelficoast/player.py) |
-| Battle harness and trace capture | [src/azelficoast/harness.py](src/azelficoast/harness.py) |
+| Live player and fallback boundary | [src/azelficoast/live/player.py](src/azelficoast/live/player.py) |
+| Battle harness and trace capture | [src/azelficoast/live/harness.py](src/azelficoast/live/harness.py) |
 | Frozen decision corpora | [src/azelficoast/corpus.py](src/azelficoast/corpus.py) |
-| Policy/value training records | [src/azelficoast/training_records.py](src/azelficoast/training_records.py) |
-| Live hidden-world reconstruction and routing | [src/azelficoast/live_belief.py](src/azelficoast/live_belief.py) |
+| Policy/value training records | [src/azelficoast/research/training_records.py](src/azelficoast/research/training_records.py) |
+| Live hidden-world reconstruction and routing | [src/azelficoast/live/belief.py](src/azelficoast/live/belief.py) |
 | Whole-turn program compiler/verifier | [src/azelficoast/whole_turn_program.py](src/azelficoast/whole_turn_program.py) |
-| Search over verified programs | [src/azelficoast/transition_program_search.py](src/azelficoast/transition_program_search.py) |
-| Matched search receipt executor | [src/azelficoast/matched_oracle_search.py](src/azelficoast/matched_oracle_search.py) |
-| Public-belief / fusion analysis | [src/azelficoast/fusion_search.py](src/azelficoast/fusion_search.py) |
+| Search over verified programs | [src/azelficoast/search/transition_program.py](src/azelficoast/search/transition_program.py) |
+| Matched search receipt executor | [src/azelficoast/research/matched_search.py](src/azelficoast/research/matched_search.py) |
+| Public-belief / fusion analysis | [src/azelficoast/search/fusion.py](src/azelficoast/search/fusion.py) |
 | Natural-state mining | [src/azelficoast/real_belief_miner.py](src/azelficoast/real_belief_miner.py) |
 | Exact Gen 9 damage semantics | [src/azelficoast/gen9_damage.py](src/azelficoast/gen9_damage.py) |
 | Dependency-aware belief execution | [src/azelficoast/class_native_belief.py](src/azelficoast/class_native_belief.py) |
-| Population study machinery | [src/azelficoast/population_study.py](src/azelficoast/population_study.py) |
+| Population study machinery | [src/azelficoast/research/population.py](src/azelficoast/research/population.py) |
 | Frozen research evidence | [experiments/](experiments/) |
 | Current search/mechanics architecture | [docs/search-architecture.md](docs/search-architecture.md) |
 | Historical experiment narrative | [docs/research-notebook.md](docs/research-notebook.md) |

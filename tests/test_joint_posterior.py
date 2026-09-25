@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from azelficoast.joint_posterior import (
+from azelficoast.belief.joint_posterior import (
     JointPosteriorError,
     evaluator_posterior,
     posterior_validity_record,

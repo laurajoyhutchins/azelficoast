@@ -18,7 +18,7 @@ from azelficoast.pokemon_counterexample import (
     run_pokemon_counterexample,
     validate_mechanics,
 )
-from azelficoast.imperfect_information import DeterminizationPolicy, PublicBeliefPolicy
+from azelficoast.search.imperfect_information import DeterminizationPolicy, PublicBeliefPolicy
 
 
 def test_randbats_speed_fork_is_real() -> None:

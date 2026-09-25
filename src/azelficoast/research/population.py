@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.corpus import DecisionFixture, load_corpus
-from azelficoast.fusion_search import FusionSearchError, _candidate_signals
-from azelficoast.live_belief import build_probe_source
+from azelficoast.search.fusion import FusionSearchError, _candidate_signals
+from azelficoast.live.belief import build_probe_source
 
 PLAN_SCHEMA = "azelficoast.natural-population-strategy-fusion-plan"
 PLAN_SCHEMA_VERSION = 1

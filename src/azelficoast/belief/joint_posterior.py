@@ -6,7 +6,7 @@ import copy
 import math
 from typing import Any, Mapping
 
-from azelficoast.posterior_validity import posterior_diagnostics
+from azelficoast.belief.validity import posterior_diagnostics
 
 SCHEMA = "azelficoast.joint-random-battle-posterior"
 SCHEMA_VERSION = 1

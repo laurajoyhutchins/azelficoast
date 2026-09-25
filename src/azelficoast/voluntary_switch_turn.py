@@ -17,7 +17,7 @@ from typing import Sequence
 
 import numpy as np
 
-from azelficoast.belief_projection import compile_projection_ids
+from azelficoast.core.projection import compile_projection_ids
 from azelficoast.gen9_attack import (
     AttackTransitionContext,
     attack_transition,

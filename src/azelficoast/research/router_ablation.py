@@ -6,8 +6,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
-from azelficoast.belief_evaluator import build_evaluator_input
-from azelficoast.transition_program_search import (
+from azelficoast.belief.evaluator import build_evaluator_input
+from azelficoast.search.transition_program import (
     TransitionProgramSearchError,
     search_transition_program,
 )

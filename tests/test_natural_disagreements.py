@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from azelficoast.corpus import DecisionFixture
-from azelficoast.natural_disagreements import UnsupportedWorldSample, mine_candidates
+from azelficoast.research.natural_disagreements import UnsupportedWorldSample, mine_candidates
 
 
 def _fixture() -> DecisionFixture:
@@ -125,7 +125,7 @@ def test_legacy_unknown_item_sentinel_is_treated_as_hidden(monkeypatch) -> None:
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -140,7 +140,7 @@ def test_legacy_unknown_item_sentinel_is_treated_as_hidden(monkeypatch) -> None:
 
 def test_mines_real_shape_choice_item_speed_fork(monkeypatch) -> None:
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -172,7 +172,7 @@ def test_mines_real_shape_choice_item_speed_fork(monkeypatch) -> None:
 
 def test_rejects_support_with_unresolved_non_choice_item(monkeypatch) -> None:
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(extra_item=True),
     )
 
@@ -208,7 +208,7 @@ def test_absent_life_orb_recoil_removes_life_orb_before_pair_check(monkeypatch) 
         }
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: sample,
     )
 
@@ -239,7 +239,7 @@ def test_public_speed_boosts_are_modeled_instead_of_rejected(monkeypatch) -> Non
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -265,7 +265,7 @@ def test_unsupported_generator_world_is_counted_not_fatal(monkeypatch) -> None:
         raise UnsupportedWorldSample("transformed Ditto moves are not generator moves")
 
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         unsupported,
     )
 
@@ -294,7 +294,7 @@ def test_transformed_active_state_is_excluded_until_copied_stats_are_modeled(
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -375,7 +375,7 @@ def test_transformed_opponent_is_excluded_before_hidden_world_sampling(
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("transformed opponent must be rejected before sampling")
         ),
@@ -406,7 +406,7 @@ def test_terastallized_opponent_is_excluded_until_exact_state_is_modeled(
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: (_ for _ in ()).throw(
             AssertionError("Terastallized opponent must be rejected before sampling")
         ),
@@ -424,7 +424,7 @@ def test_terastallized_opponent_is_excluded_until_exact_state_is_modeled(
 
 def test_mines_immunity_switch_that_preserves_hidden_item_worlds(monkeypatch) -> None:
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -450,7 +450,7 @@ def test_mines_immunity_switch_that_preserves_hidden_item_worlds(monkeypatch) ->
 
 def test_nonimmune_switch_does_not_create_persistent_information_set(monkeypatch) -> None:
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -479,7 +479,7 @@ def test_protect_preserves_worlds_even_without_current_speed_fork(monkeypatch) -
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -504,7 +504,7 @@ def test_persistent_only_skips_nonpersistent_state_before_sampling(monkeypatch) 
         raise AssertionError("generator sampling should not run")
 
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         should_not_sample,
     )
 
@@ -554,7 +554,7 @@ def test_unseen_fist_contact_move_is_not_protect_persistence(monkeypatch) -> Non
         raise AssertionError("Unseen Fist Protect bypass should fail before sampling")
 
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         should_not_sample,
     )
 
@@ -597,7 +597,7 @@ def test_prior_equal_priority_move_order_eliminates_scarf_world(monkeypatch) -> 
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 
@@ -643,7 +643,7 @@ def test_priority_mismatch_does_not_overinterpret_move_order(monkeypatch) -> Non
         control_decisions=fixture.control_decisions,
     )
     monkeypatch.setattr(
-        "azelficoast.natural_disagreements._sample_worlds",
+        "azelficoast.research.natural_disagreements._sample_worlds",
         lambda **_kwargs: _sample(),
     )
 

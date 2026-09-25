@@ -21,7 +21,7 @@ from typing import Sequence
 
 import numpy as np
 
-from azelficoast.belief_projection import compile_projection_ids
+from azelficoast.core.projection import compile_projection_ids
 from azelficoast.staged_attack import (
     staged_attack_dependency_key,
     staged_attack_transition,

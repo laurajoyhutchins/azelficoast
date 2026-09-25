@@ -10,7 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.posterior_validity import power_reweight_posterior
+from azelficoast.belief.validity import power_reweight_posterior
 from azelficoast.real_belief_trace import (
     SCHEMA as ORACLE_SCHEMA,
     SCHEMA_VERSION as ORACLE_SCHEMA_VERSION,

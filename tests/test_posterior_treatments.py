@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from azelficoast.posterior_treatments import (
+from azelficoast.belief.treatments import (
     PosteriorTreatmentError,
     build_posterior,
     generator_faithful_posterior,

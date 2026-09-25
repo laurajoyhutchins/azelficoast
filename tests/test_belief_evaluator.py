@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from azelficoast.belief_evaluator import (
+from azelficoast.belief.evaluator import (
     BeliefEvaluatorError,
     BeliefEvaluatorSpec,
     build_evaluator_input,

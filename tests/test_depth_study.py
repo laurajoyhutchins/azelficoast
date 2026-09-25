@@ -4,7 +4,7 @@ import copy
 
 import pytest
 
-from azelficoast.depth_study import DepthStudyError, summarize_pair
+from azelficoast.research.depth import DepthStudyError, summarize_pair
 from azelficoast.real_belief_trace import analyze_oracle
 
 
