@@ -73,6 +73,15 @@ def _to_id(value: str) -> str:
     return "".join(character for character in value.lower() if character.isalnum())
 
 
+def _input_version(inputlog: str) -> str:
+    for line in inputlog.splitlines():
+        if line.startswith(">version "):
+            version = line[len(">version ") :].strip()
+            if version:
+                return version
+    raise PublicReplayError("replay inputlog does not declare its Showdown version")
+
+
 def _get_json(url: str) -> Any:
     request = urllib.request.Request(
         url,
@@ -185,7 +194,13 @@ def fetch_public_replay(metadata: Mapping[str, Any]) -> PublicReplay:
         ),
     )
     _ = replay.log
-    _ = replay.inputlog
+    inputlog = replay.inputlog
+    source_version = _input_version(inputlog)
+    if source_version != PINNED_SHOWDOWN_COMMIT:
+        raise PublicReplayError(
+            f"{replay_id}: source Showdown version {source_version} does not match "
+            f"pinned reconstruction revision {PINNED_SHOWDOWN_COMMIT}"
+        )
     return replay
 
 
