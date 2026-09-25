@@ -19,6 +19,7 @@ from azelficoast.belief.improvement import (
     AdmissionPolicy,
     improve_checkpoint,
 )
+from azelficoast.belief.self_improvement import run_self_improvement_cycle
 from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.research.training_records import build_training_dataset
@@ -32,6 +33,7 @@ DEFAULT_TRAINING = Path("artifacts/training.jsonl")
 DEFAULT_EVALUATOR_MODELS = Path("artifacts/evaluators/candidates")
 DEFAULT_EVALUATOR_RECEIPTS = Path("artifacts/evaluators/receipts")
 DEFAULT_EVALUATOR_PROMOTION = Path("artifacts/evaluators/current.json")
+DEFAULT_SELF_IMPROVEMENT = Path("artifacts/self-improvement")
 
 
 def _positive_int(value: str) -> int:
@@ -292,6 +294,68 @@ def _build_parser() -> argparse.ArgumentParser:
         default=0.0,
     )
 
+    training_cycle = training_commands.add_parser(
+        "cycle",
+        help="derive teacher evidence from completed traces and run one gated model update",
+    )
+    training_cycle.add_argument("traces", nargs="+", type=Path)
+    training_cycle.add_argument(
+        "--incumbent",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+        help="checkpoint directory or digest-bound promotion pointer",
+    )
+    training_cycle.add_argument(
+        "--workspace",
+        type=Path,
+        default=DEFAULT_SELF_IMPROVEMENT,
+    )
+    training_cycle.add_argument(
+        "--models-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_MODELS,
+    )
+    training_cycle.add_argument(
+        "--receipts-dir",
+        type=Path,
+        default=DEFAULT_EVALUATOR_RECEIPTS,
+    )
+    training_cycle.add_argument(
+        "--promotion",
+        type=Path,
+        default=DEFAULT_EVALUATOR_PROMOTION,
+    )
+    training_cycle.add_argument("--teacher-budget", type=_positive_int, default=4096)
+    training_cycle.add_argument(
+        "--split-seed",
+        default="azelficoast.training-records",
+    )
+    training_cycle.add_argument("--train-fraction", type=_unit_float, default=0.8)
+    training_cycle.add_argument("--validation-fraction", type=_unit_float, default=0.1)
+    training_cycle.add_argument("--epochs", type=_positive_int, default=1)
+    training_cycle.add_argument("--learning-rate", type=_positive_float, default=3e-4)
+    training_cycle.add_argument("--policy-weight", type=_nonnegative_float, default=1.0)
+    training_cycle.add_argument(
+        "--value-target",
+        choices=VALUE_TARGET_SOURCES,
+        default="public_belief_search_return",
+    )
+    training_cycle.add_argument(
+        "--min-validation-improvement",
+        type=_nonnegative_float,
+        default=1e-6,
+    )
+    training_cycle.add_argument(
+        "--max-validation-value-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+    training_cycle.add_argument(
+        "--max-validation-policy-regression",
+        type=_nonnegative_float,
+        default=0.0,
+    )
+
     coverage = subparsers.add_parser(
         "belief-coverage",
         help="summarize live public-belief routing and static admission coverage",
@@ -488,6 +552,36 @@ def _run_training(args: argparse.Namespace) -> None:
             models_dir=args.models_dir,
             receipts_dir=args.receipts_dir,
             promotion_file=args.promotion,
+            epochs=args.epochs,
+            learning_rate=args.learning_rate,
+            policy_weight=args.policy_weight,
+            value_target_source=args.value_target,
+            admission_policy=AdmissionPolicy(
+                min_validation_total_improvement=args.min_validation_improvement,
+                max_validation_value_mse_regression=args.max_validation_value_regression,
+                max_validation_policy_cross_entropy_regression=(
+                    args.max_validation_policy_regression
+                ),
+            ),
+        )
+    elif args.training_command == "cycle":
+        if args.showdown_root is None:
+            raise ValueError(
+                "training cycle requires --showdown-root or AZELFICOAST_SHOWDOWN_ROOT"
+            )
+        summary = run_self_improvement_cycle(
+            args.traces,
+            showdown_root=args.showdown_root,
+            incumbent_checkpoint=args.incumbent,
+            workspace=args.workspace,
+            models_dir=args.models_dir,
+            receipts_dir=args.receipts_dir,
+            promotion_file=args.promotion,
+            teacher_compute_budget=args.teacher_budget,
+            teacher_timeout_seconds=args.belief_timeout,
+            split_seed=args.split_seed,
+            train_fraction=args.train_fraction,
+            validation_fraction=args.validation_fraction,
             epochs=args.epochs,
             learning_rate=args.learning_rate,
             policy_weight=args.policy_weight,
