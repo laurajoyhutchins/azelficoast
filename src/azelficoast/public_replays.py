@@ -98,9 +98,9 @@ def discover_public_replays(
 ) -> list[dict[str, Any]]:
     """Discover a deterministic prefix of public replay metadata.
 
-    Pokémon Showdown returns up to 51 rows. The 51st is only a pagination
+    Pokémon Showdown returns up to 51 rows. The 51st is a pagination
     sentinel; accepted rows come from the first 50 and the next cursor is the
-    final accepted row's uploadtime.
+    sentinel row's uploadtime.
     """
     if max_battles <= 0:
         raise PublicReplayError("max_battles must be positive")
@@ -125,7 +125,12 @@ def discover_public_replays(
                 continue
             seen.add(replay_id)
             rating = row.get("rating")
-            numeric_rating = rating if isinstance(rating, int) and not isinstance(rating, bool) else 0
+            if isinstance(rating, int) and not isinstance(rating, bool):
+                numeric_rating = rating
+            elif isinstance(rating, str) and rating.isdigit():
+                numeric_rating = int(rating)
+            else:
+                numeric_rating = 0
             if numeric_rating < min_rating:
                 continue
             selected.append(dict(row))
@@ -314,7 +319,13 @@ def _timestamp(uploadtime: int | None) -> str:
 def _actionable_request(request: Mapping[str, Any]) -> bool:
     if request.get("wait") is True:
         return False
-    return isinstance(request.get("active"), list) or bool(request.get("forceSwitch"))
+    force_switch = request.get("forceSwitch")
+    forced = (
+        any(bool(value) for value in force_switch)
+        if isinstance(force_switch, list)
+        else bool(force_switch)
+    )
+    return isinstance(request.get("active"), list) or forced
 
 
 def _resolved_choice_key(choice: str, request: Mapping[str, Any]) -> tuple[str, str, bool]:
