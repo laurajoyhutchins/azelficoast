@@ -322,8 +322,8 @@ def _replay_streams(showdown_root: Path, inputlog: str) -> dict[str, list[str]]:
     return sides
 
 
-def _input_players(inputlog: str) -> dict[str, str]:
-    players: dict[str, str] = {}
+def _input_players(inputlog: str) -> dict[str, dict[str, Any]]:
+    players: dict[str, dict[str, Any]] = {}
     for line in inputlog.splitlines():
         if not line.startswith(">player "):
             continue
@@ -334,7 +334,10 @@ def _input_players(inputlog: str) -> dict[str, str]:
             raise PublicReplayError(f"malformed inputlog player line: {line!r}") from error
         name = document.get("name") if isinstance(document, Mapping) else None
         if side in {"p1", "p2"} and isinstance(name, str) and name:
-            players[side] = name
+            players[side] = {
+                "name": name,
+                "rating": _optional_int(document.get("rating")),
+            }
     if set(players) != {"p1", "p2"}:
         raise PublicReplayError("inputlog does not identify both players")
     return players
@@ -512,6 +515,7 @@ async def _trace_side(
     *,
     side: str,
     username: str,
+    player_rating: int | None,
     chunks: Sequence[str],
 ) -> list[dict[str, Any]]:
     reader = _ReplayTraceReader(username, DEFAULT_REPLAY_FORMAT)
@@ -617,7 +621,8 @@ async def _trace_side(
                     "training_policy_authority": False,
                     "source_replay_id": replay.replay_id,
                     "source_side": side,
-                    "source_rating": replay.rating,
+                    "source_rating": player_rating,
+                    "source_matchmaking_floor": replay.rating,
                     "source_showdown_version": replay.source_showdown_version,
                 },
             }
@@ -677,7 +682,8 @@ async def _reconstruct_replay_trace(
             await _trace_side(
                 replay,
                 side=side,
-                username=players[side],
+                username=str(players[side]["name"]),
+                player_rating=_optional_int(players[side].get("rating")),
                 chunks=streams[side],
             )
         )
