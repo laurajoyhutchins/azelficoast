@@ -183,8 +183,14 @@ def _mine_informative_fixtures(
     candidates: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
     for fixture in fixtures:
         for control in fixture.control_decisions:
+            run_id = control.get("run_id")
             battle_tag = control.get("battle_tag")
-            if not isinstance(battle_tag, str) or not battle_tag:
+            if (
+                not isinstance(run_id, str)
+                or not run_id
+                or not isinstance(battle_tag, str)
+                or not battle_tag
+            ):
                 continue
             scoped = DecisionFixture(
                 fixture_id=fixture.fixture_id,
@@ -202,6 +208,7 @@ def _mine_informative_fixtures(
             -float(item[2]["policy_entropy_bits"]),
             -int(item[2]["legal_action_count"]),
             -int(item[2]["fallback_count"]),
+            str(item[1].get("run_id")),
             str(item[1].get("battle_tag")),
             int(item[1].get("event_index", -1)),
             item[0].fixture_id,
@@ -209,13 +216,13 @@ def _mine_informative_fixtures(
     )
 
     selected: list[tuple[DecisionFixture, Mapping[str, Any], dict[str, Any]]] = []
-    represented_battles: set[str] = set()
+    represented_battles: set[tuple[str, str]] = set()
     for fixture, control, signals in ranked:
-        battle_tag = str(control["battle_tag"])
-        if battle_tag in represented_battles:
+        battle_key = (str(control["run_id"]), str(control["battle_tag"]))
+        if battle_key in represented_battles:
             continue
         selected.append((fixture, control, signals))
-        represented_battles.add(battle_tag)
+        represented_battles.add(battle_key)
         if max_fixtures is not None and len(selected) >= max_fixtures:
             break
 
@@ -250,6 +257,7 @@ def _mine_informative_fixtures(
         "selected": [
             {
                 "fixture_id": fixture.fixture_id,
+                "run_id": str(control["run_id"]),
                 "battle_tag": str(control["battle_tag"]),
                 "event_index": control.get("event_index"),
                 "signals": signals,
@@ -424,11 +432,18 @@ def generate_teacher_evidence(
         _write_immutable_json(program_path, transition_program)
 
         for control in fixture.control_decisions:
+            run_id = control.get("run_id")
             battle_tag = control.get("battle_tag")
-            if not isinstance(battle_tag, str) or not battle_tag:
+            if (
+                not isinstance(run_id, str)
+                or not run_id
+                or not isinstance(battle_tag, str)
+                or not battle_tag
+            ):
                 raise TeacherEvidenceError("fixture control lacks battle identity")
             state = {
                 "fixture_id": fixture.fixture_id,
+                "run_id": run_id,
                 "battle_tag": battle_tag,
                 "public_state": dict(fixture.state),
                 "legal_actions": list(fixture.legal_actions),
@@ -475,6 +490,7 @@ def generate_teacher_evidence(
             admitted_rows.append(
                 {
                     "fixture_id": fixture.fixture_id,
+                    "run_id": run_id,
                     "battle_tag": battle_tag,
                     "packet_digest": packet_digest,
                     "posterior_digest": posterior_digest,
