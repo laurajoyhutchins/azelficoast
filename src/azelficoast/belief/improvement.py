@@ -19,6 +19,7 @@ from azelficoast.belief.evaluator import (
     PROMOTION_SCHEMA,
     PROMOTION_SCHEMA_VERSION,
     BeliefEvaluatorError,
+    BeliefEvaluatorInput,
     BeliefEvaluatorSpec,
     build_evaluator_input,
     checkpoint_digest,
@@ -30,7 +31,7 @@ from azelficoast.belief.training import TrainingExample, train_examples
 from azelficoast.research.training_records import TRAINING_SCHEMA, TRAINING_SCHEMA_VERSION
 
 IMPROVEMENT_RECEIPT_SCHEMA = "azelficoast.evaluator-improvement-receipt"
-IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 1
+IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 2
 VALUE_TARGET_SOURCES = ("public_belief_search_return", "eventual_battle_outcome")
 
 
@@ -311,6 +312,70 @@ def evaluate_examples(
     )
 
 
+def evaluate_hostile_invariants(
+    params: Mapping[str, Any],
+    examples: Sequence[TrainingExample],
+) -> dict[str, Any]:
+    """Falsify candidate dependence on incidental support/action ordering."""
+
+    failures: list[dict[str, Any]] = []
+    checked = 0
+
+    def signature(inputs: BeliefEvaluatorInput) -> tuple[float, dict[str, float], str]:
+        prediction = predict(params, inputs)
+        return (
+            prediction.value,
+            dict(zip(prediction.legal_actions, prediction.probabilities, strict=True)),
+            prediction.selected_action,
+        )
+
+    def equivalent(
+        expected: tuple[float, dict[str, float], str],
+        actual: tuple[float, dict[str, float], str],
+    ) -> bool:
+        if expected[2] != actual[2] or set(expected[1]) != set(actual[1]):
+            return False
+        if not math.isclose(expected[0], actual[0], rel_tol=1e-10, abs_tol=1e-10):
+            return False
+        return all(
+            math.isclose(expected[1][action], actual[1][action], rel_tol=1e-10, abs_tol=1e-10)
+            for action in expected[1]
+        )
+
+    for index, example in enumerate(examples):
+        base = example.inputs
+        expected = signature(base)
+
+        world_permuted = BeliefEvaluatorInput(
+            public_features=base.public_features,
+            world_features=tuple(reversed(base.world_features)),
+            world_weights=tuple(reversed(base.world_weights)),
+            action_features=base.action_features,
+            legal_actions=base.legal_actions,
+        )
+        checked += 1
+        if not equivalent(expected, signature(world_permuted)):
+            failures.append({"example_index": index, "mutation": "reverse-hidden-world-order"})
+
+        action_permuted = BeliefEvaluatorInput(
+            public_features=base.public_features,
+            world_features=base.world_features,
+            world_weights=base.world_weights,
+            action_features=tuple(reversed(base.action_features)),
+            legal_actions=tuple(reversed(base.legal_actions)),
+        )
+        checked += 1
+        if not equivalent(expected, signature(action_permuted)):
+            failures.append({"example_index": index, "mutation": "reverse-legal-action-order"})
+
+    return {
+        "passed": not failures,
+        "checked_mutations": checked,
+        "failure_count": len(failures),
+        "failures": failures,
+    }
+
+
 def decide_admission(
     incumbent: EvaluationMetrics,
     candidate: EvaluationMetrics,
@@ -506,6 +571,22 @@ def improve_checkpoint(
         candidate_validation,
         policy=admission_policy,
     )
+    hostile = evaluate_hostile_invariants(
+        candidate_params,
+        dataset.examples("validation"),
+    )
+    admission = {
+        **admission,
+        "admitted": bool(admission["admitted"] and hostile["passed"]),
+        "checks": {
+            **dict(admission["checks"]),
+            "hostile_representation_invariance": bool(hostile["passed"]),
+        },
+        "failed_checks": [
+            *list(admission["failed_checks"]),
+            *([] if hostile["passed"] else ["hostile_representation_invariance"]),
+        ],
+    }
 
     receipt_material = {
         "schema": IMPROVEMENT_RECEIPT_SCHEMA,
@@ -533,6 +614,11 @@ def improve_checkpoint(
                 "incumbent": incumbent_test.as_record(),
                 "candidate": candidate_test.as_record(),
                 "used_for_admission": False,
+            },
+            "hostile": {
+                **hostile,
+                "used_for_admission": True,
+                "target_labels_consulted": False,
             },
         },
         "admission": admission,
@@ -572,4 +658,5 @@ def improve_checkpoint(
             "incumbent": incumbent_test.as_record(),
             "candidate": candidate_test.as_record(),
         },
+        "hostile": hostile,
     }
