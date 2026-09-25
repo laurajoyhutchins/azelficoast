@@ -445,11 +445,20 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
         "realized_hidden_state_revealed": False,
         "worlds": worlds,
     }
+    program = compile_whole_turn_programs(oracle)
+    program["producer"] = {
+        "root_snapshot_builds": 2,
+        "saved_root_snapshot_builds": 3,
+        "transition_execution_cache_hits": 4,
+        "transition_execution_cache_misses": 5,
+        "fresh_showdown_turn_executions": 6,
+        "reused_showdown_turn_executions": 7,
+    }
 
     result = transition_program_belief_result(
         fixture=fixture,
         posterior=posterior,
-        transition_program=compile_whole_turn_programs(oracle),
+        transition_program=program,
         evaluator=_PosteriorSpreadEvaluator(),
     )
 
@@ -457,6 +466,12 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.action == "safe"
     assert result.reason == "transition-program-public-belief"
     assert result.diagnostics["transition_evaluations"] == 3
+    assert result.diagnostics["root_snapshot_builds"] == 2
+    assert result.diagnostics["saved_root_snapshot_builds"] == 3
+    assert result.diagnostics["transition_execution_cache_hits"] == 4
+    assert result.diagnostics["transition_execution_cache_misses"] == 5
+    assert result.diagnostics["fresh_showdown_turn_executions"] == 6
+    assert result.diagnostics["reused_showdown_turn_executions"] == 7
     assert result.diagnostics["evaluator_calls"] == 3
     assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
 

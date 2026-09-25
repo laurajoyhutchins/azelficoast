@@ -2128,21 +2128,27 @@ if (posteriorOnly) {
   }, null, 2) + "\n");
   process.exit(0);
 }
-function immediateWholeTurn(world, action) {
+function rootSnapshotForWorld(world) {
   const base = buildBattle(world);
-  const baseSnapshot = JSON.stringify(base);
+  const snapshot = JSON.stringify(base);
   base.destroy();
+  return snapshot;
+}
+
+function immediateWholeTurn(world, action, baseSnapshot = null) {
+  const rootSnapshot =
+    baseSnapshot == null ? rootSnapshotForWorld(world) : baseSnapshot;
 
   const outcomes = [];
   const reads = new Set();
   const policyReads = new Set();
-  const responses = opponentDistributionForSnapshot(baseSnapshot, policyReads);
+  const responses = opponentDistributionForSnapshot(rootSnapshot, policyReads);
   for (const field of policyReads) reads.add(field);
 
   for (const [responseIndex, response] of responses.entries()) {
     for (let i = 0; i < ROOT_CHANCE_SAMPLES; i++) {
       const battle = cloneBattle(
-        baseSnapshot,
+        rootSnapshot,
         seed(i, 1_000 + legalActions.indexOf(action) + responseIndex * 4099)
       );
       const logStart = battle.log.length;
@@ -2239,8 +2245,8 @@ function counterfactualWorld(baseWorld, donorWorld, field) {
   return world;
 }
 
-function executionWorldKey(world, action) {
-  return action + "\u0000" + sha256({
+function executionWorldMaterial(world) {
+  return {
     hidden: world.hidden,
     variant: {
       species: world.variant.species,
@@ -2254,7 +2260,56 @@ function executionWorldKey(world, action) {
     },
     exact_hp: world.exactHp,
     opponent_max_hp: world.opponent_max_hp,
+  };
+}
+
+function executionWorldKey(world, action, baseSnapshot) {
+  return action + "\u0000" + sha256({
+    showdown_commit: actualCommit,
+    root_snapshot_sha256: sha256(baseSnapshot),
+    world: executionWorldMaterial(world),
+    opponent_policy: OPPONENT_POLICY,
+    root_chance_samples: ROOT_CHANCE_SAMPLES,
+    chance_seed_family: CHANCE_SEED_FAMILY,
+    action_index: legalActions.indexOf(action),
   });
+}
+
+function sharedTransitionExecutionCache() {
+  const cache = globalThis.__azelficoastTransitionExecutionCache;
+  if (
+    cache &&
+    typeof cache.get === "function" &&
+    typeof cache.set === "function" &&
+    typeof cache.delete === "function" &&
+    typeof cache.keys === "function"
+  ) {
+    return cache;
+  }
+  return null;
+}
+
+function sharedTransitionExecutionCacheLimit() {
+  const raw = globalThis.__azelficoastTransitionExecutionCacheMaxEntries;
+  return Number.isSafeInteger(raw) && raw > 0 ? raw : 0;
+}
+
+function sharedCacheGet(cache, key) {
+  const value = cache.get(key);
+  if (value === undefined) return undefined;
+  cache.delete(key);
+  cache.set(key, value);
+  return cloneJson(value);
+}
+
+function sharedCacheSet(cache, key, value) {
+  cache.delete(key);
+  cache.set(key, cloneJson(value));
+  const limit = sharedTransitionExecutionCacheLimit();
+  while (limit > 0 && cache.size > limit) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
 }
 
 function compileLazyWholeTurnPrograms() {
@@ -2262,14 +2317,49 @@ function compileLazyWholeTurnPrograms() {
     left.world_id.localeCompare(right.world_id)
   );
   const executionCache = new Map();
+  const rootSnapshotCache = new Map();
+  const sharedExecutionCache = sharedTransitionExecutionCache();
+  let sharedExecutionCacheHits = 0;
+  let sharedExecutionCacheMisses = 0;
+  let rootSnapshotBuilds = 0;
   const programs = [];
 
+  function rootSnapshot(world) {
+    const key = sha256(executionWorldMaterial(world));
+    let snapshot = rootSnapshotCache.get(key);
+    if (snapshot === undefined) {
+      snapshot = rootSnapshotForWorld(world);
+      rootSnapshotCache.set(key, snapshot);
+      rootSnapshotBuilds++;
+    }
+    return snapshot;
+  }
+
   function executeWorld(world, action, role) {
-    const key = executionWorldKey(world, action);
+    const baseSnapshot = rootSnapshot(world);
+    const key = executionWorldKey(world, action, baseSnapshot);
     let record = executionCache.get(key);
     if (!record) {
+      let execution;
+      let reused = false;
+      if (sharedExecutionCache !== null) {
+        execution = sharedCacheGet(sharedExecutionCache, key);
+        if (execution !== undefined) {
+          reused = true;
+          sharedExecutionCacheHits++;
+        } else {
+          sharedExecutionCacheMisses++;
+        }
+      }
+      if (execution === undefined) {
+        execution = immediateWholeTurn(world, action, baseSnapshot);
+        if (sharedExecutionCache !== null) {
+          sharedCacheSet(sharedExecutionCache, key, execution);
+        }
+      }
       record = {
-        execution: immediateWholeTurn(world, action),
+        execution,
+        reused,
         roles: new Set(),
         synthetic: String(world.world_id).startsWith("counterfactual-"),
       };
@@ -2421,6 +2511,13 @@ function compileLazyWholeTurnPrograms() {
     (sum, row) => sum + row.execution.showdown_turn_executions,
     0
   );
+  const freshShowdownTurnExecutions = cacheRows.reduce(
+    (sum, row) =>
+      sum + (row.reused ? 0 : row.execution.showdown_turn_executions),
+    0
+  );
+  const reusedShowdownTurnExecutions =
+    showdownTurnExecutions - freshShowdownTurnExecutions;
   const opponentActionBranches = cacheRows.reduce(
     (sum, row) => sum + row.execution.opponent_action_branch_count,
     0
@@ -2443,8 +2540,14 @@ function compileLazyWholeTurnPrograms() {
       unique_world_action_executions: uniqueExecutions,
       causal_probe_executions: causalProbeExecutions,
       class_representative_executions: classRepresentativeExecutions,
+      root_snapshot_builds: rootSnapshotBuilds,
+      saved_root_snapshot_builds: uniqueExecutions - rootSnapshotBuilds,
+      transition_execution_cache_hits: sharedExecutionCacheHits,
+      transition_execution_cache_misses: sharedExecutionCacheMisses,
       opponent_action_branches: opponentActionBranches,
       showdown_turn_executions: showdownTurnExecutions,
+      fresh_showdown_turn_executions: freshShowdownTurnExecutions,
+      reused_showdown_turn_executions: reusedShowdownTurnExecutions,
       exhaustive_world_action_product: exhaustiveWorldActionProduct,
       saved_world_action_executions:
         exhaustiveWorldActionProduct - uniqueExecutions,

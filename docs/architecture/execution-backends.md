@@ -59,6 +59,19 @@ remove process startup, module loading, generator sweeps, and duplicate posterio
 construction; it may not change hidden-world support, opponent-policy identity, or
 transition semantics.
 
+Transition execution reuse is narrower still. The persistent worker keeps a bounded
+LRU of representative world-action executions. A cached execution is eligible only when
+the complete serialized Showdown root snapshot, hidden-world mechanics material, root
+action, opponent-policy identity, chance-sample configuration, and action seed position
+all match exactly. The new fixture still receives a newly bound TransitionProgram and
+effect signature. A cache hit therefore reuses deterministic execution work, not an old
+fixture's authority.
+
+Within one compilation, root snapshots are also memoized per hidden world so multiple
+actions do not rebuild the same battle. Cache hit, miss, fresh-turn, reused-turn, and
+root-snapshot counts are emitted as producer diagnostics so latency improvements remain
+separate from scientific transition/evaluator counts.
+
 ### The owned compiler owns small exact integer kernels
 
 The custom compiler is deliberately a tiny lowering from an explicitly supported Python
