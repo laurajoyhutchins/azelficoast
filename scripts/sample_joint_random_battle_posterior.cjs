@@ -475,17 +475,273 @@ function semanticParticle(team) {
   return {team: sets};
 }
 
+const randomSetSpecies = Object.keys(generator.randomSets)
+  .map(id => dex.species.get(id))
+  .filter(species => species.exists);
+
+function increment(object, key) {
+  object[key] = (object[key] || 0) + 1;
+}
+
+function weakToFreezeDry(species) {
+  return (
+    dex.getEffectiveness("Ice", species) > 0 ||
+    (dex.getEffectiveness("Ice", species) > -2 && species.types.includes("Water"))
+  );
+}
+
+function blankSpeciesContext() {
+  return {
+    species: [],
+    baseSpecies: new Set(),
+    typeCount: {},
+    typeWeaknesses: {},
+    typeDoubleWeaknesses: {},
+    freezeDryWeaknesses: 0,
+    level100Count: 0,
+  };
+}
+
+function addSpeciesContext(context, species) {
+  context.species.push({speciesId: species.id});
+  context.baseSpecies.add(species.baseSpecies);
+  for (const type of species.types) increment(context.typeCount, type);
+  for (const type of dex.types.names()) {
+    const effectiveness = dex.getEffectiveness(type, species);
+    if (effectiveness > 0) increment(context.typeWeaknesses, type);
+    if (effectiveness > 1) increment(context.typeDoubleWeaknesses, type);
+  }
+  if (weakToFreezeDry(species)) context.freezeDryWeaknesses++;
+  if (generator.getLevel(species, false) === 100) context.level100Count++;
+}
+
+function speciesCompatibleWithContext(species, context, finalSlot) {
+  if (context.baseSpecies.has(species.baseSpecies)) return false;
+  if (species.baseSpecies === "Zoroark" && finalSlot) return false;
+
+  for (const type of species.types) {
+    if ((context.typeCount[type] || 0) >= 2) return false;
+  }
+  for (const type of dex.types.names()) {
+    const effectiveness = dex.getEffectiveness(type, species);
+    if (effectiveness > 0 && (context.typeWeaknesses[type] || 0) >= 3) {
+      return false;
+    }
+    if (
+      effectiveness > 1 &&
+      (context.typeDoubleWeaknesses[type] || 0) >= 1
+    ) {
+      return false;
+    }
+  }
+  if (
+    dex.getEffectiveness("Fire", species) === 0 &&
+    Object.values(species.abilities).some(
+      ability => ability === "Dry Skin" || ability === "Fluffy"
+    ) &&
+    (context.typeWeaknesses.Fire || 0) >= 3
+  ) {
+    return false;
+  }
+  if (weakToFreezeDry(species) && context.freezeDryWeaknesses >= 4) {
+    return false;
+  }
+  if (generator.getLevel(species, false) === 100 && context.level100Count >= 1) {
+    return false;
+  }
+  if (!generator.getPokemonCompatibility(species, context.species, false)) {
+    return false;
+  }
+  return true;
+}
+
+function generatorSpeciesForEvidence(evidence) {
+  const requested = dex.species.get(evidence.species);
+  const ids = [
+    requested.id,
+    typeof requested.battleOnly === "string" ? toID(requested.battleOnly) : "",
+    typeof requested.baseSpecies === "string" ? toID(requested.baseSpecies) : "",
+  ].filter(Boolean);
+  for (const id of [...new Set(ids)]) {
+    if (generator.randomSets[id]) return dex.species.get(id);
+  }
+  return null;
+}
+
+function updateTeamDetails(teamDetails, set, species) {
+  if (set.ability === "Drizzle" || set.moves.includes("raindance")) {
+    teamDetails.rain = 1;
+  }
+  if (
+    set.ability === "Drought" ||
+    set.ability === "Orichalcum Pulse" ||
+    set.moves.includes("sunnyday")
+  ) {
+    teamDetails.sun = 1;
+  }
+  if (set.ability === "Sand Stream") teamDetails.sand = 1;
+  if (
+    set.ability === "Snow Warning" ||
+    set.moves.includes("snowscape") ||
+    set.moves.includes("chillyreception")
+  ) {
+    teamDetails.snow = 1;
+  }
+  if (set.moves.includes("healbell")) teamDetails.statusCure = 1;
+  if (set.moves.includes("spikes") || set.moves.includes("ceaselessedge")) {
+    teamDetails.spikes = (teamDetails.spikes || 0) + 1;
+  }
+  if (set.moves.includes("toxicspikes") || set.ability === "Toxic Debris") {
+    teamDetails.toxicSpikes = 1;
+  }
+  if (set.moves.includes("stealthrock") || set.moves.includes("stoneaxe")) {
+    teamDetails.stealthRock = 1;
+  }
+  if (set.moves.includes("stickyweb")) teamDetails.stickyWeb = 1;
+  if (set.moves.includes("defog")) teamDetails.defog = 1;
+  if (set.moves.includes("rapidspin") || set.moves.includes("mortalspin")) {
+    teamDetails.rapidSpin = 1;
+  }
+  if (
+    set.moves.includes("auroraveil") ||
+    (set.moves.includes("reflect") && set.moves.includes("lightscreen"))
+  ) {
+    teamDetails.screens = 1;
+  }
+  if (
+    set.role === "Tera Blast user" ||
+    ["ogerpon", "ogerponhearthflame", "terapagos"].includes(species.id)
+  ) {
+    teamDetails.teraBlast = 1;
+  }
+}
+
+function shuffled(values) {
+  const output = [...values];
+  for (let index = output.length - 1; index > 0; index--) {
+    const swap = generator.random(index + 1);
+    [output[index], output[swap]] = [output[swap], output[index]];
+  }
+  return output;
+}
+
+function sampleCompatibleKnownSet(species, evidence, teamDetails, isLead) {
+  for (let retry = 0; retry < 512; retry++) {
+    const raw = generator.randomSet(species, teamDetails, isLead, false);
+    const candidate = canonicalSet(raw, 0);
+    if (compatibleSet(candidate, evidence)) return raw;
+  }
+  return null;
+}
+
+function conditionedCompletionParticle(index) {
+  generator.setSeed(seed(index));
+
+  const known = [];
+  const speciesContext = blankSpeciesContext();
+  for (const evidence of evidenceRows) {
+    const species = generatorSpeciesForEvidence(evidence);
+    if (!species) return null;
+    if (
+      !speciesCompatibleWithContext(
+        species,
+        speciesContext,
+        false
+      )
+    ) {
+      return null;
+    }
+    addSpeciesContext(speciesContext, species);
+    known.push({species, evidence});
+  }
+
+  const teamSize = opponentTeamSize || 6;
+  const unknown = [];
+  while (known.length + unknown.length < teamSize) {
+    const finalSlot = known.length + unknown.length === teamSize - 1;
+    const support = randomSetSpecies.filter(species =>
+      speciesCompatibleWithContext(species, speciesContext, finalSlot)
+    );
+    if (!support.length) return null;
+    const species = generator.sample(support);
+    addSpeciesContext(speciesContext, species);
+    unknown.push({species, evidence: null});
+  }
+
+  const leadEntry = opponentLead
+    ? known.find(entry => entry.evidence.species === opponentLead)
+    : null;
+  if (opponentLead && !leadEntry) return null;
+
+  const generationOrder = [
+    ...(leadEntry ? [leadEntry] : []),
+    ...shuffled(
+      [...known, ...unknown].filter(entry => entry !== leadEntry)
+    ),
+  ];
+
+  const teamDetails = {};
+  const rawTeam = [];
+  for (const entry of generationOrder) {
+    const isLead = leadEntry
+      ? entry === leadEntry
+      : rawTeam.length === 0;
+    let set;
+    if (entry.evidence) {
+      set = sampleCompatibleKnownSet(
+        entry.species,
+        entry.evidence,
+        teamDetails,
+        isLead
+      );
+      if (!set) return null;
+    } else {
+      set = generator.randomSet(entry.species, teamDetails, isLead, false);
+    }
+    const actualSpecies = dex.species.get(set.species);
+    if (!actualSpecies.exists) return null;
+    rawTeam.push(set);
+    if (rawTeam.length < teamSize) {
+      updateTeamDetails(teamDetails, set, actualSpecies);
+    }
+  }
+
+  const canonicalTeam = rawTeam.map(canonicalSet);
+  if (!compatibleTeam(canonicalTeam)) return null;
+
+  // The proposal is allowed to reorder non-leads internally, but the public
+  // lead remains semantic. Put it first before semanticParticle() records it.
+  if (opponentLead) {
+    canonicalTeam.sort((left, right) => {
+      if (left.species === opponentLead) return -1;
+      if (right.species === opponentLead) return 1;
+      return 0;
+    });
+  }
+  return canonicalTeam;
+}
+
 const particleCounts = new Map();
 let accepted = 0;
 let attempted = 0;
 let generationErrors = 0;
+const proposalMode =
+  evidenceRows.length <= 1
+    ? "generator_rejection"
+    : "conditioned_completion";
 
 for (let index = 0; index < maxRounds && accepted < targetParticles; index++) {
   attempted++;
   try {
-    generator.setSeed(seed(index));
-    const team = generator.getTeam().map(canonicalSet);
-    if (!compatibleTeam(team)) continue;
+    let team;
+    if (proposalMode === "generator_rejection") {
+      generator.setSeed(seed(index));
+      team = generator.getTeam().map(canonicalSet);
+      if (!compatibleTeam(team)) continue;
+    } else {
+      team = conditionedCompletionParticle(index);
+      if (!team) continue;
+    }
     accepted++;
     const hidden = semanticParticle(team);
     const key = canonical(hidden);
@@ -529,8 +785,11 @@ const output = {
   conditioned_on_public_history: true,
   realized_hidden_state_revealed: false,
   construction: {
-    kind: "full-team-generator-rejection-particles",
-    generator: "Pokemon Showdown gen9randombattle getTeam",
+    kind:
+      proposalMode === "generator_rejection"
+        ? "full-team-generator-rejection-particles"
+        : "full-team-conditioned-completion-particles",
+    generator: "Pokemon Showdown gen9randombattle",
     seed_family: seedFamily,
     seed_rule: "sha256(azelficoast-joint-randbats:<family>:<index>) first four uint16",
     attempted_team_count: attempted,
@@ -543,7 +802,18 @@ const output = {
     acceptance_rate: acceptanceRate,
     effective_sample_size: effectiveSampleSize,
     preserves_joint_team_set_correlations: true,
-    posterior_treatment: "practical_joint_generator",
+    posterior_treatment:
+      proposalMode === "generator_rejection"
+        ? "generator_faithful_joint_empirical"
+        : "practical_joint_completion",
+    proposal_mode: proposalMode,
+    proposal_caveats:
+      proposalMode === "generator_rejection"
+        ? []
+        : [
+            "species completion is sampled from Showdown-compatible support rather than the exact conditional randomTeam probability",
+            "set generation uses Showdown randomSet with shared teamDetails and rejects particles contradicting public set evidence",
+          ],
     particle_atomicity: [
       "species",
       "moves",
