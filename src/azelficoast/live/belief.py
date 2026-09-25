@@ -521,6 +521,9 @@ def transition_program_belief_result(
             diagnostics={"searched_action": action},
         )
 
+    producer = transition_program.get("producer")
+    producer_diagnostics = dict(producer) if isinstance(producer, Mapping) else {}
+
     return LiveDecisionResult(
         action=action,
         status="selected",
@@ -533,6 +536,22 @@ def transition_program_belief_result(
             "transition_evaluations": search.get("transition_evaluations"),
             "evaluator_calls": search.get("evaluator_calls"),
             "evaluator_batches": search.get("evaluator_batches"),
+            "root_snapshot_builds": producer_diagnostics.get("root_snapshot_builds"),
+            "saved_root_snapshot_builds": producer_diagnostics.get(
+                "saved_root_snapshot_builds"
+            ),
+            "transition_execution_cache_hits": producer_diagnostics.get(
+                "transition_execution_cache_hits"
+            ),
+            "transition_execution_cache_misses": producer_diagnostics.get(
+                "transition_execution_cache_misses"
+            ),
+            "fresh_showdown_turn_executions": producer_diagnostics.get(
+                "fresh_showdown_turn_executions"
+            ),
+            "reused_showdown_turn_executions": producer_diagnostics.get(
+                "reused_showdown_turn_executions"
+            ),
             "public_belief_root_values": dict(search.get("root_values", {})),
         },
     )

@@ -28,7 +28,9 @@ jobs:
       - name: Type check research boundaries
         run: uv run mypy
       - name: Check Showdown probe syntax
-        run: node --check scripts/probe_real_belief_trace.cjs
+        run: |
+          node --check scripts/probe_real_belief_trace.cjs
+          node --check scripts/probe_real_belief_worker.cjs
       - name: Test
         run: uv run pytest
       - name: Fast hostile correctness gate

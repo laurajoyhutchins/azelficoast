@@ -44,7 +44,12 @@ const maxSessions = environmentInteger(
   "AZELFICOAST_SHOWDOWN_PROBE_SESSIONS",
   4
 );
+const maxTransitionExecutions = environmentInteger(
+  "AZELFICOAST_SHOWDOWN_TRANSITION_CACHE_ENTRIES",
+  512
+);
 const sessions = new Map();
+const transitionExecutionCache = new Map();
 
 class ProbeExit extends Error {
   constructor(code) {
@@ -136,6 +141,8 @@ function createSession(sessionKey, source) {
   const context = vm.createContext({
     process: fakeProcess,
     require: sharedRequire,
+    __azelficoastTransitionExecutionCache: transitionExecutionCache,
+    __azelficoastTransitionExecutionCacheMaxEntries: maxTransitionExecutions,
   });
 
   try {
