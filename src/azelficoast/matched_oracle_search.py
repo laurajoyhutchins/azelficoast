@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.belief_evaluator import (
+    BeliefEvaluatorRuntime,
+    build_evaluator_input,
+)
 from azelficoast.matched_comparison import (
     METHODS,
     PACKET_SCHEMA,
@@ -22,15 +28,42 @@ from azelficoast.real_belief_trace import (
     _canonical,
     _choose,
     _outcomes,
-    _weighted_continuation_choice,
 )
 
 RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
-RECEIPT_SCHEMA_VERSION = 1
+RECEIPT_SCHEMA_VERSION = 2
 
 
 class MatchedSearchExecutionError(ValueError):
     """Raised when a frozen matched-search work item cannot execute faithfully."""
+
+
+@dataclass
+class _EvaluatorMeter:
+    evaluator: Any
+    calls: int = 0
+
+    def value(
+        self,
+        *,
+        public_state: Mapping[str, Any],
+        posterior: Mapping[str, Any],
+        legal_actions: Sequence[str],
+    ) -> float:
+        try:
+            inputs = build_evaluator_input(
+                public_state=public_state,
+                posterior=posterior,
+                legal_actions=legal_actions,
+                spec=self.evaluator.spec,
+            )
+            prediction = self.evaluator.predict(inputs)
+        except Exception as error:
+            raise MatchedSearchExecutionError(
+                f"learned evaluator failed at successor leaf: {error}"
+            ) from error
+        self.calls += 1
+        return float(prediction.value)
 
 
 def _load_object(path: str | Path) -> dict[str, Any]:
@@ -49,6 +82,34 @@ def _oracle_digest(oracle: Mapping[str, Any]) -> str:
             ensure_ascii=True,
         ).encode("utf-8")
     ).hexdigest()
+
+
+def _validated_evaluator(
+    packet: Mapping[str, Any],
+    evaluator: Any,
+) -> str:
+    expected = packet.get("evaluator")
+    identity = getattr(evaluator, "identity", None)
+    if not isinstance(expected, Mapping) or not isinstance(identity, Mapping):
+        raise MatchedSearchExecutionError(
+            "matched execution requires a frozen evaluator identity"
+        )
+    if dict(identity) != dict(expected):
+        raise MatchedSearchExecutionError(
+            "loaded evaluator identity differs from the frozen packet"
+        )
+    checkpoint_digest = identity.get("checkpoint_digest")
+    if not isinstance(checkpoint_digest, str) or not checkpoint_digest:
+        raise MatchedSearchExecutionError(
+            "frozen evaluator identity lacks checkpoint digest"
+        )
+    if getattr(evaluator, "spec", None) is None or not callable(
+        getattr(evaluator, "predict", None)
+    ):
+        raise MatchedSearchExecutionError(
+            "loaded evaluator does not expose the frozen inference contract"
+        )
+    return checkpoint_digest
 
 
 def _validated_inputs(
@@ -135,8 +196,8 @@ def _validated_inputs(
             raise MatchedSearchExecutionError(
                 f"{world_id}: posterior weight must be positive"
             )
-        # The oracle owns transition semantics. The posterior owns belief mass.
-        # Reweight the mechanics worlds from the frozen posterior treatment.
+        # The oracle owns transition semantics. The posterior owns belief mass and
+        # therefore the evaluator's hidden-world distribution.
         oracle_world["weight"] = posterior_mass
 
     raw_transitions = oracle.get("transitions")
@@ -178,11 +239,104 @@ def _validated_inputs(
     return worlds, list(legal_actions), transitions
 
 
+def _leaf_actions(outcome: Mapping[str, Any]) -> set[str]:
+    raw = outcome.get("continuations")
+    if isinstance(raw, Mapping) and raw:
+        # Deliberately ignore the numeric utility values. They are historical
+        # heuristic outputs, not authority for matched learned evaluation.
+        return {str(action) for action in raw}
+    terminal = outcome.get("terminal_utility")
+    if isinstance(terminal, (int, float)) and not isinstance(terminal, bool):
+        return {"<terminal>"}
+    raise MatchedSearchExecutionError(
+        "successor leaf has neither continuation actions nor terminal marker"
+    )
+
+
+def _learned_successor_value(
+    members: Sequence[Mapping[str, Any]],
+    *,
+    weight_key: str,
+    worlds_by_id: Mapping[str, Mapping[str, Any]],
+    evaluator: _EvaluatorMeter,
+) -> float:
+    if not members:
+        raise MatchedSearchExecutionError(
+            "cannot evaluate an empty successor information set"
+        )
+    total_weight = sum(float(member[weight_key]) for member in members)
+    if total_weight <= 0:
+        raise MatchedSearchExecutionError(
+            "successor information set has no probability mass"
+        )
+
+    successors = [member["outcome"].get("successor") for member in members]
+    if any(not isinstance(successor, Mapping) for successor in successors):
+        raise MatchedSearchExecutionError(
+            "learned leaf evaluation requires a public successor state"
+        )
+    successor_by_digest = {
+        _canonical(successor): successor
+        for successor in successors
+        if isinstance(successor, Mapping)
+    }
+    if len(successor_by_digest) != 1:
+        raise MatchedSearchExecutionError(
+            "one public observation mapped to multiple successor public states"
+        )
+    successor = next(iter(successor_by_digest.values()))
+    assert isinstance(successor, Mapping)
+
+    action_sets = [_leaf_actions(member["outcome"]) for member in members]
+    common_actions = set(action_sets[0])
+    for actions in action_sets[1:]:
+        common_actions &= actions
+    if not common_actions:
+        raise MatchedSearchExecutionError(
+            "successor information set has no common legal continuation"
+        )
+
+    world_mass: dict[str, float] = defaultdict(float)
+    for member in members:
+        world_id = str(member["world_id"])
+        if world_id not in worlds_by_id:
+            raise MatchedSearchExecutionError(
+                f"successor references unknown hidden world {world_id!r}"
+            )
+        world_mass[world_id] += float(member[weight_key])
+
+    evaluator_worlds: list[dict[str, Any]] = []
+    for world_id in sorted(world_mass):
+        mass = world_mass[world_id]
+        if mass <= 0:
+            continue
+        row = copy.deepcopy(dict(worlds_by_id[world_id]))
+        row["weight"] = mass / total_weight
+        evaluator_worlds.append(row)
+    if not evaluator_worlds:
+        raise MatchedSearchExecutionError(
+            "successor evaluator posterior has no positive hidden-world mass"
+        )
+
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": evaluator_worlds,
+    }
+    return evaluator.value(
+        public_state=successor,
+        posterior=posterior,
+        legal_actions=sorted(common_actions),
+    )
+
+
 def _determinization_values(
     worlds: Sequence[Mapping[str, Any]],
     legal_actions: Sequence[str],
     transitions: Mapping[tuple[str, str], Mapping[str, Any]],
+    evaluator: _EvaluatorMeter,
 ) -> dict[str, float]:
+    worlds_by_id = {str(world["world_id"]): world for world in worlds}
     values: dict[str, float] = {}
     for action in legal_actions:
         total = 0.0
@@ -195,6 +349,7 @@ def _determinization_values(
             ):
                 by_observation[_canonical(outcome.get("observation"))].append(
                     {
+                        "world_id": world_id,
                         "outcome_index": outcome_index,
                         "chance": float(outcome["probability"]),
                         "outcome": outcome,
@@ -204,9 +359,11 @@ def _determinization_values(
             world_value = 0.0
             for members in by_observation.values():
                 chance = sum(float(member["chance"]) for member in members)
-                _, value = _weighted_continuation_choice(
+                value = _learned_successor_value(
                     members,
                     weight_key="chance",
+                    worlds_by_id=worlds_by_id,
+                    evaluator=evaluator,
                 )
                 world_value += chance * value
             total += prior * world_value
@@ -218,7 +375,9 @@ def _information_set_values(
     worlds: Sequence[Mapping[str, Any]],
     legal_actions: Sequence[str],
     transitions: Mapping[tuple[str, str], Mapping[str, Any]],
+    evaluator: _EvaluatorMeter,
 ) -> dict[str, float]:
+    worlds_by_id = {str(world["world_id"]): world for world in worlds}
     values: dict[str, float] = {}
     for action in legal_actions:
         by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -241,9 +400,11 @@ def _information_set_values(
         total = 0.0
         for members in by_observation.values():
             mass = sum(float(member["mass"]) for member in members)
-            _, value = _weighted_continuation_choice(
+            value = _learned_successor_value(
                 members,
                 weight_key="mass",
+                worlds_by_id=worlds_by_id,
+                evaluator=evaluator,
             )
             total += mass * value
         values[action] = total
@@ -256,7 +417,9 @@ def execute_method(
     posterior: Mapping[str, Any],
     oracle: Mapping[str, Any],
     method: str,
+    evaluator: Any,
 ) -> dict[str, Any]:
+    checkpoint_digest = _validated_evaluator(packet, evaluator)
     worlds, legal_actions, transitions = _validated_inputs(
         packet=packet,
         posterior=posterior,
@@ -276,10 +439,15 @@ def execute_method(
             f"{method}: requires {required} transitions but budget authorizes {authorized}"
         )
 
+    meter = _EvaluatorMeter(evaluator)
     if method == "determinization":
-        root_values = _determinization_values(worlds, legal_actions, transitions)
+        root_values = _determinization_values(
+            worlds, legal_actions, transitions, meter
+        )
     else:
-        root_values = _information_set_values(worlds, legal_actions, transitions)
+        root_values = _information_set_values(
+            worlds, legal_actions, transitions, meter
+        )
 
     chosen_action, _ = _choose(root_values)
     return {
@@ -288,6 +456,11 @@ def execute_method(
         "method": method,
         "input_digest": packet["input_digest"],
         "evaluator_digest": packet["evaluator_digest"],
+        "evaluator_checkpoint_digest": checkpoint_digest,
+        "evaluator_calls": meter.calls,
+        "evaluator_call_unit_definition": (
+            "one learned value prediction per successor public information set"
+        ),
         "packet_digest": packet["packet_digest"],
         "posterior_digest": packet["posterior_digest"],
         "transition_oracle_digest": _oracle_digest(oracle),
@@ -313,14 +486,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("posterior", type=Path)
     parser.add_argument("oracle", type=Path)
     parser.add_argument("--method", required=True, choices=METHODS)
+    parser.add_argument("--evaluator-checkpoint", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args(argv)
 
+    evaluator = BeliefEvaluatorRuntime.from_checkpoint(args.evaluator_checkpoint)
     result = execute_method(
         packet=_load_object(args.packet),
         posterior=_load_object(args.posterior),
         oracle=_load_object(args.oracle),
         method=args.method,
+        evaluator=evaluator,
     )
     _write_json(args.output, result)
     print(json.dumps(result, sort_keys=True))

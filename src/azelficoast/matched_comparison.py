@@ -13,7 +13,7 @@ PLAN_SCHEMA_VERSION = 2
 PACKET_SCHEMA = "azelficoast.matched-search-comparison-packet"
 PACKET_SCHEMA_VERSION = 2
 RESULT_SCHEMA = "azelficoast.matched-search-comparison-result"
-RESULT_SCHEMA_VERSION = 2
+RESULT_SCHEMA_VERSION = 3
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 
@@ -311,6 +311,7 @@ def settle_packet(
     legal_actions = list(packet["legal_actions"])
     root_values: dict[str, dict[str, float]] = {}
     consumed: dict[str, int] = {}
+    evaluator_calls: dict[str, int] = {}
     chosen: dict[str, str] = {}
 
     for method in METHODS:
@@ -319,6 +320,17 @@ def settle_packet(
             raise MatchedComparisonError(f"{method}: receipt used another frozen input")
         if receipt.get("evaluator_digest") != packet["evaluator_digest"]:
             raise MatchedComparisonError(f"{method}: receipt used another evaluator")
+        checkpoint_digest = packet["evaluator"].get("checkpoint_digest")
+        if receipt.get("evaluator_checkpoint_digest") != checkpoint_digest:
+            raise MatchedComparisonError(
+                f"{method}: receipt used another evaluator checkpoint"
+            )
+        calls = receipt.get("evaluator_calls")
+        if not isinstance(calls, int) or isinstance(calls, bool) or calls < 0:
+            raise MatchedComparisonError(
+                f"{method}: evaluator call count must be a non-negative integer"
+            )
+        evaluator_calls[method] = calls
         budget = receipt.get("compute_budget")
         if not isinstance(budget, Mapping) or budget != packet["compute_budget"]:
             raise MatchedComparisonError(f"{method}: receipt used another authorized budget")
@@ -369,8 +381,11 @@ def settle_packet(
         "matched_input": True,
         "matched_authorized_compute": True,
         "matched_evaluator": True,
+        "matched_evaluator_checkpoint": True,
         "evaluator": dict(packet["evaluator"]),
         "evaluator_digest": packet["evaluator_digest"],
+        "evaluator_checkpoint_digest": packet["evaluator"]["checkpoint_digest"],
+        "evaluator_calls": evaluator_calls,
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
         "predictors": dict(packet["predictors"]),
