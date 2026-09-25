@@ -8,14 +8,20 @@ that one continuation must serve every world in the same information set.
 from __future__ import annotations
 
 import hashlib
-import itertools
 import json
 import math
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-SCHEMA = "azelficoast.real-belief-transition-oracle"
-SCHEMA_VERSION = 1
+from azelficoast import transition_oracle as _transition_oracle
+from azelficoast.whole_turn_program import (
+    compile_whole_turn_programs,
+    program_for_action,
+)
+
+SCHEMA = _transition_oracle.ORACLE_SCHEMA
+SCHEMA_VERSION = _transition_oracle.ORACLE_SCHEMA_VERSION
+_canonical = _transition_oracle.canonical_json
 RESULT_SCHEMA = "azelficoast.real-belief-decision-trace"
 RESULT_SCHEMA_VERSION = 3
 
@@ -24,42 +30,8 @@ class BeliefTraceError(ValueError):
     """Raised when transition evidence is incomplete or internally inconsistent."""
 
 
-def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-
-
 def _sha256(value: Any) -> str:
     return hashlib.sha256(_canonical(value).encode()).hexdigest()
-
-
-def _minimal_dependency_fields(
-    worlds: Sequence[Mapping[str, Any]],
-    immediate_outcomes_by_world: Mapping[str, Any],
-    candidates: Sequence[str],
-) -> tuple[str, ...]:
-    fields = tuple(dict.fromkeys(str(field) for field in candidates))
-    hidden_fields = {key for world in worlds for key in world["hidden"]}
-    unknown = [field for field in fields if field not in hidden_fields]
-    if unknown:
-        raise BeliefTraceError(f"dependency candidates reference unknown fields: {unknown!r}")
-
-    def sufficient(candidate: tuple[str, ...]) -> bool:
-        classes: dict[tuple[Any, ...], str] = {}
-        for world in worlds:
-            world_id = str(world["world_id"])
-            hidden = world["hidden"]
-            key = tuple(_canonical(hidden.get(field)) for field in candidate)
-            outcome = _canonical(immediate_outcomes_by_world[world_id])
-            previous = classes.setdefault(key, outcome)
-            if previous != outcome:
-                return False
-        return True
-
-    for size in range(len(fields) + 1):
-        for candidate in itertools.combinations(fields, size):
-            if sufficient(candidate):
-                return candidate
-    raise BeliefTraceError("no hidden-state dependency signature explains outcomes")
 
 
 def _choose(values: Mapping[str, float]) -> tuple[str, float]:
@@ -71,38 +43,10 @@ def _choose(values: Mapping[str, float]) -> tuple[str, float]:
 
 
 def _outcomes(transition: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    raw = transition.get("outcomes")
-    if not isinstance(raw, list) or not raw:
-        raise BeliefTraceError("every root transition must contain chance outcomes")
-    total = 0.0
-    outcomes: list[Mapping[str, Any]] = []
-    for outcome in raw:
-        if not isinstance(outcome, Mapping):
-            raise BeliefTraceError("transition outcome must be an object")
-        probability = outcome.get("probability")
-        if not isinstance(probability, (int, float)) or probability <= 0:
-            raise BeliefTraceError("transition outcome probabilities must be positive")
-        total += float(probability)
-        outcomes.append(outcome)
-    if abs(total - 1.0) > 1e-9:
-        raise BeliefTraceError(f"transition outcome probabilities sum to {total}, not 1")
-    return outcomes
-
-
-def _immediate_distribution(transition: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Return mechanics-only outcomes for hidden-state partition validation.
-
-    Continuation utilities are deliberately excluded. A Protect transition can be
-    mechanically independent of a hidden item even when later decisions are not.
-    """
-    return [
-        {
-            "probability": float(outcome["probability"]),
-            "observation": outcome.get("observation"),
-            "successor": outcome.get("successor"),
-        }
-        for outcome in _outcomes(transition)
-    ]
+    return _transition_oracle.transition_outcomes(
+        transition,
+        error_type=BeliefTraceError,
+    )
 
 
 def _leaf_continuation_values(outcome: Mapping[str, Any]) -> dict[str, float]:
@@ -292,25 +236,13 @@ def _weighted_continuation_choice(
 
 
 def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
-    if document.get("schema") != SCHEMA or document.get("schema_version") != SCHEMA_VERSION:
-        raise BeliefTraceError("unsupported transition oracle schema")
-
-    raw_worlds = document.get("worlds")
-    raw_actions = document.get("legal_actions")
-    raw_transitions = document.get("transitions")
-    if not isinstance(raw_worlds, list) or not raw_worlds:
-        raise BeliefTraceError("oracle must contain at least one hidden world")
-    if not isinstance(raw_actions, list) or not raw_actions:
-        raise BeliefTraceError("oracle must contain root legal actions")
-    if not isinstance(raw_transitions, list):
-        raise BeliefTraceError("oracle transitions must be a list")
-
-    worlds = [dict(world) for world in raw_worlds]
+    worlds, legal_actions, transitions, dependency_candidates = (
+        _transition_oracle.validate_oracle_core(
+            document,
+            error_type=BeliefTraceError,
+        )
+    )
     world_by_id = {str(world["world_id"]): world for world in worlds}
-    if len(world_by_id) != len(worlds):
-        raise BeliefTraceError("world ids must be unique")
-    if any(float(world.get("weight", 0)) <= 0 for world in worlds):
-        raise BeliefTraceError("world weights must be positive")
     total_world_weight = sum(float(world["weight"]) for world in worlds)
 
     raw_factors = document.get("factored_hidden", {})
@@ -381,7 +313,6 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             "evidence": dict(evidence or {}),
         }
 
-    legal_actions = [str(action) for action in raw_actions]
     for field, factor in factored_hidden.items():
         unread = set(factor["unread_actions"])
         unknown_actions = unread - set(legal_actions)
@@ -398,38 +329,9 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
                 f"factored hidden field {field!r} is read by actions "
                 f"{requiring_expansion!r}; materialize that factor before analysis"
             )
-    raw_candidates = document.get("dependency_candidates")
-    if raw_candidates is None:
-        dependency_candidates = sorted({key for world in worlds for key in world["hidden"]})
-    elif isinstance(raw_candidates, list) and all(isinstance(field, str) for field in raw_candidates):
-        dependency_candidates = list(dict.fromkeys(raw_candidates))
-    else:
-        raise BeliefTraceError("dependency_candidates must be an array of semantic field paths")
-
     raw_declared = document.get("declared_reads", {})
     if not isinstance(raw_declared, Mapping):
         raise BeliefTraceError("declared_reads must be an action-to-fields object")
-
-    transitions: dict[tuple[str, str], Mapping[str, Any]] = {}
-    for transition in raw_transitions:
-        if not isinstance(transition, Mapping):
-            raise BeliefTraceError("transition must be an object")
-        world_id = str(transition.get("world_id"))
-        action = str(transition.get("action"))
-        key = (world_id, action)
-        if world_id not in world_by_id:
-            raise BeliefTraceError(f"transition references unknown world {world_id}")
-        if action not in legal_actions:
-            raise BeliefTraceError(f"transition references non-root action {action}")
-        if key in transitions:
-            raise BeliefTraceError(f"duplicate transition for {world_id} {action}")
-        _outcomes(transition)
-        transitions[key] = transition
-
-    expected = {(world_id, action) for world_id in world_by_id for action in legal_actions}
-    missing = expected - set(transitions)
-    if missing:
-        raise BeliefTraceError(f"oracle omitted root transitions: {sorted(missing)[:3]!r}")
 
     for field, factor in factored_hidden.items():
         unread = set(factor["unread_actions"])
@@ -450,6 +352,8 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
                             f"{field!r} was read"
                         )
 
+    whole_turn_program_set = compile_whole_turn_programs(document)
+
     action_reports: list[dict[str, Any]] = []
     determinization_values: dict[str, float] = {}
     public_values: dict[str, float] = {}
@@ -458,12 +362,9 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
         action_transitions = {
             world_id: transitions[(world_id, action)] for world_id in world_by_id
         }
-        immediate_by_world = {
-            world_id: _immediate_distribution(transition)
-            for world_id, transition in action_transitions.items()
-        }
-        dependency_fields = _minimal_dependency_fields(
-            worlds, immediate_by_world, dependency_candidates
+        transition_program = program_for_action(whole_turn_program_set, action)
+        dependency_fields = tuple(
+            str(field) for field in transition_program["dependency_fields"]
         )
 
         declared_for_action = raw_declared.get(action, dependency_candidates)
@@ -477,12 +378,6 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             raise BeliefTraceError(
                 f"{action}: empirical dependency fields missing from declaration: {missing_declared!r}"
             )
-
-        dependency_classes: dict[tuple[str, ...], list[str]] = defaultdict(list)
-        for world in worlds:
-            hidden = world["hidden"]
-            key = tuple(_canonical(hidden.get(field)) for field in dependency_fields)
-            dependency_classes[key].append(str(world["world_id"]))
 
         # Observation classes contain joint hidden-world/chance mass. Chance is
         # evidence, not a hidden fact the determinization baseline knows in advance.
@@ -602,14 +497,10 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
                 "dependency_signature": {
                     "declared_reads": declared,
                     "empirically_required_reads": list(dependency_fields),
-                    "partition_key_hash": _sha256(
-                        {
-                            "fields": dependency_fields,
-                            "classes": sorted(sorted(ids) for ids in dependency_classes.values()),
-                        }
-                    ),
-                    "worlds_in": len(worlds),
-                    "classes_out": len(dependency_classes),
+                    "partition_key_hash": transition_program["partition_key_hash"],
+                    "effect_signature": transition_program["effect_signature"],
+                    "worlds_in": transition_program["worlds_in"],
+                    "classes_out": transition_program["classes_out"],
                     "observable_classes_out": len(observation_members),
                     "marginalized_hidden_factors": sorted(factored_hidden),
                 },
