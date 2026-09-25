@@ -11,6 +11,7 @@ on:
       - "src/azelficoast/real_belief_trace.py"
       - "src/azelficoast/real_belief_miner.py"
       - "src/azelficoast/core/decision_relevance.py"
+      - "src/azelficoast/core/mechanics.py"
       - "src/azelficoast/core/program.py"
       - "src/azelficoast/core/transition.py"
       - "src/azelficoast/whole_turn_program.py"
@@ -215,23 +216,54 @@ jobs:
             /tmp/candidate-source.json \
             > /tmp/candidate-oracle.json
 
-      - name: Generate lazy transition program
+      - name: Generate read-refinement transition kernel
         if: steps.extract.outputs.supported == 'true'
         run: |
-          node scripts/probe_real_belief_trace.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/candidate-source.json \
-            --transition-program-only \
-            > /tmp/candidate-lazy-program.json
+          /usr/bin/time -f '%e' -o /tmp/candidate-kernel-wall-seconds.txt \
+            node scripts/probe_real_belief_trace.cjs \
+              /tmp/pokemon-showdown \
+              /tmp/candidate-source.json \
+              --transition-program-only \
+              > /tmp/candidate-kernel.json
 
       - name: Run pinned-Showdown hostile certification
         if: steps.extract.outputs.supported == 'true'
         env:
           AZELFICOAST_HOSTILE_ORACLE_PATH: /tmp/candidate-oracle.json
-          AZELFICOAST_HOSTILE_LAZY_PROGRAM_PATH: /tmp/candidate-lazy-program.json
+          AZELFICOAST_HOSTILE_LAZY_PROGRAM_PATH: /tmp/candidate-kernel.json
         run: |
           uv run pytest tests/hostile/test_transition_program_hostile.py \
             -m hostile_showdown
+
+      - name: Record kernel verification evidence
+        if: steps.extract.outputs.supported == 'true'
+        run: |
+          uv run python - <<'PY'
+          import json
+          from pathlib import Path
+
+          from azelficoast.whole_turn_program import verify_whole_turn_program_set
+
+          oracle = json.loads(Path("/tmp/candidate-oracle.json").read_text())
+          kernel = json.loads(Path("/tmp/candidate-kernel.json").read_text())
+          verification = verify_whole_turn_program_set(kernel, oracle)
+          verification["kernel_evidence"] = kernel["kernel_evidence"]
+          verification["producer"] = kernel["producer"]
+          verification["kernel_generation_wall_ms"] = (
+              float(Path("/tmp/candidate-kernel-wall-seconds.txt").read_text().strip())
+              * 1000.0
+          )
+          verification["live_reuse_contract"] = (
+              "candidate CI certifies the revision-bound read-refinement kernel; "
+              "live turns validate its boundary and reuse representative executions "
+              "without re-running the exhaustive world/action oracle"
+          )
+          Path("/tmp/candidate-kernel-verification.json").write_text(
+              json.dumps(verification, sort_keys=True),
+              encoding="utf-8",
+          )
+          print(json.dumps(verification, sort_keys=True))
+          PY
 
       - name: Analyze information set
         if: steps.extract.outputs.supported == 'true'
@@ -302,7 +334,9 @@ jobs:
             /tmp/candidate-status.json
             /tmp/candidate-source.json
             /tmp/candidate-oracle.json
-            /tmp/candidate-lazy-program.json
+            /tmp/candidate-kernel.json
+            /tmp/candidate-kernel-verification.json
+            /tmp/candidate-kernel-wall-seconds.txt
             /tmp/candidate-trace.json
             /tmp/candidate-mining.json
             /tmp/candidate-result.json
