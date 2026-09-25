@@ -66,6 +66,115 @@ def _battle_tag(fixture: DecisionFixture) -> str:
     )
 
 
+def _to_id(value: Any) -> str:
+    return "".join(
+        character
+        for character in str(value or "").lower()
+        if character.isalnum()
+    )
+
+
+def _exact_opponent_bench_status(fixture: DecisionFixture) -> str:
+    """Mirror the exact Showdown adapter's public bench reconstruction gate."""
+
+    own_name = _to_id(fixture.state.get("player"))
+    opponent_name = _to_id(fixture.state.get("opponent"))
+    own_side: str | None = None
+    opponent_side: str | None = None
+
+    for batch in fixture.protocol_prefix:
+        for message in batch:
+            if (
+                len(message) >= 4
+                and message[0] == ""
+                and message[1] == "player"
+                and message[2] in {"p1", "p2"}
+            ):
+                name = _to_id(message[3])
+                if name == own_name:
+                    own_side = message[2]
+                if name == opponent_name:
+                    opponent_side = message[2]
+
+    if own_side is None and opponent_side is not None:
+        own_side = "p2" if opponent_side == "p1" else "p1"
+    if opponent_side is None and own_side is not None:
+        opponent_side = "p2" if own_side == "p1" else "p1"
+    if opponent_side is None:
+        return "opponent-side-unresolved"
+
+    active: str | None = None
+    seen: list[str] = []
+    fainted: set[str] = set()
+    team_size: int | None = None
+
+    for batch in fixture.protocol_prefix:
+        for message in batch:
+            if len(message) < 2 or message[0] != "":
+                continue
+            if (
+                len(message) >= 4
+                and message[1] == "teamsize"
+                and message[2] == opponent_side
+            ):
+                try:
+                    team_size = int(message[3])
+                except ValueError:
+                    pass
+
+            actor = str(message[2]) if len(message) >= 3 else ""
+            if (
+                message[1] in {"switch", "drag"}
+                and actor.startswith(opponent_side)
+                and len(message) >= 4
+            ):
+                active = str(message[3]).split(",", 1)[0]
+                if active and not any(
+                    _to_id(species) == _to_id(active) for species in seen
+                ):
+                    seen.append(active)
+            if (
+                message[1] == "faint"
+                and actor.startswith(opponent_side)
+                and active
+            ):
+                fainted.add(_to_id(active))
+
+    opponent_active = fixture.state.get("opponent_active")
+    if not isinstance(opponent_active, Mapping):
+        return "opponent-active-missing"
+    current = _to_id(opponent_active.get("species"))
+    if any(
+        _to_id(species) != current and _to_id(species) not in fainted
+        for species in seen
+    ):
+        return "known-surviving-bench"
+
+    opponent_team = fixture.state.get("opponent_team")
+    public_team = (
+        list(opponent_team.values())
+        if isinstance(opponent_team, Mapping)
+        else []
+    )
+    known_species = {
+        _to_id(view.get("species"))
+        for view in public_team
+        if isinstance(view, Mapping) and _to_id(view.get("species"))
+    }
+    if (
+        team_size is not None
+        and len(known_species) >= team_size
+        and all(
+            _to_id(view.get("species")) == current or bool(view.get("fainted"))
+            for view in public_team
+            if isinstance(view, Mapping)
+        )
+    ):
+        return "public-bench-exhausted"
+
+    return "opponent-bench-unresolved"
+
+
 def _hp_fraction(view: Mapping[str, Any]) -> float | None:
     current = view.get("current_hp")
     maximum = view.get("max_hp")
@@ -265,6 +374,14 @@ def freeze_population(
             raise PopulationStudyError(
                 "live admission returned source without admitted status"
             )
+
+        bench_status = _exact_opponent_bench_status(fixture)
+        if bench_status not in {
+            "known-surviving-bench",
+            "public-bench-exhausted",
+        }:
+            exclude(f"exact-reconstruction:{bench_status}")
+            continue
 
         weights = candidate.get("item_weights")
         if not isinstance(weights, Mapping):
