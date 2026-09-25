@@ -192,6 +192,9 @@ function generatorVariants() {
   for (let i = 0; i < GENERATOR_ROUNDS; i++) {
     generator.setSeed([i, i, i, i]);
     const set = generator.randomSet(species, {}, false, false);
+    // Level is public Random Battle information. A generator outcome at a
+    // different level is not a plausible hidden world for this decision state.
+    if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
     const moves = [...set.moves].map(toID).sort();
     if (![...observed].every(move => moves.includes(move))) continue;
     const plausibleItems = Array.isArray(source.plausible_items)
