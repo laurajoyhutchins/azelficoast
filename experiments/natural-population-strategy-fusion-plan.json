@@ -23,7 +23,9 @@
     "mechanics_screen_rounds": 512,
     "requires_exact_opponent_bench_reconstruction": true,
     "requires_public_forme_conditioning": true,
-    "requires_exact_lead_context": true
+    "requires_exact_lead_context": true,
+    "requires_public_ability_conditioning": true,
+    "requires_opponent_not_terastallized": true
   },
   "exact_treatment": {
     "root_chance_samples": 16,
@@ -131,5 +133,14 @@
     "reason": "discovery and mechanics screening condition Random Battle generation on opponent lead status, but exact reconstruction previously hard-coded isLead=false",
     "outcome_values_inspected_before_amendment": false,
     "rule": "freeze opponent_is_lead from the candidate's public history and use it in exact hidden-world generation; use the same generator-species resolution as discovery"
+  },
+  "preregistration_amendment_public_state": {
+    "reason": "public opponent ability and already-Terastallized state were not fully represented in hidden-world reconstruction",
+    "outcome_values_inspected_before_amendment": false,
+    "rules": [
+      "condition generator samples on a revealed opponent ability when present",
+      "exclude already-Terastallized opponents from this bounded study until exact type-state reconstruction is supported",
+      "exclude transformed opponents"
+    ]
   }
 }
