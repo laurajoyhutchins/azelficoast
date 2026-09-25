@@ -895,6 +895,122 @@ def _run_corpus(args: argparse.Namespace) -> None:
     print(json.dumps(summary, sort_keys=True))
 
 
+
+def _read_jsonl_objects(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as error:
+                raise ValueError(
+                    f"{path}:{line_number}: invalid JSON: {error.msg}"
+                ) from error
+            if not isinstance(row, dict):
+                raise ValueError(f"{path}:{line_number}: expected a JSON object")
+            rows.append(row)
+    return rows
+
+
+async def _run_promotion_panel(
+    *,
+    root: Path,
+    candidate_checkpoint: Path,
+    incumbent_checkpoint: Path,
+    showdown_root: Path,
+    belief_timeout: float,
+    search_policy_margin: float,
+    concurrency: int,
+    policy: BattlePromotionPolicy,
+) -> dict[str, Any]:
+    """Run and settle a side-balanced candidate-vs-incumbent battle panel."""
+
+    candidate_digest = _checkpoint_digest(candidate_checkpoint)
+    incumbent_digest = _checkpoint_digest(incumbent_checkpoint)
+    results = root / "results.jsonl"
+    decisions = root / "decisions.jsonl"
+    replays = root / "replays"
+    evidence_path = root / "evidence.json"
+    _prepare_output_paths(results, decisions, replays)
+
+    common_metadata = {
+        "candidate_checkpoint_digest": candidate_digest,
+        "incumbent_checkpoint_digest": incumbent_digest,
+    }
+    half = policy.expected_battles // 2
+
+    incumbent_opponent = AzelficoastPlayer(
+        battle_format=BATTLE_FORMAT,
+        max_concurrent_battles=concurrency,
+        showdown_root=showdown_root,
+        belief_timeout_seconds=belief_timeout,
+        evaluator_checkpoint=incumbent_checkpoint,
+        search_policy_margin=search_policy_margin,
+    )
+    await _run_local(
+        half,
+        concurrency,
+        results,
+        decisions,
+        replays,
+        showdown_root=showdown_root,
+        belief_timeout=belief_timeout,
+        evaluator_checkpoint=candidate_checkpoint,
+        search_policy_margin=search_policy_margin,
+        opponent=incumbent_opponent,
+        trace_source={"kind": "promotion-candidate-primary"},
+        mode=CANDIDATE_PRIMARY_MODE,
+        print_summary=False,
+        result_metadata=common_metadata,
+    )
+
+    candidate_opponent = AzelficoastPlayer(
+        battle_format=BATTLE_FORMAT,
+        max_concurrent_battles=concurrency,
+        showdown_root=showdown_root,
+        belief_timeout_seconds=belief_timeout,
+        evaluator_checkpoint=candidate_checkpoint,
+        search_policy_margin=search_policy_margin,
+    )
+    await _run_local(
+        half,
+        concurrency,
+        results,
+        decisions,
+        replays,
+        showdown_root=showdown_root,
+        belief_timeout=belief_timeout,
+        evaluator_checkpoint=incumbent_checkpoint,
+        search_policy_margin=search_policy_margin,
+        opponent=candidate_opponent,
+        trace_source={"kind": "promotion-incumbent-primary"},
+        mode=INCUMBENT_PRIMARY_MODE,
+        print_summary=False,
+        result_metadata=common_metadata,
+    )
+
+    evidence = settle_battle_panel(
+        _read_jsonl_objects(results),
+        candidate_checkpoint_digest=candidate_digest,
+        incumbent_checkpoint_digest=incumbent_digest,
+        policy=policy,
+    )
+    evidence = {
+        **evidence,
+        "results": str(results),
+        "results_digest": _file_sha256(results),
+        "decision_trace": str(decisions),
+        "decision_trace_digest": _file_sha256(decisions),
+    }
+    evidence_path.write_text(
+        json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    return evidence
+
+
 async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str, object]:
     """Acquire mixed curriculum evidence and attempt bounded promotions."""
 
@@ -1034,26 +1150,58 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
                     args.max_validation_policy_regression
                 ),
             ),
+            defer_promotion=True,
         )
-        promoted = receipt.get("status") == "promoted"
-        if promoted:
+
+        promoted = False
+        promotion_panel: dict[str, Any] | None = None
+        promotion_settlement: dict[str, Any] | None = None
+        if receipt.get("status") == "candidate-admitted":
             improvement = receipt.get("improvement")
             if not isinstance(improvement, Mapping):
-                raise ValueError("promoted generation lacks improvement evidence")
+                raise ValueError("candidate admission lacks improvement evidence")
             candidate_checkpoint = improvement.get("candidate_checkpoint")
             if not isinstance(candidate_checkpoint, str) or not candidate_checkpoint:
-                raise ValueError("promoted generation lacks immutable candidate checkpoint")
-            archive_checkpoints.append(current_checkpoint)
-            current_checkpoint = Path(candidate_checkpoint)
+                raise ValueError("candidate admission lacks immutable checkpoint")
+            candidate_path = Path(candidate_checkpoint)
+            promotion_panel = await _run_promotion_panel(
+                root=generation_root / "promotion-panel",
+                candidate_checkpoint=candidate_path,
+                incumbent_checkpoint=current_checkpoint,
+                showdown_root=args.showdown_root,
+                belief_timeout=args.belief_timeout,
+                search_policy_margin=args.battle_search_policy_margin,
+                concurrency=args.concurrency,
+                policy=BattlePromotionPolicy(
+                    expected_battles=args.promotion_battles,
+                    max_superiority_p_value=args.promotion_alpha,
+                ),
+            )
+            if promotion_panel["admitted"]:
+                promotion_settlement = promote_deferred_candidate(
+                    improvement,
+                    battle_evidence=promotion_panel,
+                    promotion_file=args.promotion,
+                    receipts_dir=args.receipts_dir,
+                )
+                promoted = True
+                archive_checkpoints.append(current_checkpoint)
+                current_checkpoint = candidate_path
 
         generation = {
             "schema": "azelficoast.self-improvement-generation",
-            "schema_version": 2,
+            "schema_version": 3,
             "generation": generation_number,
             "battle_count": args.battles_per_generation,
             "battle_search_policy_margin": args.battle_search_policy_margin,
             "opponent_population": opponent_population,
             "public_curriculum": public_curriculum,
+            "promotion_panel": promotion_panel,
+            "promotion_settlement_receipt_digest": (
+                promotion_settlement.get("receipt_digest")
+                if promotion_settlement is not None
+                else None
+            ),
             "trace": str(decisions),
             "trace_digest": _file_sha256(decisions),
             "results": str(results),
@@ -1087,7 +1235,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
 
     return {
         "schema": "azelficoast.self-improvement-run",
-        "schema_version": 2,
+        "schema_version": 3,
         "generation_count": len(generations),
         "generations": generations,
         "final_checkpoint": str(current_checkpoint),
