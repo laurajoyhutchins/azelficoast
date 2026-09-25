@@ -543,9 +543,20 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert "function opponentActionDistribution(" in source
     assert "const currentSpecies = toID(" in source
     assert "moveSpecies === currentSpecies" in source
+    assert '"strategy-mixture"' in source
+    assert '"simple-heuristics"' in source
+    assert '"max-damage"' in source
+    assert '"repeat-observed-move"' in source
     assert '"uniform-legal-moves"' in source
+    assert '"equal-active-strategies"' in source
+    assert "function moveDamageHeuristic(" in source
+    assert "function simpleHeuristicsDistribution(" in source
+    assert "function equalStrategyMixture(" in source
     assert '"uniform-forced-switch"' in source
     assert 'hiddenReads.add("opponent.active.moves")' in source
+    assert 'hiddenReads.add("opponent.active.evs")' in source
+    assert 'hiddenReads.add("opponent.active.ivs")' in source
+    assert '"repeat-last-or-uniform-legal-moves"' not in source
     assert "showdown_turn_executions: showdownTurnExecutions" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
     assert "opponent_policy: OPPONENT_POLICY" in source
