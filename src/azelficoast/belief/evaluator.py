@@ -551,3 +551,42 @@ class BeliefEvaluatorRuntime:
 
     def predict(self, inputs: BeliefEvaluatorInput) -> BeliefPrediction:
         return predict(self.params, inputs)
+
+
+class BeliefSearchValueAdapter:
+    """Expose a learned belief evaluator through the domain-neutral search contract."""
+
+    def __init__(self, evaluator: Any) -> None:
+        self.evaluator = evaluator
+
+    def value(
+        self,
+        *,
+        public_state: Mapping[str, Any],
+        posterior_worlds: Sequence[Mapping[str, Any]],
+        legal_actions: Sequence[str],
+    ) -> float:
+        posterior = {
+            "conditioned_on_public_history": True,
+            "realized_hidden_state_revealed": False,
+            "worlds": [dict(world) for world in posterior_worlds],
+        }
+        try:
+            inputs = build_evaluator_input(
+                public_state=public_state,
+                posterior=posterior,
+                legal_actions=legal_actions,
+                spec=self.evaluator.spec,
+            )
+            prediction = self.evaluator.predict(inputs)
+        except Exception as error:
+            raise BeliefEvaluatorError(
+                f"learned evaluator failed at successor leaf: {error}"
+            ) from error
+
+        value = float(prediction.value)
+        if not math.isfinite(value):
+            raise BeliefEvaluatorError(
+                "learned evaluator returned a non-finite successor value"
+            )
+        return value

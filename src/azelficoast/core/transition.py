@@ -15,7 +15,7 @@ import json
 import math
 from typing import Any, Mapping
 
-ORACLE_SCHEMA = "azelficoast.real-belief-transition-oracle"
+ORACLE_SCHEMA = "azelficoast.core.transition-oracle"
 ORACLE_SCHEMA_VERSION = 1
 
 
@@ -165,6 +165,3 @@ def validate_transition_oracle(
 
     return worlds, actions, transitions, candidates
 
-
-# Compatibility name retained for existing Azelficoast consumers.
-validate_oracle_core = validate_transition_oracle

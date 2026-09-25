@@ -4,6 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+PROGRAM_SET_SCHEMA = "azelficoast.core.transition-program-set"
+PROGRAM_SET_SCHEMA_VERSION = 1
+EXECUTION_SCHEMA = "azelficoast.core.weighted-transition-outcomes"
+EXECUTION_SCHEMA_VERSION = 1
+VERIFICATION_SCHEMA = "azelficoast.core.transition-program-verification"
+VERIFICATION_SCHEMA_VERSION = 1
+
 
 class TransitionProgramError(ValueError):
     """Raised when a finite transition program is structurally invalid."""

@@ -5,11 +5,11 @@ import copy
 import pytest
 
 from azelficoast.real_belief_trace import analyze_oracle
+from azelficoast.core.program import program_for_action
 from azelficoast.whole_turn_program import (
     WholeTurnProgramError,
     compile_whole_turn_programs,
     execute_whole_turn_program,
-    program_for_action,
     verify_whole_turn_program_set,
 )
 
@@ -66,7 +66,7 @@ def _oracle() -> dict[str, object]:
             ]
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "whole-turn-fixture",
         "showdown_commit": "pinned",
@@ -227,7 +227,7 @@ def _instrumented_branching_oracle() -> dict[str, object]:
             }
         )
     return {
-        "schema": "azelficoast.real-belief-transition-oracle",
+        "schema": "azelficoast.core.transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "instrumented-branching",
         "showdown_commit": "pinned",

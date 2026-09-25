@@ -7,21 +7,27 @@ that one continuation must serve every world in the same information set.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
 from collections import defaultdict
 from typing import Any, Mapping, Sequence
 
-from azelficoast import transition_oracle as _transition_oracle
-from azelficoast.whole_turn_program import (
-    compile_whole_turn_programs,
-    program_for_action,
+from azelficoast.core.decision_relevance import decision_relevance_quotient
+from azelficoast.core.program import program_for_action
+from azelficoast.core.transition import (
+    ORACLE_SCHEMA,
+    ORACLE_SCHEMA_VERSION,
+    canonical_json,
+    transition_outcomes,
+    validate_transition_oracle,
 )
+from azelficoast.whole_turn_program import compile_whole_turn_programs
 
-SCHEMA = _transition_oracle.ORACLE_SCHEMA
-SCHEMA_VERSION = _transition_oracle.ORACLE_SCHEMA_VERSION
-_canonical = _transition_oracle.canonical_json
+SCHEMA = ORACLE_SCHEMA
+SCHEMA_VERSION = ORACLE_SCHEMA_VERSION
+_canonical = canonical_json
 RESULT_SCHEMA = "azelficoast.real-belief-decision-trace"
 RESULT_SCHEMA_VERSION = 3
 
@@ -43,7 +49,7 @@ def _choose(values: Mapping[str, float]) -> tuple[str, float]:
 
 
 def _outcomes(transition: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    return _transition_oracle.transition_outcomes(
+    return transition_outcomes(
         transition,
         error_type=BeliefTraceError,
     )
@@ -237,7 +243,7 @@ def _weighted_continuation_choice(
 
 def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
     worlds, legal_actions, transitions, dependency_candidates = (
-        _transition_oracle.validate_oracle_core(
+        validate_transition_oracle(
             document,
             error_type=BeliefTraceError,
         )
@@ -585,15 +591,45 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def analyze_quotiented_oracle(
+    document: Mapping[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Analyze the exact decision-relevance quotient with the battle trace analyzer."""
+
+    certificate, quotient = decision_relevance_quotient(document)
+    trace = analyze_oracle(quotient)
+    trace["source_world_count"] = certificate["worlds_in"]
+    trace["decision_relevance"] = {
+        key: copy.deepcopy(value)
+        for key, value in certificate.items()
+        if key != "classes"
+    }
+    return trace, certificate
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
     from pathlib import Path
 
     parser = argparse.ArgumentParser()
     parser.add_argument("oracle", type=Path)
+    parser.add_argument(
+        "--quotient",
+        action="store_true",
+        help="analyze the exact decision-relevance quotient before tracing",
+    )
     args = parser.parse_args(argv)
     document = json.loads(args.oracle.read_text(encoding="utf-8"))
-    result = analyze_oracle(document)
+    if args.quotient:
+        trace, certificate = analyze_quotiented_oracle(document)
+        result = {
+            "schema": "azelficoast.real-belief-decision-relevance-analysis",
+            "schema_version": 1,
+            "certificate": certificate,
+            "quotient_trace": trace,
+        }
+    else:
+        result = analyze_oracle(document)
     print(json.dumps(result, sort_keys=True))
     return 0
 

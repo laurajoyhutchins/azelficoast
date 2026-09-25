@@ -12,10 +12,11 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Sequence
 
-ORACLE_SCHEMA = "azelficoast.real-belief-transition-oracle"
-ORACLE_SCHEMA_VERSION = 1
-PROGRAM_SET_SCHEMA = "azelficoast.whole-turn-transition-program-set"
-PROGRAM_SET_SCHEMA_VERSION = 1
+from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERSION
+from azelficoast.core.transition import (
+    ORACLE_SCHEMA as ORACLE_SCHEMA,
+    ORACLE_SCHEMA_VERSION as ORACLE_SCHEMA_VERSION,
+)
 COMPUTE_RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
 COMPUTE_RECEIPT_SCHEMA_VERSION = 4
 COMPUTE_BUDGET_UNIT_DEFINITION = (

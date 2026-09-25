@@ -5,7 +5,6 @@ from typing import Any, Mapping, Sequence
 from azelficoast.core.decision_relevance import decision_relevance_quotient
 from azelficoast.core.search import search_transition_program
 from azelficoast.core.transition import validate_transition_oracle
-from azelficoast.transition_oracle import validate_oracle_core
 
 
 class SupportSizeEvaluator:
@@ -170,6 +169,3 @@ def test_information_set_search_uses_only_available_information() -> None:
     assert determinized["root_values"]["hide"] == 1.0
     assert information_set["root_values"]["hide"] == 0.0
 
-
-def test_legacy_transition_import_routes_to_general_core() -> None:
-    assert validate_oracle_core is validate_transition_oracle

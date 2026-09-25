@@ -20,19 +20,18 @@ from azelficoast.research.contracts import (
     ResearchContractError,
     stable_digest,
 )
-from azelficoast.transition_oracle import (
+from azelficoast.core.program import (
+    PROGRAM_SET_SCHEMA,
+    PROGRAM_SET_SCHEMA_VERSION,
+    program_for_action,
+)
+from azelficoast.core.transition import (
     ORACLE_SCHEMA,
     ORACLE_SCHEMA_VERSION,
     canonical_json,
     sha256_json,
 )
-from azelficoast.whole_turn_program import (
-    PROGRAM_SET_SCHEMA,
-    PROGRAM_SET_SCHEMA_VERSION,
-    WholeTurnProgramError,
-    compile_whole_turn_programs,
-    program_for_action,
-)
+from azelficoast.whole_turn_program import WholeTurnProgramError, compile_whole_turn_programs
 
 
 class MechanicsContractError(ValueError):
@@ -176,7 +175,7 @@ def _validate_program_shape(
     seen_actions: set[str] = set()
     for action in expected_actions:
         try:
-            program = program_for_action(program_set, action)
+            program = program_for_action(program_set, action, error_type=WholeTurnProgramError)
         except WholeTurnProgramError as error:
             raise MechanicsContractError(str(error)) from error
         if action in seen_actions:
@@ -475,7 +474,7 @@ class VerifiedTransitionProgramSet:
             raise MechanicsContractError("mechanics request used a non-legal public action")
         record = self.program_set.to_record()
         try:
-            raw_program = program_for_action(record, request.action)
+            raw_program = program_for_action(record, request.action, error_type=WholeTurnProgramError)
         except WholeTurnProgramError as error:
             raise MechanicsContractError(str(error)) from error
         try:

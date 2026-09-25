@@ -43,7 +43,7 @@ from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )
-from azelficoast.whole_turn_program import PROGRAM_SET_SCHEMA
+from azelficoast.core.program import PROGRAM_SET_SCHEMA
 
 
 class MatchedSearchExecutionError(ValueError):

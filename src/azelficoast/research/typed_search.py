@@ -24,12 +24,11 @@ from azelficoast.research.contracts import (
     PublicSuccessorState,
     ResearchContractError,
 )
+from azelficoast.core.program import program_for_action
+from azelficoast.core.search import SEARCH_METHODS, SEARCH_SCHEMA, SEARCH_SCHEMA_VERSION
 from azelficoast.core.transition import canonical_json
-from azelficoast.whole_turn_program import program_for_action
 
-SEARCH_SCHEMA = "azelficoast.transition-program-search"
-SEARCH_SCHEMA_VERSION = 1
-METHODS = ("determinization", "information_set")
+METHODS = SEARCH_METHODS
 
 
 class SearchEvaluator(Protocol):
@@ -152,7 +151,7 @@ def _validated_classes(
     action: str,
     world_ids: set[str],
 ) -> list[Mapping[str, Any]]:
-    program = program_for_action(program_set, action)
+    program = program_for_action(program_set, action, error_type=TransitionProgramSearchError)
     raw_classes = program.get("classes")
     if not isinstance(raw_classes, list) or not raw_classes:
         raise TransitionProgramSearchError(f"{action}: transition program has no classes")

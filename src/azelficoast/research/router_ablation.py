@@ -6,9 +6,10 @@ import math
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
 
-from azelficoast.belief.evaluator import build_evaluator_input
-from azelficoast.search.transition_program import (
-    TransitionProgramSearchError,
+from azelficoast.belief.evaluator import BeliefSearchValueAdapter, build_evaluator_input
+from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERSION
+from azelficoast.core.search import (
+    PartialInformationSearchError,
     search_transition_program,
 )
 
@@ -215,9 +216,11 @@ def evaluate_admitted_counterfactual(
             program_set=transition_program,
             posterior=posterior,
             method="information_set",
-            evaluator=evaluator,
+            evaluator=BeliefSearchValueAdapter(evaluator),
+            expected_program_schema=PROGRAM_SET_SCHEMA,
+            expected_program_schema_version=PROGRAM_SET_SCHEMA_VERSION,
         )
-    except TransitionProgramSearchError:
+    except PartialInformationSearchError:
         search = None
 
     if search is None:
