@@ -306,12 +306,33 @@ function observedOpponentMoves() {
 
 function lastOpponentMove() {
   if (source.opponent_response_move) return toID(source.opponent_response_move);
+
+  const opponentSide = requireProtocolOpponentSide();
+  const currentSpecies = toID(
+    fixture.state.opponent_active && fixture.state.opponent_active.species
+  );
+  let activeSpecies = "";
   let last = null;
   for (const batch of fixture.protocol_prefix) {
     for (const message of batch) {
-      if (message[0] === "" && message[1] === "move" && String(message[2] || "").startsWith(requireProtocolOpponentSide())) {
-        last = String(message[3]);
+      if (message[0] !== "" || message.length < 2) continue;
+      const actor = String(message[2] || "");
+      if (!actor.startsWith(opponentSide)) continue;
+
+      if (
+        ["switch", "drag", "replace"].includes(message[1]) &&
+        message.length >= 4
+      ) {
+        activeSpecies = toID(String(message[3] || "").split(",", 1)[0]);
+        continue;
       }
+      if (message[1] !== "move" || message.length < 4) continue;
+
+      let moveSpecies = activeSpecies;
+      if (!moveSpecies && actor.includes(":")) {
+        moveSpecies = toID(actor.split(":", 2)[1]);
+      }
+      if (moveSpecies === currentSpecies) last = String(message[3]);
     }
   }
   return last ? toID(last) : null;
