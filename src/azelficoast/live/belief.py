@@ -229,10 +229,10 @@ def _own_active_tera_type(fixture: DecisionFixture) -> str | None:
 def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None, str]:
     """Build the broadest live reconstruction source justified by public evidence.
 
-    Posterior reconstruction does not require an opponent-response model. When the
-    current opponent has an observed move, that move is carried separately as the
-    bounded exact-search policy. Otherwise the learned policy may still consume the
-    reconstructed posterior, while exact transaction search remains unavailable.
+    Posterior reconstruction does not require an opponent-response model. Exact search
+    uses a bounded mixture of established strategy archetypes over each hidden world's
+    legal moves. An observed move contributes one persistence component rather than
+    becoming a deterministic prediction of the opponent's next action.
     """
 
     opponent = fixture.state.get("opponent_active")
