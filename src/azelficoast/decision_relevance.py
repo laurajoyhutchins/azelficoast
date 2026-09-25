@@ -213,6 +213,12 @@ def decision_relevance_quotient(
         for action in actions:
             transition = copy.deepcopy(transitions[(representative_id, action)])
             transition["world_id"] = class_id
+            # Dynamic read traces are evidence about the original hidden-state
+            # vocabulary. Once this quotient projects fields away, those traces no
+            # longer describe the transformed program and must not be reused.
+            for outcome in transition.get("outcomes", []):
+                if isinstance(outcome, dict):
+                    outcome.pop("transition_reads", None)
             quotient_transitions.append(transition)
 
         certificate_classes.append(
