@@ -1,0 +1,133 @@
+name: training
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"
+  push:
+    branches: [main]
+    paths:
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - ".github/workflows/training.yml"
+      - "src/azelficoast/belief/**"
+      - "src/azelficoast/live/**"
+      - "src/azelficoast/research/public_replays.py"
+      - "src/azelficoast/research/training_records.py"
+      - "src/azelficoast/research/training_service.py"
+      - "pyproject.toml"
+      - "uv.lock"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: azelficoast-training
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: "true"
+
+      - name: Setup verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - name: Start local Pokémon Showdown
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /tmp/pokemon-showdown
+          cp config/config-example.js config/config.js
+          nohup node pokemon-showdown start --no-security \
+            > /tmp/azelficoast-showdown-server.log 2>&1 &
+          echo "$!" > /tmp/azelficoast-showdown-server.pid
+
+          for _ in {1..60}; do
+            if (echo > /dev/tcp/127.0.0.1/8000) >/dev/null 2>&1; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          cat /tmp/azelficoast-showdown-server.log
+          exit 1
+
+      - name: Restore durable training state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/training-state
+
+          if git ls-remote --exit-code --heads origin refs/heads/training-state \
+            >/dev/null 2>&1; then
+            git fetch --depth=1 origin \
+              refs/heads/training-state:refs/remotes/origin/training-state
+            git worktree add --detach \
+              /tmp/azelficoast-training-state \
+              origin/training-state
+            if [[ -d /tmp/azelficoast-training-state/state ]]; then
+              cp -a /tmp/azelficoast-training-state/state/. \
+                artifacts/training-state/
+            fi
+          fi
+
+      - name: Run one evidence-gated training iteration
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          uv run python -m azelficoast.research.training_service \
+            --showdown-root /tmp/pokemon-showdown \
+            --state-root artifacts/training-state \
+            --work-root "/tmp/azelficoast-training/${{ github.run_id }}" \
+            --run-id "${{ github.run_id }}"
+
+      - name: Persist promoted model authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          state_worktree=/tmp/azelficoast-training-state
+
+          if [[ -e "${state_worktree}/.git" ]]; then
+            git -C "${state_worktree}" switch -C training-state origin/training-state
+          else
+            git worktree add --detach "${state_worktree}" HEAD
+            git -C "${state_worktree}" checkout --orphan training-state
+            git -C "${state_worktree}" rm -rf .
+          fi
+
+          rm -rf "${state_worktree}/state"
+          mkdir -p "${state_worktree}/state"
+          cp -a artifacts/training-state/. "${state_worktree}/state/"
+
+          git -C "${state_worktree}" config user.name "github-actions[bot]"
+          git -C "${state_worktree}" config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${state_worktree}" add -f state
+
+          if ! git -C "${state_worktree}" diff --cached --quiet; then
+            git -C "${state_worktree}" commit \
+              -m "Record training state from run ${{ github.run_id }}"
+            git -C "${state_worktree}" push origin \
+              HEAD:refs/heads/training-state
+          fi
+
+      - name: Upload training evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: training-run-${{ github.run_id }}
+          path: |
+            /tmp/azelficoast-training/${{ github.run_id }}
+            /tmp/azelficoast-showdown-server.log
+          if-no-files-found: warn
+          retention-days: 30
