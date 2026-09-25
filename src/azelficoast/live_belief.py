@@ -19,12 +19,20 @@ from azelficoast.decision_relevance import (
     DecisionRelevanceError,
     analyze_quotiented_oracle,
 )
+from azelficoast.joint_posterior import (
+    JointPosteriorError,
+    evaluator_posterior,
+    validate_joint_posterior,
+)
 from azelficoast.real_belief_trace import BeliefTraceError
 from azelficoast.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
 
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
 DEFAULT_TIMEOUT_SECONDS = 20.0
+DEFAULT_JOINT_TARGET_PARTICLES = 64
+DEFAULT_JOINT_MINIMUM_PARTICLES = 8
+DEFAULT_JOINT_MAX_ROUNDS = 65536
 
 
 @dataclass(frozen=True)
@@ -359,6 +367,17 @@ def learned_route_result(
     common = {
         "evaluator": dict(identity) if isinstance(identity, Mapping) else {},
         "search_gate": gate_record,
+        "posterior": {
+            "schema": posterior.get("schema"),
+            "schema_version": posterior.get("schema_version"),
+            "posterior_sha256": posterior.get("posterior_sha256"),
+            "public_evidence_sha256": posterior.get("public_evidence_sha256"),
+            "world_count": (
+                len(posterior.get("worlds", ()))
+                if isinstance(posterior.get("worlds"), list)
+                else None
+            ),
+        },
     }
     try:
         spec = getattr(evaluator, "spec")
@@ -460,15 +479,30 @@ class PinnedShowdownBeliefPolicy:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         learned_evaluator: Any | None = None,
         search_gate: Any | None = None,
+        joint_target_particles: int = DEFAULT_JOINT_TARGET_PARTICLES,
+        joint_minimum_particles: int = DEFAULT_JOINT_MINIMUM_PARTICLES,
+        joint_max_rounds: int = DEFAULT_JOINT_MAX_ROUNDS,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("belief timeout must be positive")
         if (learned_evaluator is None) != (search_gate is None):
             raise ValueError("learned_evaluator and search_gate must be provided together")
+        for name, value in (
+            ("joint_target_particles", joint_target_particles),
+            ("joint_minimum_particles", joint_minimum_particles),
+            ("joint_max_rounds", joint_max_rounds),
+        ):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
+        if joint_minimum_particles > joint_target_particles:
+            raise ValueError("joint_minimum_particles may not exceed joint_target_particles")
         self.showdown_root = Path(showdown_root)
         self.timeout_seconds = float(timeout_seconds)
         self.learned_evaluator = learned_evaluator
         self.search_gate = search_gate
+        self.joint_target_particles = joint_target_particles
+        self.joint_minimum_particles = joint_minimum_particles
+        self.joint_max_rounds = joint_max_rounds
         self._configuration_error = self._validate_showdown_root()
 
     def _validate_showdown_root(self) -> str | None:
@@ -536,6 +570,63 @@ class PinnedShowdownBeliefPolicy:
             raise LiveBeliefPolicyError("unexpected posterior-only probe schema")
         return document
 
+    def _joint_posterior(self, fixture: DecisionFixture) -> dict[str, Any]:
+        script = (
+            Path(__file__).resolve().parents[2]
+            / "scripts"
+            / "sample_joint_random_battle_posterior.cjs"
+        )
+        with tempfile.TemporaryDirectory(prefix="azelficoast-joint-belief-") as temp_dir:
+            fixture_path = Path(temp_dir) / "fixture.json"
+            fixture_path.write_text(
+                json.dumps(fixture.as_record(), sort_keys=True),
+                encoding="utf-8",
+            )
+            completed = subprocess.run(
+                [
+                    "node",
+                    str(script),
+                    str(self.showdown_root),
+                    str(fixture_path),
+                    "--target-particles",
+                    str(self.joint_target_particles),
+                    "--minimum-particles",
+                    str(self.joint_minimum_particles),
+                    "--max-rounds",
+                    str(self.joint_max_rounds),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout_seconds,
+            )
+        try:
+            document = json.loads(completed.stdout)
+        except json.JSONDecodeError as error:
+            detail = (completed.stderr or completed.stdout or str(error)).strip()
+            raise JointPosteriorError(
+                "joint posterior sampler produced no valid artifact: " + detail[-1000:]
+            ) from error
+        if not isinstance(document, Mapping):
+            raise JointPosteriorError("joint posterior sampler output is not an object")
+        checked = validate_joint_posterior(
+            document,
+            require_sufficient_support=False,
+        )
+        if completed.returncode not in {0, 3}:
+            detail = (completed.stderr or completed.stdout).strip()
+            raise JointPosteriorError(
+                f"joint posterior sampler failed ({completed.returncode}): {detail[-1000:]}"
+            )
+        if checked.get("support_status") != "sufficient":
+            construction = checked.get("construction", {})
+            raise JointPosteriorError(
+                "joint posterior sampled insufficient support: "
+                f"{construction.get('accepted_team_count', 0)}/"
+                f"{construction.get('minimum_particles', self.joint_minimum_particles)}"
+            )
+        return evaluator_posterior(checked)
+
     def choose(self, fixture: DecisionFixture) -> LiveDecisionResult:
         if self._configuration_error is not None:
             return LiveDecisionResult(
@@ -545,24 +636,14 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"error": self._configuration_error},
             )
 
-        source, admission = build_probe_source(fixture)
-        if source is None:
-            return LiveDecisionResult(
-                action=None,
-                status="fallback",
-                reason=admission,
-            )
-
         route: LiveDecisionResult | None = None
         if self.learned_evaluator is not None:
             try:
-                posterior = self._probe_posterior(source)
+                posterior = self._joint_posterior(fixture)
                 if posterior.get("source_fixture_id") != fixture.fixture_id:
-                    raise LiveBeliefPolicyError("posterior fixture identity mismatch")
+                    raise LiveBeliefPolicyError("joint posterior fixture identity mismatch")
                 if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
-                    raise LiveBeliefPolicyError("posterior Showdown revision mismatch")
-                if posterior.get("legal_actions") != list(fixture.legal_actions):
-                    raise LiveBeliefPolicyError("posterior legal actions drifted")
+                    raise LiveBeliefPolicyError("joint posterior Showdown revision mismatch")
                 route = learned_route_result(
                     fixture=fixture,
                     posterior=posterior,
@@ -575,15 +656,24 @@ class PinnedShowdownBeliefPolicy:
                 route = LiveDecisionResult(
                     action=None,
                     status="search",
-                    reason="learned-posterior-probe-error",
+                    reason="joint-posterior-error",
                     diagnostics={
-                        "learned_route": "search-after-posterior-probe-error",
-                        "learned_posterior_error": {
+                        "learned_route": "search-after-joint-posterior-error",
+                        "joint_posterior_error": {
                             "type": type(error).__name__,
                             "error": str(error)[-1000:],
                         },
                     },
                 )
+
+        source, admission = build_probe_source(fixture)
+        if source is None:
+            return LiveDecisionResult(
+                action=None,
+                status="fallback",
+                reason=admission,
+                diagnostics=dict(route.diagnostics) if route is not None else {},
+            )
 
         try:
             oracle = self._probe(source)

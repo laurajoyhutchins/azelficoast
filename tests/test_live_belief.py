@@ -458,17 +458,16 @@ def test_live_high_margin_route_skips_transition_oracle_probe() -> None:
     policy._configuration_error = None
     policy.learned_evaluator = LiveEvaluator()
     policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
-    policy._probe_posterior = lambda source: {
-        "schema": "azelficoast.live-belief-posterior",
+    policy._joint_posterior = lambda supplied_fixture: {
+        "schema": "azelficoast.joint-random-battle-posterior",
         "schema_version": 1,
         "source_fixture_id": fixture.fixture_id,
         "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
         "conditioned_on_public_history": True,
         "realized_hidden_state_revealed": False,
-        "legal_actions": list(fixture.legal_actions),
         "worlds": [
-            {"world_id": "a", "weight": 0.5, "hidden": {"item": "band"}},
-            {"world_id": "b", "weight": 0.5, "hidden": {"item": "scarf"}},
+            {"world_id": "a", "weight": 0.5, "hidden": {"team": [{"item": "band"}]}},
+            {"world_id": "b", "weight": 0.5, "hidden": {"team": [{"item": "scarf"}]}},
         ],
     }
 
@@ -476,6 +475,80 @@ def test_live_high_margin_route_skips_transition_oracle_probe() -> None:
         raise AssertionError("high-margin learned route expanded the transition oracle")
 
     policy._probe = unexpected_full_probe
+
+    result = policy.choose(fixture)
+
+    assert result.action == fixture.legal_actions[0]
+    assert result.reason == "learned-public-belief"
+    assert result.diagnostics["learned_route"] == "direct-policy"
+
+
+
+def test_joint_learned_route_can_cover_state_outside_hidden_choice_search() -> None:
+    class BroadEvaluator:
+        spec = BeliefEvaluatorSpec(
+            public_width=8,
+            world_width=8,
+            action_width=8,
+            hidden_width=8,
+            world_hidden_width=8,
+        )
+        identity = {
+            "checkpoint_digest": "sha256:" + "c" * 64,
+            "observability": "public_belief_only",
+        }
+
+        def predict(self, inputs) -> BeliefPrediction:
+            return BeliefPrediction(
+                value=0.6,
+                legal_actions=inputs.legal_actions,
+                probabilities=(0.97, 0.03),
+                selected_action=inputs.legal_actions[0],
+                policy_margin=0.94,
+                policy_entropy_bits=0.19,
+            )
+
+    state = _state(opponent_item="leftovers")
+    fixture = live_fixture(state, _protocol())
+    assert build_probe_source(fixture)[0] is None
+
+    policy = object.__new__(PinnedShowdownBeliefPolicy)
+    policy._configuration_error = None
+    policy.learned_evaluator = BroadEvaluator()
+    policy.search_gate = PolicyMarginSearchGate(search_if_margin_at_most=0.20)
+    policy._joint_posterior = lambda supplied_fixture: {
+        "schema": "azelficoast.joint-random-battle-posterior",
+        "schema_version": 1,
+        "source_fixture_id": supplied_fixture.fixture_id,
+        "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": [
+            {
+                "world_id": "full-team-a",
+                "weight": 1.0,
+                "hidden": {
+                    "team": [
+                        {
+                            "species": "zapdosgalar",
+                            "item": "leftovers",
+                            "moves": ["uturn"],
+                        },
+                        {
+                            "species": "gougingfire",
+                            "item": "heavydutyboots",
+                            "moves": ["heatcrash"],
+                        },
+                    ]
+                },
+            }
+        ],
+    }
+
+    def unexpected_exact_probe(source):
+        raise AssertionError("direct joint-policy action should not invoke bounded exact search")
+
+    policy._probe = unexpected_exact_probe
 
     result = policy.choose(fixture)
 
