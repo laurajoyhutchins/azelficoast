@@ -537,7 +537,15 @@ def parse_belief_artifact(
         features = {
             str(key): value
             for key, value in raw_world.items()
-            if key not in {"weight", "world_id", "id", "transport_id"}
+            if key
+            not in {
+                "weight",
+                "world_id",
+                "id",
+                "transport_id",
+                "provenance",
+                "sample_count",
+            }
         }
         frozen_features = FrozenJSONObject.from_mapping(features)
         canonical = frozen_features.canonical
