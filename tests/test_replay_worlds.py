@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import pytest
 
-from azelficoast.replay_worlds import (
+from azelficoast.research.verification.replay_worlds import (
     SHOWDOWN_COMMIT,
     DamageObservation,
     ReplayError,

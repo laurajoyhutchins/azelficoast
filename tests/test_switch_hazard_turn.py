@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
-from azelficoast.switch_hazard_turn import (
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
+from azelficoast.research.mechanics.switch_hazard_turn import (
     SwitchHazardContext,
     SwitchHazardError,
     SwitchHazardWorld,
@@ -13,7 +13,7 @@ from azelficoast.switch_hazard_turn import (
     switch_hazard_dependency_key,
     switch_hazard_turn,
 )
-from azelficoast.voluntary_switch_turn import VoluntarySwitchContext
+from azelficoast.research.mechanics.voluntary_switch_turn import VoluntarySwitchContext
 
 
 def _damage(

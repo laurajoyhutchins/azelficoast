@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from azelficoast.corpus import build_fixtures
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.live.corpus import build_fixtures
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 from azelficoast.research.matched_comparison import freeze_packet
 from azelficoast.research.training_records import TrainingRecordError, build_training_records
 

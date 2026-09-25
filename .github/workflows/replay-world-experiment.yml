@@ -5,7 +5,7 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
-      - "src/azelficoast/replay_worlds.py"
+      - "src/azelficoast/research/verification/replay_worlds.py"
       - "scripts/sample_showdown_worlds.cjs"
       - "tests/test_replay_worlds.py"
       - ".github/workflows/replay-world-experiment.yml"
@@ -47,7 +47,7 @@ jobs:
 
       - name: Reconstruct item belief from public replay
         run: |
-          uv run python -m azelficoast.replay_worlds \
+          uv run python -m azelficoast.research.verification.replay_worlds \
             --world-sample /tmp/infernape-closecombat.json \
             > /tmp/infernape-belief.json
           cat /tmp/infernape-belief.json

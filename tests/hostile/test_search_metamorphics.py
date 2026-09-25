@@ -6,8 +6,8 @@ import math
 from typing import Any, Mapping, Sequence
 
 from azelficoast.core.search import search_transition_program
-from azelficoast.corpus import build_fixtures
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.live.corpus import build_fixtures
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
 from hostile.fixtures import hostile_case
 from hostile.transforms import (
     merge_equivalent_game_worlds,

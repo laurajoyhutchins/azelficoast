@@ -4,7 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 
-from azelficoast.class_native_belief import (
+from azelficoast.research.mechanics.class_native_belief import (
     build_factor_support,
     compile_attack_projection,
     compile_bench_projection,
@@ -16,8 +16,8 @@ from azelficoast.class_native_belief import (
     project_belief,
     uniform_belief,
 )
-from azelficoast.gen9_attack import AttackTransitionContext, attack_transition_dependency_signature
-from azelficoast.gen9_damage import DamageContext, damage
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext, attack_transition_dependency_signature
+from azelficoast.research.mechanics.gen9_damage import DamageContext, damage
 
 
 def _contexts() -> tuple[DamageContext, ...]:

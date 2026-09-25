@@ -8,7 +8,7 @@ on:
       - "src/azelficoast/belief/coverage.py"
       - "src/azelficoast/live/belief.py"
       - "src/azelficoast/live/harness.py"
-      - "src/azelficoast/instrumentation.py"
+      - "src/azelficoast/live/instrumentation.py"
       - "tests/test_belief_coverage.py"
       - "tests/test_harness.py"
       - ".github/workflows/live-belief-coverage.yml"

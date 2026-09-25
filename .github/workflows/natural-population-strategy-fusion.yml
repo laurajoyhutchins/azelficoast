@@ -10,7 +10,7 @@ on:
       - "src/azelficoast/research/natural_disagreements.py"
       - "src/azelficoast/search/fusion.py"
       - "src/azelficoast/live/belief.py"
-      - "src/azelficoast/real_belief_trace.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
       - "scripts/sample_showdown_worlds.cjs"
       - "scripts/screen_public_belief_speed_forks.cjs"
       - "scripts/probe_real_belief_trace.cjs"
@@ -94,7 +94,7 @@ jobs:
               /tmp/pokemon-showdown \
               "$source" \
               > /tmp/oracle.json
-            uv run python -m azelficoast.real_belief_trace \
+            uv run python -m azelficoast.research.verification.real_belief_trace \
               /tmp/oracle.json \
               > "/tmp/results/trace-$index.json"
             uv run python -m azelficoast.research.population summarize \

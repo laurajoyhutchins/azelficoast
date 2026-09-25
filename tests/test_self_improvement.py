@@ -9,9 +9,9 @@ from azelficoast.belief.self_improvement import (
     _mine_informative_fixtures,
     generate_teacher_evidence,
 )
-from azelficoast.corpus import DecisionFixture
-from azelficoast.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.whole_turn_program import compile_whole_turn_programs
+from azelficoast.live.corpus import DecisionFixture
+from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
+from azelficoast.core.whole_turn_program import compile_whole_turn_programs
 
 
 class _FakeEvaluator:

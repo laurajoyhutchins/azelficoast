@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
-from azelficoast.corpus import CorpusError, DecisionFixture
+from azelficoast.live.corpus import CorpusError, DecisionFixture
 
 GAME_KEY = "imperfect_information_game"
 

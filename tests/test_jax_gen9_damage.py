@@ -7,8 +7,8 @@ pytest.importorskip("jax")
 
 import jax.numpy as jnp
 
-from azelficoast.gen9_damage import MOD_THREE_QUARTERS, DamageContext, damage
-from azelficoast.jax_gen9_damage import contexts_to_array, damage_batch
+from azelficoast.research.mechanics.gen9_damage import MOD_THREE_QUARTERS, DamageContext, damage
+from azelficoast.research.mechanics.jax_gen9_damage import contexts_to_array, damage_batch
 
 
 def _contexts() -> tuple[DamageContext, ...]:

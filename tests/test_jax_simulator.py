@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("jax")
 
-from azelficoast.jax_simulator_experiment import benchmark_size, correctness_check
+from azelficoast.research.jax_simulator_experiment import benchmark_size, correctness_check
 
 
 def test_jax_lowering_matches_scalar_reference() -> None:

@@ -10,7 +10,7 @@ from poke_env.player import SimpleHeuristicsPlayer
 from poke_env.player.battle_order import BattleOrder
 
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
-from azelficoast.instrumentation import DecisionTraceWriter, battle_view
+from azelficoast.live.instrumentation import DecisionTraceWriter, battle_view
 from azelficoast.live.belief import (
     LiveDecisionResult,
     PinnedShowdownBeliefPolicy,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 
-from azelficoast.real_belief_miner import mine_oracles
+from azelficoast.research.verification.real_belief_miner import mine_oracles
 
 
 def _oracle(

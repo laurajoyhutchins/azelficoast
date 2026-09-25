@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from azelficoast.instrumentation import (
+from azelficoast.live.instrumentation import (
     TRACE_SCHEMA,
     TRACE_SCHEMA_VERSION,
     DecisionTraceWriter,

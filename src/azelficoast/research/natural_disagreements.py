@@ -11,7 +11,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from poke_env.data import GenData
 
-from azelficoast.corpus import DecisionFixture, load_corpus
+from azelficoast.live.corpus import DecisionFixture, load_corpus
 
 RANDBATS_EV = 85
 RANDBATS_IV = 31

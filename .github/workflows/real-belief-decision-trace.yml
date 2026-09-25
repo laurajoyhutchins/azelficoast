@@ -5,9 +5,9 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
-      - "src/azelficoast/real_belief_trace.py"
-      - "src/azelficoast/whole_turn_program.py"
-      - "src/azelficoast/real_belief_miner.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
+      - "src/azelficoast/core/whole_turn_program.py"
+      - "src/azelficoast/research/verification/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
       - "experiments/real-belief-source-fixture.json"
       - "experiments/real-belief-source-gliscor-urshifu.json"
@@ -69,7 +69,7 @@ jobs:
           import json
           from pathlib import Path
 
-          from azelficoast.whole_turn_program import verify_whole_turn_program_set
+          from azelficoast.core.whole_turn_program import verify_whole_turn_program_set
 
           program = json.loads(
               Path("/tmp/whole-turn-transition-program.json").read_text()
@@ -96,13 +96,13 @@ jobs:
       - name: Analyze public information sets
         run: |
           set +e
-          uv run python -m azelficoast.real_belief_trace             /tmp/real-belief-transition-oracle.json             | tee /tmp/real-belief-decision-trace.json
+          uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/real-belief-transition-oracle.json             | tee /tmp/real-belief-decision-trace.json
           echo "${PIPESTATUS[0]}" > /tmp/real-belief-analysis-status
           set -e
 
       - name: Mine structural candidates
         run: |
-          uv run python -m azelficoast.real_belief_miner \
+          uv run python -m azelficoast.research.verification.real_belief_miner \
             /tmp/real-belief-transition-oracle.json \
             | tee /tmp/real-belief-trace-mining.json
 

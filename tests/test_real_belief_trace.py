@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from azelficoast.real_belief_trace import BeliefTraceError, analyze_oracle
+from azelficoast.research.verification.real_belief_trace import BeliefTraceError, analyze_oracle
 
 
 def _oracle() -> dict[str, object]:

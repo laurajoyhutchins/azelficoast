@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.adaptive_execution import (
+from azelficoast.research.adaptive_execution import (
     ExecutionCostProfile,
     ExecutionFeatures,
     ExecutionPath,
@@ -197,7 +197,7 @@ def test_cost_profiles_reject_negative_coefficients() -> None:
 
 def test_absolute_baseline_mapping_survives_structural_tuple_growth() -> None:
     pytest.importorskip("jax")
-    from azelficoast.adaptive_execution_experiment import (
+    from azelficoast.research.adaptive_execution_experiment import (
         _baseline_delta,
         _fit_absolute_baseline,
     )
@@ -241,7 +241,7 @@ def test_absolute_baseline_mapping_survives_structural_tuple_growth() -> None:
 
 def test_saturation_shape_keeps_knee_feature_derived() -> None:
     pytest.importorskip("jax")
-    from azelficoast.adaptive_execution_experiment import (
+    from azelficoast.research.adaptive_execution_experiment import (
         CostModelShape,
         _direct_saturation_start_worlds,
     )
@@ -357,7 +357,7 @@ def test_crossover_bracket_rejects_partial_or_reversed_configuration() -> None:
 
 def test_fixed_class_crossover_bracket_requires_monotone_one_dimensional_labels() -> None:
     pytest.importorskip("jax")
-    from azelficoast.adaptive_execution_experiment import _fixed_class_crossover_bracket
+    from azelficoast.research.adaptive_execution_experiment import _fixed_class_crossover_bracket
 
     monotone = [
         {

@@ -4,9 +4,9 @@ from dataclasses import replace
 
 import pytest
 
-from azelficoast.gen9_attack import AttackTransitionContext
-from azelficoast.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
-from azelficoast.voluntary_switch_turn import (
+from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
+from azelficoast.research.mechanics.gen9_damage import DamageContext, ITEM_CHOICE_SPECS
+from azelficoast.research.mechanics.voluntary_switch_turn import (
     VoluntarySwitchContext,
     VoluntarySwitchError,
     VoluntarySwitchWorld,

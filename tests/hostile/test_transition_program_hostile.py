@@ -15,7 +15,7 @@ from azelficoast.core.decision_relevance import (
 )
 from azelficoast.core.program import program_for_action
 from azelficoast.core.transition import ORACLE_SCHEMA, canonical_json, sha256_json
-from azelficoast.whole_turn_program import (
+from azelficoast.core.whole_turn_program import (
     WholeTurnProgramError,
     compile_whole_turn_programs,
     execute_whole_turn_program,

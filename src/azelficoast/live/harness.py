@@ -22,8 +22,8 @@ from azelficoast.belief.improvement import (
 )
 from azelficoast.belief.public_pretraining import run_public_pretraining
 from azelficoast.belief.self_improvement import run_self_improvement_cycle
-from azelficoast.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
-from azelficoast.public_replays import import_public_replays
+from azelficoast.live.corpus import BUILTIN_POLICIES, build_corpus, evaluate_corpus
+from azelficoast.research.public_replays import import_public_replays
 from azelficoast.live.player import AzelficoastPlayer
 from azelficoast.research.training_records import build_training_dataset
 
