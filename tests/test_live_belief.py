@@ -623,7 +623,7 @@ def test_player_traces_showdown_clock_budget_for_live_decision() -> None:
     player._belief_policy = Policy()
     player._decision_trace = None
     player._protocol_history = {"battle-live": []}
-    player._battle_clocks = BattleClockTracker(monotonic=lambda: 100.0)
+    player._battle_clocks = BattleClockTracker()
     player._timing_policy = LiveTimingPolicy(
         safety_reserve_seconds=5.0,
         fallback_decision_budget_seconds=20.0,
