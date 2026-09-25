@@ -121,6 +121,39 @@ function protocolSides() {
     }
   }
 
+  // Legacy frozen fixtures can omit player names while retaining public
+  // protocol that uniquely identifies orientation by the current active species.
+  if (!own || !opponent) {
+    const ownSpecies = toID(fixture.state.active && fixture.state.active.species);
+    const opponentSpecies = toID(
+      fixture.state.opponent_active && fixture.state.opponent_active.species
+    );
+    let ownFromSpecies = null;
+    let opponentFromSpecies = null;
+    if (ownSpecies && opponentSpecies && ownSpecies !== opponentSpecies) {
+      for (const batch of fixture.protocol_prefix || []) {
+        for (const message of batch) {
+          if (
+            message[0] !== "" ||
+            !["switch", "drag"].includes(message[1]) ||
+            typeof message[2] !== "string"
+          ) {
+            continue;
+          }
+          const side = message[2].startsWith("p1") ? "p1"
+            : message[2].startsWith("p2") ? "p2"
+            : null;
+          if (!side) continue;
+          const species = toID(String(message[3] || "").split(",", 1)[0]);
+          if (species === ownSpecies) ownFromSpecies = side;
+          if (species === opponentSpecies) opponentFromSpecies = side;
+        }
+      }
+    }
+    if (!own && ownFromSpecies) own = ownFromSpecies;
+    if (!opponent && opponentFromSpecies) opponent = opponentFromSpecies;
+  }
+
   if (!own && opponent) own = opponent === "p1" ? "p2" : "p1";
   if (!opponent && own) opponent = own === "p1" ? "p2" : "p1";
   if (!own || !opponent || own === opponent) {
@@ -375,8 +408,8 @@ function ownSet(view, {active = false} = {}) {
     item: view.item || "",
     moves: view.moves,
     nature: "Serious",
-    evs: {...world.variant.evs},
-    ivs: {...world.variant.ivs},
+    evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
+    ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
   };
   if (active) set.teraType = OWN_ACTIVE_TERA_TYPE;
   return set;
@@ -391,8 +424,8 @@ function opponentSet(world) {
     moves: world.variant.moves,
     teraType: world.variant.teraType,
     nature: "Serious",
-    evs: {hp: 85, atk: 85, def: 85, spa: 85, spd: 85, spe: 85},
-    ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31},
+    evs: {...world.variant.evs},
+    ivs: {...world.variant.ivs},
   };
 }
 
