@@ -443,6 +443,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     training_cycle.add_argument("--teacher-budget", type=_positive_int, default=4096)
     training_cycle.add_argument(
+        "--posterior-truth",
+        action="append",
+        type=Path,
+        default=[],
+        help="post-hoc replay hidden-truth sidecar; may be repeated",
+    )
+    training_cycle.add_argument(
         "--max-teacher-fixtures",
         type=_positive_int,
         help="mine at most this many battle-diverse informative fixtures per cycle",
@@ -1020,6 +1027,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
         )
 
     traces: list[Path] = []
+    posterior_truth_paths: list[Path] = []
     current_checkpoint = _immutable_checkpoint(args.incumbent)
     archive_checkpoints: list[Path] = []
     generations: list[dict[str, object]] = []
@@ -1115,6 +1123,13 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
                     and int(public_result.get("decision_count", 0)) > 0
                 ):
                     traces.append(Path(public_trace))
+                raw_truth_paths = public_result.get("truth_paths")
+                if isinstance(raw_truth_paths, list):
+                    posterior_truth_paths.extend(
+                        Path(path)
+                        for path in raw_truth_paths
+                        if isinstance(path, str) and path
+                    )
             except (PublicReplayError, OSError, ValueError) as error:
                 public_curriculum = {
                     "status": "unavailable",
@@ -1151,6 +1166,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
                 ),
             ),
             defer_promotion=True,
+            posterior_truth_paths=posterior_truth_paths,
         )
 
         promoted = False
@@ -1190,12 +1206,17 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
 
         generation = {
             "schema": "azelficoast.self-improvement-generation",
-            "schema_version": 3,
+            "schema_version": 4,
             "generation": generation_number,
             "battle_count": args.battles_per_generation,
             "battle_search_policy_margin": args.battle_search_policy_margin,
             "opponent_population": opponent_population,
             "public_curriculum": public_curriculum,
+            "posterior_truth": (
+                receipt.get("inputs", {}).get("posterior_truth")
+                if isinstance(receipt.get("inputs"), dict)
+                else None
+            ),
             "promotion_panel": promotion_panel,
             "promotion_settlement_receipt_digest": (
                 promotion_settlement.get("receipt_digest")
@@ -1235,7 +1256,7 @@ async def _run_automatic_self_improvement(args: argparse.Namespace) -> dict[str,
 
     return {
         "schema": "azelficoast.self-improvement-run",
-        "schema_version": 3,
+        "schema_version": 4,
         "generation_count": len(generations),
         "generations": generations,
         "final_checkpoint": str(current_checkpoint),
@@ -1332,6 +1353,7 @@ def _run_training(args: argparse.Namespace) -> None:
                     args.max_validation_policy_regression
                 ),
             ),
+            posterior_truth_paths=args.posterior_truth,
         )
     elif args.training_command == "auto":
         summary = asyncio.run(_run_automatic_self_improvement(args))
