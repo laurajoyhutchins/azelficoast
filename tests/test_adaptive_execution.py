@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.research.adaptive_execution import (
+from azelficoast.core.costing import (
     ExecutionCostProfile,
     ExecutionFeatures,
     ExecutionPath,

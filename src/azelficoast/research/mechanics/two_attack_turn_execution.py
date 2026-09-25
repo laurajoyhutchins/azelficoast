@@ -14,11 +14,8 @@ from typing import Callable, Sequence
 
 import numpy as np
 
-from azelficoast.research.adaptive_execution import (
-    ExecutionCostProfile,
-    ExecutionPath,
-    current_jax_execution_target,
-)
+from azelficoast.core.costing import ExecutionCostProfile, ExecutionPath
+from azelficoast.research.adaptive_execution import current_jax_execution_target
 from azelficoast.research.mechanics.gen9_two_attack_turn import (
     TwoAttackTurnContext,
     compile_two_attack_turn_context,
