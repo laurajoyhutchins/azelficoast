@@ -492,8 +492,15 @@ function legalP1Continuations(battle) {
   if (!request || request.wait) return [];
   const choices = [];
   const requestSwitches = () => {
+    const active = battle.p1.active[0];
+    const revivalBlessing = Boolean(
+      active &&
+      battle.p1.slotConditions[active.position]?.revivalblessing
+    );
     for (const [index, pokemon] of request.side.pokemon.entries()) {
-      if (pokemon.active || String(pokemon.condition).endsWith(" fnt")) continue;
+      if (pokemon.active) continue;
+      const fainted = String(pokemon.condition).endsWith(" fnt");
+      if (revivalBlessing ? !fainted : fainted) continue;
       choices.push(`switch ${index + 1}`);
     }
   };
