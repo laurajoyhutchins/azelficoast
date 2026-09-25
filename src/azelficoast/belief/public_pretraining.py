@@ -231,7 +231,7 @@ def build_public_pretraining_records(
             len(fixture.control_decisions) - len(human_controls)
         )
         compatible_controls: list[Mapping[str, Any]] = []
-        for control in compatible_controls:
+        for control in human_controls:
             metadata = _human_metadata(control)
             assert metadata is not None
             if metadata["source_showdown_version"] != posterior_source.showdown_commit:
@@ -248,7 +248,7 @@ def build_public_pretraining_records(
         posterior = dict(posterior_result)
         posterior_digest = matched_digest(posterior)
 
-        for control in human_controls:
+        for control in compatible_controls:
             metadata = _human_metadata(control)
             assert metadata is not None
             run_id = control.get("run_id")
