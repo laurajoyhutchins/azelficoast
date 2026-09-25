@@ -22,7 +22,8 @@
     "overflow_selection": "ascending sha256('population-v1:' + fixture_id)",
     "mechanics_screen_rounds": 512,
     "requires_exact_opponent_bench_reconstruction": true,
-    "requires_public_forme_conditioning": true
+    "requires_public_forme_conditioning": true,
+    "requires_exact_lead_context": true
   },
   "exact_treatment": {
     "root_chance_samples": 16,
@@ -124,5 +125,10 @@
     "trigger": "Zarude exact reconstruction collided because both Zarude and Zarude-Dada generator draws entered a public-Zarude belief",
     "outcome_values_inspected_before_amendment": false,
     "rule": "condition generator samples on the exact publicly observed opponent forme before counting posterior support, mechanics screening, or exact-world construction"
+  },
+  "preregistration_amendment_lead": {
+    "reason": "discovery and mechanics screening condition Random Battle generation on opponent lead status, but exact reconstruction previously hard-coded isLead=false",
+    "outcome_values_inspected_before_amendment": false,
+    "rule": "freeze opponent_is_lead from the candidate's public history and use it in exact hidden-world generation; use the same generator-species resolution as discovery"
   }
 }
