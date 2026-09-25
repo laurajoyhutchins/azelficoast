@@ -290,8 +290,11 @@ def freeze_selection(
 
     top_k = int(discovery["top_k"])
     selected = ranked[:top_k]
-    if not selected:
-        raise FusionSearchError("no candidate survived outcome-blind admission")
+    if len(selected) != top_k:
+        raise FusionSearchError(
+            f"preregistered treatment requires {top_k} eligible candidates, "
+            f"found {len(selected)}"
+        )
 
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
