@@ -161,6 +161,28 @@ def aggregate_population(
             disagreement_values = [
                 float(bool(row["policy_disagreement"])) for row in stratum
             ]
+            posterior_tv = []
+            posterior_changed = []
+            for row in stratum:
+                construction = row.get("posterior_construction")
+                if not isinstance(construction, Mapping):
+                    raise MatchedPopulationError(
+                        "result lacks posterior-construction diagnostics"
+                    )
+                tv = construction.get(
+                    "total_variation_from_generator_faithful"
+                )
+                changed = construction.get("changed_world_weight_count")
+                if not isinstance(tv, (int, float)) or isinstance(tv, bool):
+                    raise MatchedPopulationError(
+                        "posterior construction lacks total-variation diagnostic"
+                    )
+                if not isinstance(changed, int) or isinstance(changed, bool):
+                    raise MatchedPopulationError(
+                        "posterior construction lacks changed-weight count"
+                    )
+                posterior_tv.append(float(tv))
+                posterior_changed.append(int(changed))
             figure_rows.append(
                 {
                     "posterior_treatment": treatment,
@@ -188,6 +210,12 @@ def aggregate_population(
                         seed=seed + 1,
                     ),
                     "policy_disagreement_rate": _mean(disagreement_values),
+                    "mean_posterior_total_variation_from_generator_faithful": (
+                        _mean(posterior_tv)
+                    ),
+                    "posterior_changed_state_count": sum(
+                        int(value > 0) for value in posterior_changed
+                    ),
                 }
             )
 
