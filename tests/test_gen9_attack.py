@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from azelficoast.gen9_attack import (
     ATTACK_TRANSITION_DEPENDENCY_SCHEMA_VERSION,
     AttackTransitionContext,
@@ -112,3 +114,43 @@ def test_whole_attack_advertises_one_stable_dependency_signature() -> None:
     ]
     assert signature.startswith("sha256:")
     assert len(signature) == len("sha256:") + 64
+
+
+
+def test_attack_benchmark_admits_sparse_low_world_support() -> None:
+    pytest.importorskip("jax")
+    from azelficoast.attack_transition_experiment import _uniform_belief_for_worlds
+    from azelficoast.class_native_belief import build_factor_support
+
+    support = build_factor_support(
+        2,
+        bench_variants=1,
+        accuracy_rolls=10,
+        rolls=4,
+    )
+    sparse = _uniform_belief_for_worlds(support, 20)
+
+    assert support.class_count == 80
+    assert sparse.logical_world_count == 20
+    assert sparse.active_canonical_classes == 20
+    active = sparse.weights.nonzero()[0]
+    assert active[0] == 0
+    assert active[-1] >= 72
+
+
+def test_attack_benchmark_keeps_uniform_full_support_behavior() -> None:
+    pytest.importorskip("jax")
+    from azelficoast.attack_transition_experiment import _uniform_belief_for_worlds
+    from azelficoast.class_native_belief import build_factor_support
+
+    support = build_factor_support(
+        2,
+        bench_variants=1,
+        accuracy_rolls=10,
+        rolls=4,
+    )
+    belief = _uniform_belief_for_worlds(support, 160)
+
+    assert belief.logical_world_count == 160
+    assert belief.active_canonical_classes == 80
+    assert set(int(weight) for weight in belief.weights) == {2}

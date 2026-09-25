@@ -346,7 +346,21 @@ def _uniform_belief_for_worlds(
     support,
     world_count: int,
 ) -> ClassNativeBelief:
-    return uniform_belief(support, world_count)
+    if world_count <= 0:
+        raise ValueError("logical world count must be positive")
+    if world_count >= support.class_count:
+        return uniform_belief(support, world_count)
+
+    # Low-work crossover treatments intentionally contain fewer logical worlds
+    # than the full canonical support. Activate a deterministic, evenly spaced
+    # subset so the treatment still samples the complete support geometry rather
+    # than taking a prefix concentrated in one context or RNG region.
+    indices = (
+        np.arange(world_count, dtype=np.int64) * support.class_count
+    ) // world_count
+    weights = np.zeros(support.class_count, dtype=np.int64)
+    weights[indices] = 1
+    return ClassNativeBelief(support=support, weights=weights)
 
 
 def _materialize_direct(
