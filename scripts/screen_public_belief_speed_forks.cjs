@@ -66,6 +66,10 @@ function compatibleVariants(candidate, fixture, rounds = 512) {
   for (let seed = 0; seed < rounds; seed++) {
     generator.setSeed([seed, seed, seed, seed]);
     const set = generator.randomSet(species, {}, Boolean(candidate.is_lead), false);
+    if (
+      toID(set.species || candidate.opponent_species) !==
+      toID(fixture.state.opponent_active.species)
+    ) continue;
     if (Number(set.level) !== Number(fixture.state.opponent_active.level)) continue;
     const moves = [...set.moves].map(toID);
     if (![...observed].every(move => moves.includes(move))) continue;
