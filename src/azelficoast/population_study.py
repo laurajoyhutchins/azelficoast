@@ -361,9 +361,17 @@ def freeze_population(
             raise PopulationStudyError(f"candidate {fixture_id} lacks mechanics screen")
 
         active = fixture.state.get("active")
+        opponent_active = fixture.state.get("opponent_active")
         active_hp = active.get("current_hp") if isinstance(active, Mapping) else None
         if not isinstance(active_hp, (int, float)) or active_hp <= 0:
             exclude("active-hp-nonpositive")
+            continue
+        if (
+            isinstance(opponent_active, Mapping)
+            and isinstance(opponent_active.get("tera_type"), str)
+            and opponent_active.get("tera_type")
+        ):
+            exclude("opponent-terastallized")
             continue
 
         source, status = build_probe_source(fixture)
