@@ -27,6 +27,54 @@ def test_replay_bridge_resolves_to_repository_script() -> None:
 
 
 
+def test_replay_bridge_preserves_command_by_command_causality(tmp_path: Path) -> None:
+    showdown = tmp_path / "showdown"
+    module = showdown / "dist" / "sim" / "battle-stream.js"
+    module.parent.mkdir(parents=True)
+    module.write_text(
+        """
+class BattleStream {
+  constructor() {
+    this.writes = [];
+    this.done = new Promise(resolve => { this.resolveDone = resolve; });
+  }
+  async write(data) {
+    this.writes.push(String(data));
+  }
+  async writeEnd() {
+    this.resolveDone();
+  }
+}
+function getPlayerStreams(stream) {
+  const player = {
+    async *[Symbol.asyncIterator]() {
+      await stream.done;
+      for (const value of stream.writes) yield value;
+    },
+  };
+  return {p1: player, p2: player};
+}
+module.exports = {BattleStream, getPlayerStreams};
+""".strip() + "\n",
+        encoding="utf-8",
+    )
+    inputlog = "\n".join(
+        (
+            ">version " + PINNED_SHOWDOWN_COMMIT,
+            '>start {"formatid":"gen9randombattle"}',
+            '>player p1 {"name":"Alice"}',
+            '>player p2 {"name":"Bob"}',
+            ">p1 move 1",
+            ">p2 move 1",
+        )
+    )
+
+    streams = public_replays._replay_streams(showdown, inputlog)
+
+    assert streams["p1"] == inputlog.splitlines()
+    assert streams["p2"] == inputlog.splitlines()
+
+
 def test_null_replay_request_is_non_actionable_for_poke_env() -> None:
     chunk = "|turn|1\n|request|null\n"
 
