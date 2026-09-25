@@ -23,6 +23,8 @@ from azelficoast.research.contracts import (
 from azelficoast.core.program import (
     PROGRAM_SET_SCHEMA,
     PROGRAM_SET_SCHEMA_VERSION,
+    READ_KERNEL_SCHEMA,
+    READ_KERNEL_SCHEMA_VERSION,
     program_for_action,
 )
 from azelficoast.core.transition import (
@@ -172,6 +174,57 @@ def _validate_program_shape(
     if not isinstance(programs, list) or len(programs) != len(expected_actions):
         raise MechanicsContractError("transition program lacks one program per legal action")
 
+    partition_methods = {
+        program.get("partition_method")
+        for program in programs
+        if isinstance(program, Mapping)
+    }
+    if "instrumented-read-kernel" in partition_methods:
+        if partition_methods != {"instrumented-read-kernel"}:
+            raise MechanicsContractError(
+                "read-kernel transition programs may not mix refinement methods"
+            )
+        kernel = program_set.get("kernel_evidence")
+        if not isinstance(kernel, Mapping):
+            raise MechanicsContractError("read-kernel transition program lacks kernel evidence")
+        if (
+            kernel.get("schema") != READ_KERNEL_SCHEMA
+            or kernel.get("schema_version") != READ_KERNEL_SCHEMA_VERSION
+        ):
+            raise MechanicsContractError("unsupported read-refinement kernel evidence")
+        if kernel.get("mechanics_revision") != identity.revision:
+            raise MechanicsContractError("read-refinement kernel used another mechanics revision")
+        if kernel.get("algorithm") != "representative-dynamic-read-refinement":
+            raise MechanicsContractError("unsupported read-refinement kernel algorithm")
+        boundary = kernel.get("hidden_boundary")
+        marginalized = kernel.get("marginalized_hidden_fields")
+        execution_candidates = kernel.get("execution_dependency_candidates")
+        if (
+            not isinstance(boundary, list)
+            or not all(isinstance(field, str) and field for field in boundary)
+            or not isinstance(marginalized, list)
+            or not all(isinstance(field, str) and field for field in marginalized)
+        ):
+            raise MechanicsContractError(
+                "read-refinement kernel hidden boundary is incomplete"
+            )
+        if execution_candidates != candidates:
+            raise MechanicsContractError(
+                "read-refinement kernel execution candidates differ from transition candidates"
+            )
+        if set(candidates).intersection(marginalized):
+            raise MechanicsContractError(
+                "read-refinement kernel marginalizes an execution dependency candidate"
+            )
+        if set(boundary) != set(candidates).union(marginalized):
+            raise MechanicsContractError(
+                "read-refinement kernel boundary does not match execution plus marginalized fields"
+            )
+        if set(boundary) != observed_hidden_fields:
+            raise MechanicsContractError(
+                "read-refinement kernel does not cover the complete semantic hidden boundary"
+            )
+
     seen_actions: set[str] = set()
     for action in expected_actions:
         try:
@@ -197,6 +250,7 @@ def _validate_program_shape(
         if partition_method not in {
             "finite-support-minimal-semantics",
             "dynamic-read-refinement",
+            "instrumented-read-kernel",
         }:
             raise MechanicsContractError(f"{action}: unsupported refinement method")
         if not isinstance(effect_signature, str) or not effect_signature:
@@ -420,6 +474,8 @@ class VerifiedTransitionProgramSet:
             expected_actions=legal_actions,
             expected_world_ids=transport_ids,
         )
+        if isinstance(program_set.get("kernel_evidence"), Mapping):
+            source = "read-kernel-transition-program"
         try:
             frozen_program = FrozenJSONObject.from_mapping(program_set)
         except ResearchContractError as error:
