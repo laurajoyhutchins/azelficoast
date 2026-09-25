@@ -226,11 +226,7 @@ def _own_active_tera_type(fixture: DecisionFixture) -> str | None:
     return recovered
 
 
-def build_probe_source(
-    fixture: DecisionFixture,
-    *,
-    showdown_commit: str = PINNED_SHOWDOWN_COMMIT,
-) -> tuple[dict[str, Any] | None, str]:
+def build_probe_source(fixture: DecisionFixture) -> tuple[dict[str, Any] | None, str]:
     """Build the broadest live reconstruction source justified by public evidence.
 
     Posterior reconstruction does not require an opponent-response model. When the
@@ -260,7 +256,7 @@ def build_probe_source(
         "schema": PROBE_SCHEMA,
         "schema_version": PROBE_SCHEMA_VERSION,
         "fixture_id": fixture.fixture_id,
-        "showdown_commit": showdown_commit,
+        "showdown_commit": PINNED_SHOWDOWN_COMMIT,
         "fixture": fixture.as_record(),
         "own_active_tera_type": tera_type,
         "source_projection": (
@@ -576,19 +572,12 @@ class PinnedShowdownBeliefPolicy:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         learned_evaluator: Any | None = None,
         search_gate: Any | None = None,
-        showdown_commit: str = PINNED_SHOWDOWN_COMMIT,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("belief timeout must be positive")
         if (learned_evaluator is None) != (search_gate is None):
             raise ValueError("learned_evaluator and search_gate must be provided together")
-        if (
-            len(showdown_commit) != 40
-            or any(character not in "0123456789abcdef" for character in showdown_commit)
-        ):
-            raise ValueError("showdown_commit must be an exact 40-hex revision")
         self.showdown_root = Path(showdown_root)
-        self.showdown_commit = showdown_commit
         self.timeout_seconds = float(timeout_seconds)
         self.learned_evaluator = learned_evaluator
         self.search_gate = search_gate
@@ -606,10 +595,10 @@ class PinnedShowdownBeliefPolicy:
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             return f"cannot-read-showdown-revision: {error}"
         actual = completed.stdout.strip()
-        if actual != self.showdown_commit:
+        if actual != PINNED_SHOWDOWN_COMMIT:
             return (
                 "showdown-revision-mismatch: "
-                f"expected {self.showdown_commit}, got {actual or '<empty>'}"
+                f"expected {PINNED_SHOWDOWN_COMMIT}, got {actual or '<empty>'}"
             )
         if not (self.showdown_root / "dist" / "sim" / "battle.js").is_file():
             return "showdown-build-missing"
@@ -687,10 +676,7 @@ class PinnedShowdownBeliefPolicy:
                 diagnostics={"error": self._configuration_error},
             )
 
-        source, admission = build_probe_source(
-            fixture,
-            showdown_commit=self.showdown_commit,
-        )
+        source, admission = build_probe_source(fixture)
         if source is None:
             return LiveDecisionResult(
                 action=None,
@@ -707,7 +693,7 @@ class PinnedShowdownBeliefPolicy:
                 posterior = self._probe_posterior(source)
                 if posterior.get("source_fixture_id") != fixture.fixture_id:
                     raise LiveBeliefPolicyError("posterior fixture identity mismatch")
-                if posterior.get("showdown_commit") != self.showdown_commit:
+                if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
                     raise LiveBeliefPolicyError("posterior Showdown revision mismatch")
                 if posterior.get("legal_actions") != list(fixture.legal_actions):
                     raise LiveBeliefPolicyError("posterior legal actions drifted")
