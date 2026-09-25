@@ -1,0 +1,80 @@
+name: voluntary-switch-turn-experiment
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - "src/azelficoast/voluntary_switch_turn.py"
+      - "src/azelficoast/voluntary_switch_experiment.py"
+      - "scripts/generate_showdown_voluntary_switch_fixtures.cjs"
+      - "tests/test_voluntary_switch_turn.py"
+      - ".github/workflows/voluntary-switch-turn-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  voluntary-switch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: "true"
+
+      - name: Restore verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+        with:
+          sha: a5df8274e85b0889bf2a9b3422a08b39732374fc
+          path: /tmp/pokemon-showdown
+          save-cache: "false"
+
+      - name: Generate exact voluntary-switch fixtures
+        run: |
+          node scripts/generate_showdown_voluntary_switch_fixtures.cjs             /tmp/pokemon-showdown             > /tmp/voluntary-switch-fixtures.json
+
+      - name: Test voluntary-switch machinery
+        run: uv run pytest tests/test_voluntary_switch_turn.py
+
+      - name: Run voluntary-switch experiment
+        run: |
+          uv run python -m azelficoast.voluntary_switch_experiment             /tmp/voluntary-switch-fixtures.json             | tee /tmp/voluntary-switch-result.json
+
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          result = json.loads(
+              Path("/tmp/voluntary-switch-result.json").read_text()
+          )
+          assert result["passed"] is True, result
+          assert result["showdown_exact"] is True, result
+          assert result["switch_before_attack_exact"] is True, result
+          assert result["rng_request_shape_exact"] is True, result
+          support = result["full_support"]
+          assert support["logical_world_count"] == 2048, result
+          assert support["execution_class_count"] == 66, result
+          assert support["direct_equals_projected"] is True, result
+          assert support["miss_class_count"] == 2, result
+          assert support["hit_class_count"] == 64, result
+          assert support["untouched_bench_factor_collapsed"] is True, result
+          assert support["incoming_identity_preserved"] is True, result
+          assert support["reduction_factor"] > 31.0, result
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voluntary-switch-evidence
+          path: |
+            /tmp/voluntary-switch-fixtures.json
+            /tmp/voluntary-switch-result.json
+          if-no-files-found: error
