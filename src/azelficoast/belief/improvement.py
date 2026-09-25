@@ -27,11 +27,19 @@ from azelficoast.belief.evaluator import (
     predict,
     write_checkpoint,
 )
+from azelficoast.belief.battle_promotion import (
+    BATTLE_PROMOTION_SCHEMA,
+    BATTLE_PROMOTION_SCHEMA_VERSION,
+    BattlePromotionError,
+    verify_battle_panel_evidence,
+)
 from azelficoast.belief.training import TrainingExample, train_examples
 from azelficoast.research.training_records import TRAINING_SCHEMA, TRAINING_SCHEMA_VERSION
 
 IMPROVEMENT_RECEIPT_SCHEMA = "azelficoast.evaluator-improvement-receipt"
-IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 2
+IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 3
+PROMOTION_SETTLEMENT_SCHEMA = "azelficoast.evaluator-promotion-settlement"
+PROMOTION_SETTLEMENT_SCHEMA_VERSION = 1
 VALUE_TARGET_SOURCES = ("public_belief_search_return", "eventual_battle_outcome")
 
 
@@ -484,6 +492,95 @@ def _promote(
     os.replace(temporary, path)
 
 
+
+def promote_deferred_candidate(
+    improvement: Mapping[str, Any],
+    *,
+    battle_evidence: Mapping[str, Any],
+    promotion_file: str | Path,
+    receipts_dir: str | Path,
+) -> dict[str, Any]:
+    """Promote a candidate only after independent battle evidence also admits it."""
+
+    if improvement.get("admitted") is not True:
+        raise ImprovementError("cannot promote a candidate rejected by model admission")
+    if improvement.get("promotion_deferred") is not True:
+        raise ImprovementError("candidate was not produced by a deferred promotion transaction")
+    if (
+        battle_evidence.get("schema") != BATTLE_PROMOTION_SCHEMA
+        or battle_evidence.get("schema_version") != BATTLE_PROMOTION_SCHEMA_VERSION
+    ):
+        raise ImprovementError("unexpected battle promotion evidence schema")
+    try:
+        verified_battle_evidence = verify_battle_panel_evidence(battle_evidence)
+    except BattlePromotionError as error:
+        raise ImprovementError(str(error)) from error
+    if verified_battle_evidence.get("admitted") is not True:
+        raise ImprovementError("battle promotion evidence did not admit the candidate")
+
+    candidate_digest = _text(
+        improvement.get("candidate_checkpoint_digest"),
+        "candidate_checkpoint_digest",
+    )
+    incumbent_digest = _text(
+        improvement.get("incumbent_checkpoint_digest"),
+        "incumbent_checkpoint_digest",
+    )
+    dataset_digest = _text(improvement.get("dataset_digest"), "dataset_digest")
+    improvement_receipt_digest = _text(
+        improvement.get("receipt_digest"),
+        "improvement.receipt_digest",
+    )
+    if verified_battle_evidence.get("candidate_checkpoint_digest") != candidate_digest:
+        raise ImprovementError("battle evidence candidate checkpoint does not match")
+    if verified_battle_evidence.get("incumbent_checkpoint_digest") != incumbent_digest:
+        raise ImprovementError("battle evidence incumbent checkpoint does not match")
+
+    candidate_path = Path(
+        _text(improvement.get("candidate_checkpoint"), "candidate_checkpoint")
+    )
+    if not candidate_path.is_dir():
+        raise ImprovementError("candidate checkpoint no longer exists")
+
+    material = {
+        "schema": PROMOTION_SETTLEMENT_SCHEMA,
+        "schema_version": PROMOTION_SETTLEMENT_SCHEMA_VERSION,
+        "candidate_checkpoint_digest": candidate_digest,
+        "incumbent_checkpoint_digest": incumbent_digest,
+        "dataset_digest": dataset_digest,
+        "improvement_receipt_digest": improvement_receipt_digest,
+        "battle_evidence": dict(verified_battle_evidence),
+        "checks": {
+            "model_admission": True,
+            "battle_strength": True,
+        },
+        "admitted": True,
+    }
+    receipt_digest = _sha256(material)
+    receipt = {**material, "receipt_digest": receipt_digest}
+    receipt_path = Path(receipts_dir) / f"{receipt_digest.removeprefix('sha256:')}.json"
+    _write_immutable_json(receipt_path, receipt)
+
+    promotion_path = Path(promotion_file)
+    _promote(
+        promotion_path,
+        candidate_path=candidate_path,
+        candidate_digest=candidate_digest,
+        incumbent_digest=incumbent_digest,
+        dataset_digest=dataset_digest,
+        receipt_digest=receipt_digest,
+    )
+    return {
+        "admitted": True,
+        "promotion_file": str(promotion_path),
+        "candidate_checkpoint": str(candidate_path),
+        "candidate_checkpoint_digest": candidate_digest,
+        "incumbent_checkpoint_digest": incumbent_digest,
+        "receipt": str(receipt_path),
+        "receipt_digest": receipt_digest,
+        "battle_evidence": dict(verified_battle_evidence),
+    }
+
 def improve_checkpoint(
     dataset_path: str | Path,
     *,
@@ -497,6 +594,7 @@ def improve_checkpoint(
     policy_weight: float = 1.0,
     value_target_source: str = "public_belief_search_return",
     admission_policy: AdmissionPolicy = AdmissionPolicy(),
+    promote: bool = True,
 ) -> dict[str, Any]:
     """Train one candidate and atomically promote it only after admission."""
     if not isinstance(epochs, int) or isinstance(epochs, bool) or epochs <= 0:
@@ -622,6 +720,7 @@ def improve_checkpoint(
             },
         },
         "admission": admission,
+        "promotion_mode": "immediate" if promote else "deferred",
     }
     receipt_digest = _sha256(receipt_material)
     receipt = {**receipt_material, "receipt_digest": receipt_digest}
@@ -629,7 +728,7 @@ def improve_checkpoint(
     _write_immutable_json(receipt_path, receipt)
 
     promotion_path: Path | None = None
-    if admission["admitted"]:
+    if admission["admitted"] and promote:
         promotion_path = Path(promotion_file)
         _promote(
             promotion_path,
@@ -649,6 +748,7 @@ def improve_checkpoint(
         "receipt": str(receipt_path),
         "receipt_digest": receipt_digest,
         "promotion_file": str(promotion_path) if promotion_path is not None else None,
+        "promotion_deferred": bool(admission["admitted"] and not promote),
         "failed_checks": list(admission["failed_checks"]),
         "validation": {
             "incumbent": incumbent_validation.as_record(),

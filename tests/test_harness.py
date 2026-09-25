@@ -8,6 +8,8 @@ from azelficoast.live.harness import (
     _balanced_battle_allocation,
     _build_parser,
     _nonnegative_int,
+    _open_unit_float,
+    _positive_even_int,
     _positive_int,
     _resolve_live_credentials,
 )
@@ -180,3 +182,19 @@ def test_training_auto_replenishes_public_curriculum_by_default() -> None:
 
     assert args.public_replays_per_generation == 4
     assert args.public_replay_min_rating == 1500
+
+
+def test_promotion_battle_controls_are_fail_closed() -> None:
+    assert _positive_even_int("32") == 32
+    with pytest.raises(argparse.ArgumentTypeError):
+        _positive_even_int("31")
+    assert _open_unit_float("0.1") == 0.1
+    with pytest.raises(argparse.ArgumentTypeError):
+        _open_unit_float("1")
+
+
+def test_training_auto_has_battle_strength_gate_by_default() -> None:
+    args = _build_parser().parse_args(["training", "auto"])
+
+    assert args.promotion_battles == 32
+    assert args.promotion_alpha == 0.10

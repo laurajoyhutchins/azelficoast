@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 
 import pytest
@@ -20,6 +21,13 @@ from azelficoast.belief.improvement import (
     evaluate_hostile_invariants,
     improve_checkpoint,
     load_training_dataset,
+    promote_deferred_candidate,
+)
+from azelficoast.belief.battle_promotion import (
+    BattlePromotionPolicy,
+    CANDIDATE_PRIMARY_MODE,
+    INCUMBENT_PRIMARY_MODE,
+    settle_battle_panel,
 )
 from azelficoast.research.training_records import TRAINING_SCHEMA, TRAINING_SCHEMA_VERSION
 
@@ -249,3 +257,131 @@ def test_hostile_gate_rejects_action_order_sensitive_candidate(
     assert {
         failure["mutation"] for failure in result["failures"]
     } >= {"reverse-legal-action-order"}
+
+
+def test_deferred_candidate_cannot_mutate_authority_before_battle_gate(tmp_path) -> None:
+    pytest.importorskip("jax")
+    pytest.importorskip("numpy")
+    incumbent = tmp_path / "incumbent"
+    write_checkpoint(incumbent, init_params(_spec(), seed=11), _spec())
+    dataset = tmp_path / "training.jsonl"
+    _write(dataset, _records())
+    promotion = tmp_path / "current.json"
+
+    improvement = improve_checkpoint(
+        dataset,
+        incumbent_checkpoint=incumbent,
+        models_dir=tmp_path / "candidates",
+        receipts_dir=tmp_path / "receipts",
+        promotion_file=promotion,
+        epochs=4,
+        learning_rate=1e-2,
+        admission_policy=AdmissionPolicy(
+            min_validation_total_improvement=0.0,
+            max_validation_value_mse_regression=10.0,
+            max_validation_policy_cross_entropy_regression=10.0,
+        ),
+        promote=False,
+    )
+
+    assert improvement["admitted"] is True
+    assert improvement["promotion_deferred"] is True
+    assert not promotion.exists()
+
+    raw_results = tmp_path / "promotion-results.jsonl"
+    raw_rows = [
+        {
+            "battle_tag": f"battle-{index}",
+            "mode": (
+                CANDIDATE_PRIMARY_MODE
+                if index < 2
+                else INCUMBENT_PRIMARY_MODE
+            ),
+            "won": index < 2,
+            "lost": index >= 2,
+            "candidate_checkpoint_digest": improvement["candidate_checkpoint_digest"],
+            "incumbent_checkpoint_digest": improvement["incumbent_checkpoint_digest"],
+        }
+        for index in range(4)
+    ]
+    _write(raw_results, raw_rows)
+    battle_evidence = settle_battle_panel(
+        raw_rows,
+        candidate_checkpoint_digest=improvement["candidate_checkpoint_digest"],
+        incumbent_checkpoint_digest=improvement["incumbent_checkpoint_digest"],
+        policy=BattlePromotionPolicy(
+            expected_battles=4,
+            max_superiority_p_value=0.5,
+        ),
+    )
+    battle_evidence = {
+        **battle_evidence,
+        "results": str(raw_results),
+        "results_digest": hashlib.sha256(raw_results.read_bytes()).hexdigest(),
+    }
+    settled = promote_deferred_candidate(
+        improvement,
+        battle_evidence=battle_evidence,
+        promotion_file=promotion,
+        receipts_dir=tmp_path / "receipts",
+    )
+
+    assert settled["admitted"] is True
+    _, _, manifest = load_checkpoint(promotion)
+    assert (
+        manifest["evaluator"]["checkpoint_digest"]
+        == improvement["candidate_checkpoint_digest"]
+    )
+
+
+def test_deferred_promotion_rejects_mismatched_battle_identity(tmp_path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    improvement = {
+        "admitted": True,
+        "promotion_deferred": True,
+        "candidate_checkpoint": str(candidate),
+        "candidate_checkpoint_digest": "sha256:candidate",
+        "incumbent_checkpoint_digest": "sha256:incumbent",
+        "dataset_digest": "sha256:dataset",
+        "receipt_digest": "sha256:improvement",
+    }
+    raw_results = tmp_path / "mismatched-results.jsonl"
+    raw_rows = [
+        {
+            "battle_tag": f"battle-{index}",
+            "mode": (
+                CANDIDATE_PRIMARY_MODE
+                if index < 2
+                else INCUMBENT_PRIMARY_MODE
+            ),
+            "won": index < 2,
+            "lost": index >= 2,
+            "candidate_checkpoint_digest": "sha256:other",
+            "incumbent_checkpoint_digest": "sha256:incumbent",
+        }
+        for index in range(4)
+    ]
+    _write(raw_results, raw_rows)
+    battle_evidence = settle_battle_panel(
+        raw_rows,
+        candidate_checkpoint_digest="sha256:other",
+        incumbent_checkpoint_digest="sha256:incumbent",
+        policy=BattlePromotionPolicy(
+            expected_battles=4,
+            max_superiority_p_value=0.5,
+        ),
+    )
+    battle_evidence = {
+        **battle_evidence,
+        "results": str(raw_results),
+        "results_digest": hashlib.sha256(raw_results.read_bytes()).hexdigest(),
+    }
+
+    with pytest.raises(ImprovementError, match="candidate checkpoint does not match"):
+        promote_deferred_candidate(
+            improvement,
+            battle_evidence=battle_evidence,
+            promotion_file=tmp_path / "current.json",
+            receipts_dir=tmp_path / "receipts",
+        )
