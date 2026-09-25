@@ -54,8 +54,22 @@ def validate_joint_posterior(
         raise JointPosteriorError("posterior lacks construction evidence")
     if construction.get("preserves_joint_team_set_correlations") is not True:
         raise JointPosteriorError("posterior does not preserve joint team/set correlations")
-    if construction.get("kind") != "full-team-generator-rejection-particles":
+    if construction.get("kind") not in {
+        "full-team-generator-rejection-particles",
+        "full-team-conditioned-completion-particles",
+    }:
         raise JointPosteriorError("unexpected joint posterior construction")
+    treatment = construction.get("posterior_treatment")
+    expected_treatment = {
+        "full-team-generator-rejection-particles": (
+            "generator_faithful_joint_empirical"
+        ),
+        "full-team-conditioned-completion-particles": (
+            "practical_joint_completion"
+        ),
+    }[str(construction["kind"])]
+    if treatment != expected_treatment:
+        raise JointPosteriorError("posterior treatment does not match construction")
 
     worlds = document.get("worlds")
     if not isinstance(worlds, list) or not worlds:
