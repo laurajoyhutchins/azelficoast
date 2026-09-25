@@ -21,7 +21,6 @@ from azelficoast.decision_relevance import (
 )
 from azelficoast.joint_posterior import (
     JointPosteriorError,
-    evaluator_posterior,
     validate_joint_posterior,
 )
 from azelficoast.real_belief_trace import BeliefTraceError
@@ -377,6 +376,21 @@ def learned_route_result(
                 if isinstance(posterior.get("worlds"), list)
                 else None
             ),
+            "quality": (
+                {
+                    key: posterior["construction"].get(key)
+                    for key in (
+                        "attempted_team_count",
+                        "accepted_team_count",
+                        "unique_particle_count",
+                        "acceptance_rate",
+                        "effective_sample_size",
+                        "posterior_treatment",
+                    )
+                }
+                if isinstance(posterior.get("construction"), Mapping)
+                else {}
+            ),
         },
     }
     try:
@@ -625,7 +639,7 @@ class PinnedShowdownBeliefPolicy:
                 f"{construction.get('accepted_team_count', 0)}/"
                 f"{construction.get('minimum_particles', self.joint_minimum_particles)}"
             )
-        return evaluator_posterior(checked)
+        return checked
 
     def choose(self, fixture: DecisionFixture) -> LiveDecisionResult:
         if self._configuration_error is not None:
