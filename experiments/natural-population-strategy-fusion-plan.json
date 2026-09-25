@@ -21,7 +21,8 @@
     "max_exact_states": 128,
     "overflow_selection": "ascending sha256('population-v1:' + fixture_id)",
     "mechanics_screen_rounds": 512,
-    "requires_exact_opponent_bench_reconstruction": true
+    "requires_exact_opponent_bench_reconstruction": true,
+    "requires_public_forme_conditioning": true
   },
   "exact_treatment": {
     "root_chance_samples": 16,
@@ -90,14 +91,14 @@
     "invalidated_before_outcome_read": true,
     "invalidation_reason": "exact adapter requires a known surviving opponent bench species or proof that the public bench is exhausted; one selected source lacked either structural witness"
   },
-  "treatment_enabled": true,
+  "treatment_enabled": false,
   "preregistration_amendment": {
     "reason": "structural exact-reconstruction preflight omitted from initial admissibility",
     "trigger": "index 5 failed before oracle construction because opponent bench was publicly unresolved",
     "outcome_values_inspected_before_amendment": false,
     "rule": "exclude any otherwise eligible fixture unless the public trace exposes a surviving opponent bench species or proves the public bench exhausted"
   },
-  "frozen_cohort": {
+  "superseded_cohort_after_forme_bug": {
     "workflow_run_id": 36090229271,
     "artifact_id": 10845134218,
     "artifact_name": "natural-population-selection",
@@ -114,6 +115,14 @@
     "ineligible_reason_counts": {
       "active-hp-nonpositive": 2,
       "exact-reconstruction:opponent-bench-unresolved": 1
-    }
+    },
+    "invalidated_before_outcome_inspection": true,
+    "invalidation_reason": "exact treatment exposed generated cosmetic-forme worlds inconsistent with the publicly observed opponent forme; successful shard values were not inspected"
+  },
+  "preregistration_amendment_forme": {
+    "reason": "Random Battle getForme() samples public cosmetic/mostly-cosmetic formes before hidden set construction, consuming RNG",
+    "trigger": "Zarude exact reconstruction collided because both Zarude and Zarude-Dada generator draws entered a public-Zarude belief",
+    "outcome_values_inspected_before_amendment": false,
+    "rule": "condition generator samples on the exact publicly observed opponent forme before counting posterior support, mechanics screening, or exact-world construction"
   }
 }
