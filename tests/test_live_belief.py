@@ -186,15 +186,15 @@ def test_probe_source_does_not_reuse_another_species_tera_type() -> None:
 def _strategy_fusion_oracle() -> dict[str, object]:
     worlds = [
         {
-            "world_id": "band",
-            "weight": 0.5,
-            "hidden": {"opponent.active.item": "Choice Band"},
-        },
-        {
-            "world_id": "scarf",
-            "weight": 0.5,
-            "hidden": {"opponent.active.item": "Choice Scarf"},
-        },
+            "world_id": f"{item}-{noise}",
+            "weight": 0.25,
+            "hidden": {
+                "opponent.active.item": item,
+                "noise": noise,
+            },
+        }
+        for item in ("Choice Band", "Choice Scarf")
+        for noise in (1, 2)
     ]
     transitions = []
     for world in worlds:
@@ -237,7 +237,7 @@ def _strategy_fusion_oracle() -> dict[str, object]:
         "showdown_commit": "pinned",
         "worlds": worlds,
         "legal_actions": ["risky", "safe"],
-        "dependency_candidates": ["opponent.active.item"],
+        "dependency_candidates": ["opponent.active.item", "noise"],
         "declared_reads": {
             "risky": ["opponent.active.item"],
             "safe": ["opponent.active.item"],
@@ -253,6 +253,14 @@ def test_public_belief_result_selects_shared_information_set_action() -> None:
     assert result.action == "safe"
     assert result.diagnostics["determinization_action"] == "risky"
     assert result.diagnostics["policy_disagreement"] is True
+    assert result.diagnostics["source_world_count"] == 4
+    assert result.diagnostics["decision_class_count"] == 2
+    assert result.diagnostics["decision_relevant_hidden_fields"] == [
+        "opponent.active.item"
+    ]
+    assert result.diagnostics["decision_world_reduction"] == 2
+    assert result.diagnostics["decision_reduction_fraction"] == 0.5
+    assert result.diagnostics["belief_branching_required"] is True
 
 
 def _pokemon(species: str, *, opponent: bool = False) -> SimpleNamespace:
