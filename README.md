@@ -168,10 +168,29 @@ Azelficoast decision trace containing both player perspectives. Both
 perspectives retain the same battle identity, so downstream splitting keeps an
 entire source battle on one side of the train/validation/test boundary.
 
-Recorded human choices are **not** accepted as Azelficoast's policy teacher.
-They are retained as historical context only. The normal training cycle derives
-policy targets from information-set search and value targets from settled
-search plus the eventual battle outcome:
+For a cold start, Azelficoast can explicitly use recorded human decisions as
+**imitation pretraining**, together with eventual battle outcomes and a
+generator-faithful posterior reconstructed from only the information available
+to that player. This is deliberately tagged as a different evidence class from
+the scientific search teacher:
+
+~~~bash
+uv sync --extra simulator
+uv run azelficoast \
+  --showdown-root /path/to/pinned/pokemon-showdown \
+  training bootstrap-public artifacts/public-replays/decisions.jsonl
+~~~
+
+The bootstrap command is allowed only when no evaluator has yet been promoted.
+It compares the trained candidate against a deterministic untrained baseline on
+battle-grouped validation data and creates the promotion pointer only if the
+candidate passes the normal admission checks. Human policy labels carry
+`scientific_search_teacher: false`.
+
+After that first checkpoint exists, the normal self-improvement cycle takes
+over. It does **not** keep copying human moves: policy targets return to settled
+information-set search, with value targets from searched returns and eventual
+battle outcomes.
 
 ~~~bash
 uv run azelficoast \
@@ -179,8 +198,9 @@ uv run azelficoast \
   training cycle artifacts/public-replays/decisions.jsonl
 ~~~
 
-This makes public human play a source of realistic states and outcomes while
-keeping Azelficoast's teacher/evidence boundary unchanged.
+This lets public human play supply realistic states, outcomes, and a sensible
+initial policy without mixing imitation evidence into the repo's claims about
+search correctness.
 
 ### Build a frozen decision corpus
 
