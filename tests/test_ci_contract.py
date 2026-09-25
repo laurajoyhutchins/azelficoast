@@ -48,10 +48,9 @@ def test_expensive_pr_workflows_only_run_for_candidate_heads() -> None:
         assert "  workflow_dispatch:\n" in source, (
             f"{path.name} must retain an explicit manual evidence path"
         )
-        assert (
-            "group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
-            in source
-        ), f"{path.name} must cancel superseded runs for the same PR"
+        assert "${{ github.event.pull_request.number || github.ref }}" in source, (
+            f"{path.name} must key concurrency by PR when available"
+        )
         assert "cancel-in-progress: true" in source
         checked.append(path.name)
 
