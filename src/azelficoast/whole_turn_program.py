@@ -4,10 +4,10 @@ The compiler deliberately ignores continuation values. A transition program desc
 only one complete root turn: chance probability, public observation, and successor
 state. Search and value functions consume that surface later.
 
-When Showdown supplies dynamic hidden-state read traces, the compiler refines classes
-only when a representative actually reads a hidden field. The existing exhaustive
-oracle verifies every resulting class, so incomplete instrumentation fails closed.
-Older frozen oracles without read traces retain the exact finite-support fallback.
+The default compiler derives semantic classes from the complete finite-support oracle,
+so analysis measures behavior rather than implementation reads. An explicit dynamic-read
+strategy is available for validating representative-refinement machinery; lazy Showdown
+production emits that strategy directly and is verified against the semantic oracle.
 """
 
 from __future__ import annotations
@@ -28,6 +28,8 @@ PROGRAM_SET_SCHEMA = "azelficoast.whole-turn-transition-program-set"
 PROGRAM_SET_SCHEMA_VERSION = 1
 EXECUTION_SCHEMA = "azelficoast.weighted-whole-turn-outcomes"
 EXECUTION_SCHEMA_VERSION = 1
+VERIFICATION_SCHEMA = "azelficoast.whole-turn-program-verification"
+VERIFICATION_SCHEMA_VERSION = 1
 
 
 class WholeTurnProgramError(ValueError):
@@ -180,8 +182,20 @@ def _read_refined_classes(
 
 def compile_whole_turn_programs(
     oracle: Mapping[str, Any],
+    *,
+    partition_strategy: str = "semantic",
 ) -> dict[str, Any]:
-    """Compile one exact finite-support transition program per legal root action."""
+    """Compile one exact finite-support transition program per legal root action.
+
+    The semantic strategy is authoritative for analysis: classes are derived from
+    complete immediate transition behavior. dynamic_reads is an explicit validation
+    mode for representative refinement and is never inferred merely from trace presence.
+    """
+
+    if partition_strategy not in {"semantic", "dynamic_reads"}:
+        raise WholeTurnProgramError(
+            f"unsupported whole-turn partition strategy: {partition_strategy!r}"
+        )
 
     worlds, actions, transitions, candidates = validate_oracle_core(
         oracle,
@@ -200,14 +214,26 @@ def compile_whole_turn_programs(
             world_id: sha256_json(distribution)
             for world_id, distribution in immediate.items()
         }
-        refined = _read_refined_classes(
-            worlds,
-            action=action,
-            transitions=transitions,
-            semantic_hashes=semantic_hashes,
-            candidates=candidates,
+        refined = (
+            _read_refined_classes(
+                worlds,
+                action=action,
+                transitions=transitions,
+                semantic_hashes=semantic_hashes,
+                candidates=candidates,
+            )
+            if partition_strategy == "dynamic_reads"
+            else None
         )
-        if refined is None:
+        if partition_strategy == "dynamic_reads":
+            if refined is None:
+                raise WholeTurnProgramError(
+                    f"{action}: dynamic-read partition requested but oracle has no "
+                    "complete transition_reads evidence"
+                )
+            partition_method = "dynamic-read-refinement"
+            dependency_fields, class_rows = refined
+        else:
             partition_method = "finite-support-minimal-semantics"
             dependency_fields = _minimal_dependency_fields(
                 worlds,
@@ -232,9 +258,6 @@ def compile_whole_turn_programs(
                 }
                 for key, member_ids in sorted(grouped.items(), key=lambda row: row[0])
             ]
-        else:
-            partition_method = "dynamic-read-refinement"
-            dependency_fields, class_rows = refined
 
         classes: list[dict[str, Any]] = []
         for row in class_rows:
@@ -326,6 +349,151 @@ def compile_whole_turn_programs(
         "non_claim": (
             "The compiled fields are not claimed sufficient for unseen hidden worlds, "
             "other actions, later turns, continuation values, or another Showdown revision."
+        ),
+    }
+
+
+def verify_whole_turn_program_set(
+    program_set: Mapping[str, Any],
+    oracle: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Verify a representative-produced program against a complete direct oracle."""
+
+    if (
+        program_set.get("schema") != PROGRAM_SET_SCHEMA
+        or program_set.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
+    ):
+        raise WholeTurnProgramError("unsupported whole-turn transition program schema")
+
+    worlds, actions, transitions, candidates = validate_oracle_core(
+        oracle,
+        error_type=WholeTurnProgramError,
+    )
+    world_ids = sorted(str(world["world_id"]) for world in worlds)
+    if program_set.get("source_fixture_id") != oracle.get("source_fixture_id"):
+        raise WholeTurnProgramError("program and oracle belong to different fixtures")
+    if program_set.get("showdown_commit") != oracle.get("showdown_commit"):
+        raise WholeTurnProgramError("program and oracle use different Showdown revisions")
+    if program_set.get("world_ids") != world_ids:
+        raise WholeTurnProgramError("program and oracle have different hidden-world support")
+    if program_set.get("legal_actions") != actions:
+        raise WholeTurnProgramError("program and oracle have different legal actions")
+    if program_set.get("dependency_candidates") != candidates:
+        raise WholeTurnProgramError("program and oracle have different dependency candidates")
+
+    programs = program_set.get("programs")
+    if not isinstance(programs, list) or len(programs) != len(actions):
+        raise WholeTurnProgramError("program set does not contain one program per action")
+
+    verified_classes = 0
+    representative_world_executions = 0
+    for action in actions:
+        program = program_for_action(program_set, action)
+        raw_classes = program.get("classes")
+        if not isinstance(raw_classes, list) or not raw_classes:
+            raise WholeTurnProgramError(f"{action}: program has no execution classes")
+
+        covered: set[str] = set()
+        for row in raw_classes:
+            if not isinstance(row, Mapping):
+                raise WholeTurnProgramError(f"{action}: execution class must be an object")
+            representative_id = str(row.get("representative_world_id"))
+            raw_members = row.get("member_world_ids")
+            raw_outcomes = row.get("outcomes")
+            if not isinstance(raw_members, list) or not raw_members:
+                raise WholeTurnProgramError(f"{action}: execution class has no members")
+            if not isinstance(raw_outcomes, list) or not raw_outcomes:
+                raise WholeTurnProgramError(f"{action}: execution class has no outcomes")
+            members = [str(world_id) for world_id in raw_members]
+            if representative_id not in members:
+                raise WholeTurnProgramError(
+                    f"{action}: class representative is not a class member"
+                )
+            overlap = covered.intersection(members)
+            if overlap:
+                raise WholeTurnProgramError(
+                    f"{action}: execution classes overlap at {sorted(overlap)[0]}"
+                )
+            covered.update(members)
+
+            expected = _immediate_distribution(
+                transitions[(representative_id, action)]
+            )
+            supplied = sorted(
+                [
+                    {
+                        "probability": float(outcome["probability"]),
+                        "observation": copy.deepcopy(outcome.get("observation")),
+                        "successor": copy.deepcopy(outcome.get("successor")),
+                    }
+                    for outcome in raw_outcomes
+                    if isinstance(outcome, Mapping)
+                ],
+                key=canonical_json,
+            )
+            if len(supplied) != len(raw_outcomes) or supplied != expected:
+                raise WholeTurnProgramError(
+                    f"{action}: representative outcomes differ from direct oracle"
+                )
+
+            expected_hash = sha256_json(expected)
+            if row.get("semantic_hash") != expected_hash:
+                raise WholeTurnProgramError(
+                    f"{action}: representative semantic hash differs from direct oracle"
+                )
+            for member_id in members:
+                if member_id not in world_ids:
+                    raise WholeTurnProgramError(
+                        f"{action}: class references unknown world {member_id}"
+                    )
+                member = _immediate_distribution(transitions[(member_id, action)])
+                if member != expected:
+                    raise WholeTurnProgramError(
+                        f"{action}: class merges semantically different world {member_id}"
+                    )
+            verified_classes += 1
+
+        if covered != set(world_ids):
+            raise WholeTurnProgramError(
+                f"{action}: execution classes do not cover hidden-world support"
+            )
+        if int(program.get("classes_out", -1)) != len(raw_classes):
+            raise WholeTurnProgramError(f"{action}: classes_out does not match program")
+        if int(program.get("worlds_in", -1)) != len(world_ids):
+            raise WholeTurnProgramError(f"{action}: worlds_in does not match oracle")
+        representative_world_executions += len(raw_classes)
+
+    exhaustive_world_action_product = len(world_ids) * len(actions)
+    if representative_world_executions > exhaustive_world_action_product:
+        raise WholeTurnProgramError(
+            "representative execution count exceeds exhaustive world/action product"
+        )
+    return {
+        "schema": VERIFICATION_SCHEMA,
+        "schema_version": VERIFICATION_SCHEMA_VERSION,
+        "source_fixture_id": oracle.get("source_fixture_id"),
+        "showdown_commit": oracle.get("showdown_commit"),
+        "world_count": len(world_ids),
+        "action_count": len(actions),
+        "verified_class_count": verified_classes,
+        "representative_world_executions": representative_world_executions,
+        "exhaustive_world_action_product": exhaustive_world_action_product,
+        "saved_world_action_evaluations": (
+            exhaustive_world_action_product - representative_world_executions
+        ),
+        "reduction_fraction": (
+            1.0
+            - representative_world_executions / exhaustive_world_action_product
+        ),
+        "program_digest": sha256_json(program_set),
+        "oracle_digest": sha256_json(oracle),
+        "claim": (
+            "Every supplied execution class exactly matches the complete immediate "
+            "transition distribution of every member in the direct oracle."
+        ),
+        "non_claim": (
+            "Verification is limited to this finite hidden-world support, action set, "
+            "chance-sample family, and pinned Showdown revision."
         ),
     }
 
