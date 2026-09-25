@@ -161,9 +161,40 @@ def test_freeze_population_uses_outcome_blind_hash_sampling(tmp_path) -> None:
     assert result["selected_count"] == 1
     assert result["overflow_sampling_applied"] is True
     selected = result["selected"][0]
-    assert selected["selection_key"]
+    assert selected["fixture_id"] == "fixture-a"
+    assert selected["selection_key"] == (
+        "2f2272257ba90b0870144da2d07634cb9be65c89bc44475d593f9203c75f7e56"
+    )
+    assert result["eligible_fixture_ids"] == ["fixture-a", "fixture-b"]
     source = (tmp_path / selected["filename"]).read_text()
     assert '"selection_uses_policy_result": false' in source
+
+
+def test_freeze_population_preserves_admission_exclusion_reasons(tmp_path) -> None:
+    fixtures = [_fixture("eligible", "battle"), _fixture("zero-hp", "battle", hp=0)]
+    candidates = {
+        "schema": "azelficoast.natural-fusion-candidates",
+        "persistent_only": True,
+        "candidates": [_candidate("eligible"), _candidate("zero-hp")],
+        "excluded_fixtures": [],
+    }
+    mechanics = {
+        "schema": "azelficoast.public-belief-speed-fork-mechanics",
+        "showdown_commit": "pinned",
+        "rounds": 512,
+        "cases": [_mechanics("eligible"), _mechanics("zero-hp")],
+    }
+
+    result = freeze_population(
+        plan=_plan(2),
+        candidates_document=candidates,
+        mechanics_document=mechanics,
+        fixtures=fixtures,
+        output_dir=tmp_path,
+    )
+
+    assert result["eligible_fixture_ids"] == ["eligible"]
+    assert result["ineligible_reason_counts"] == {"active-hp-nonpositive": 1}
 
 
 def test_summarize_trace_measures_bias_and_corrected_regret() -> None:

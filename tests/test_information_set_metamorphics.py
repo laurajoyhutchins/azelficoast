@@ -3,7 +3,10 @@ from __future__ import annotations
 import copy
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.search.transition_program import search_transition_program
+from azelficoast.core.mechanics import VerifiedTransitionProgramSet
+from azelficoast.research.contracts import MechanicsIdentity, parse_belief_artifact
+from azelficoast.research.typed_search import search_transition_program
+from azelficoast.whole_turn_program import compile_whole_turn_programs
 
 
 class _PublicContinuationEvaluator:
@@ -40,112 +43,73 @@ def _posterior() -> dict[str, object]:
     }
 
 
-def _program() -> dict[str, object]:
+def _oracle(posterior: dict[str, object]) -> dict[str, object]:
+    worlds = copy.deepcopy(posterior["worlds"])
+    assert isinstance(worlds, list)
+    transitions: list[dict[str, object]] = []
+    for world in worlds:
+        assert isinstance(world, dict)
+        for action, legal_actions in (("attack", ["win"]), ("protect", ["lose"])):
+            transitions.append(
+                {
+                    "world_id": world["world_id"],
+                    "action": action,
+                    "outcomes": [
+                        {
+                            "probability": 1.0,
+                            "observation": {"kind": "same"},
+                            "successor": {"turn": 2},
+                            "legal_actions": legal_actions,
+                            "hidden_reads": [],
+                        }
+                    ],
+                }
+            )
     return {
-        "schema": "azelficoast.whole-turn-transition-program-set",
+        "schema": "azelficoast.real-belief-transition-oracle",
         "schema_version": 1,
         "source_fixture_id": "fixture",
         "showdown_commit": "pinned",
-        "world_ids": ["w1", "w2"],
+        "worlds": worlds,
         "legal_actions": ["attack", "protect"],
         "dependency_candidates": ["item"],
-        "programs": [
-            {
-                "action": "attack",
-                "effect_signature": "attack-effect",
-                "dependency_fields": [],
-                "partition_method": "finite-support-minimal-semantics",
-                "representative_world_count": 1,
-                "worlds_in": 2,
-                "classes_out": 1,
-                "world_reduction": 1,
-                "reduction_fraction": 0.5,
-                "partition_key_hash": "attack-partition",
-                "classes": [
-                    {
-                        "class_id": "attack-class",
-                        "read_fields": [],
-                        "projection_key": [],
-                        "representative_world_id": "w1",
-                        "member_world_ids": ["w1", "w2"],
-                        "semantic_hash": "attack-semantic",
-                        "outcomes": [
-                            {
-                                "probability": 1.0,
-                                "observation": {"kind": "same"},
-                                "successor": {"turn": 2},
-                                "legal_actions": ["win"],
-                            }
-                        ],
-                    }
-                ],
-            },
-            {
-                "action": "protect",
-                "effect_signature": "protect-effect",
-                "dependency_fields": [],
-                "partition_method": "finite-support-minimal-semantics",
-                "representative_world_count": 1,
-                "worlds_in": 2,
-                "classes_out": 1,
-                "world_reduction": 1,
-                "reduction_fraction": 0.5,
-                "partition_key_hash": "protect-partition",
-                "classes": [
-                    {
-                        "class_id": "protect-class",
-                        "read_fields": [],
-                        "projection_key": [],
-                        "representative_world_id": "w1",
-                        "member_world_ids": ["w1", "w2"],
-                        "semantic_hash": "protect-semantic",
-                        "outcomes": [
-                            {
-                                "probability": 1.0,
-                                "observation": {"kind": "same"},
-                                "successor": {"turn": 2},
-                                "legal_actions": ["lose"],
-                            }
-                        ],
-                    }
-                ],
-            },
-        ],
+        "declared_reads": {"attack": [], "protect": []},
+        "transitions": transitions,
     }
 
 
+def _program(posterior: dict[str, object] | None = None) -> dict[str, object]:
+    return compile_whole_turn_programs(_oracle(posterior or _posterior()))
+
+
 def _search(program, posterior):
+    belief, transport_index = parse_belief_artifact(posterior)
+    mechanics = VerifiedTransitionProgramSet.from_artifact(
+        artifact=program,
+        identity=MechanicsIdentity.from_showdown_commit("pinned"),
+        fixture_id="fixture",
+        legal_actions=("attack", "protect"),
+        belief=belief,
+        transport_index=transport_index,
+    )
     return search_transition_program(
-        program_set=program,
-        posterior=posterior,
+        mechanics=mechanics,
+        belief=belief,
+        transport_index=transport_index,
         method="information_set",
         evaluator=_PublicContinuationEvaluator(),
     )
 
 
 def _rename_world_ids(program, posterior, mapping):
-    transformed_program = copy.deepcopy(program)
     transformed_posterior = copy.deepcopy(posterior)
-    transformed_program["world_ids"] = [
-        mapping[world_id] for world_id in transformed_program["world_ids"]
-    ]
-    for row in transformed_program["programs"]:
-        for execution_class in row["classes"]:
-            execution_class["representative_world_id"] = mapping[
-                execution_class["representative_world_id"]
-            ]
-            execution_class["member_world_ids"] = [
-                mapping[world_id] for world_id in execution_class["member_world_ids"]
-            ]
     for world in transformed_posterior["worlds"]:
         world["world_id"] = mapping[world["world_id"]]
-    transformed_program["world_ids"].reverse()
     transformed_posterior["worlds"].reverse()
-    return transformed_program, transformed_posterior
+    return _program(transformed_posterior), transformed_posterior
 
 
 def _split_world(program, posterior):
-    transformed_program = copy.deepcopy(program)
     transformed_posterior = copy.deepcopy(posterior)
     source = next(world for world in transformed_posterior["worlds"] if world["world_id"] == "w1")
     transformed_posterior["worlds"].remove(source)
@@ -154,16 +118,7 @@ def _split_world(program, posterior):
         clone["world_id"] = f"w1{suffix}"
         clone["weight"] = source["weight"] / 2
         transformed_posterior["worlds"].append(clone)
-
-    transformed_program["world_ids"] = ["w1a", "w1b", "w2"]
-    for row in transformed_program["programs"]:
-        row["worlds_in"] = 3
-        row["world_reduction"] = 2
-        row["reduction_fraction"] = 2 / 3
-        execution_class = row["classes"][0]
-        execution_class["representative_world_id"] = "w1a"
-        execution_class["member_world_ids"] = ["w1a", "w1b", "w2"]
-    return transformed_program, transformed_posterior
+    return _program(transformed_posterior), transformed_posterior
 
 
 def test_permuting_and_renaming_hidden_world_ids_is_semantically_inert() -> None:
