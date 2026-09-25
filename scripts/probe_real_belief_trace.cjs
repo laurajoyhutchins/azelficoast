@@ -839,11 +839,46 @@ function publicPercent(hp, maxhp) {
   return percentage;
 }
 
+function exactMaxHpForVariant(variant) {
+  const species = Teams.getGenerator("gen9randombattle", [0, 0, 0, 0])
+    .dex.species.get(variant.species);
+  if (!species.exists) {
+    fail(`cannot resolve HP species ${variant.species}`);
+  }
+
+  const level = Number(variant.level);
+  const iv = Number(variant.ivs && variant.ivs.hp);
+  const ev = Number(variant.evs && variant.evs.hp);
+  if (
+    !Number.isSafeInteger(level) ||
+    level <= 0 ||
+    !Number.isSafeInteger(iv) ||
+    iv < 0 ||
+    iv > 31 ||
+    !Number.isSafeInteger(ev) ||
+    ev < 0 ||
+    ev > 252
+  ) {
+    fail(
+      "invalid HP mechanics input " +
+      JSON.stringify({species: variant.species, level, iv, ev})
+    );
+  }
+
+  if (species.maxHP) return Number(species.maxHP);
+
+  // Pokémon Showdown sim/battle.ts::statModify for HP in Gen 9:
+  // floor(floor(2 * base + IV + floor(EV / 4) + 100) * level / 100 + 10)
+  const inner =
+    2 * Number(species.baseStats.hp) +
+    iv +
+    Math.floor(ev / 4) +
+    100;
+  return Math.floor(Math.floor(inner) * level / 100 + 10);
+}
+
 function hpSupportForVariant(variant) {
-  const provisional = {variant, exactHp: 1};
-  const battle = buildBattle(provisional);
-  const maxhp = battle.p2.active[0].maxhp;
-  battle.destroy();
+  const maxhp = exactMaxHpForVariant(variant);
   const observed = Number(fixture.state.opponent_active.current_hp);
   const support = [];
   for (let hp = 1; hp <= maxhp; hp++) {
