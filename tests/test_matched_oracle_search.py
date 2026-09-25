@@ -48,6 +48,17 @@ class _FakeEvaluator:
         )
 
 
+class _BatchFakeEvaluator(_FakeEvaluator):
+    def __init__(self) -> None:
+        super().__init__()
+        self.batches = 0
+
+    def predict_values(self, inputs) -> tuple[float, ...]:
+        self.batches += 1
+        self.calls += len(inputs)
+        return tuple(1.0 - max(row.world_weights) for row in inputs)
+
+
 def _oracle() -> dict[str, object]:
     worlds = [
         {
@@ -212,6 +223,8 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
     assert det["consumed"] == info["consumed"] == 3
     assert det["evaluator_calls"] == det_evaluator.calls == 4
     assert info["evaluator_calls"] == info_evaluator.calls == 3
+    assert det["evaluator_batches"] == 4
+    assert info["evaluator_batches"] == 3
     assert (
         det["evaluator_checkpoint_digest"]
         == info["evaluator_checkpoint_digest"]
@@ -234,6 +247,10 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
         "determinization": 4,
         "information_set": 3,
     }
+    assert settled["evaluator_batches"] == {
+        "determinization": 4,
+        "information_set": 3,
+    }
     assert det["resource_accounting"]["verified_execution_classes_consumed"] == 3
     assert det["resource_accounting"]["evaluator_calls"] == 4
     assert det["resource_accounting"]["transition_program_generation_included"] is False
@@ -243,6 +260,28 @@ def test_executor_uses_frozen_learned_evaluator_and_accounts_calls() -> None:
     assert settled["resource_accounting"]["determinization"] == det["resource_accounting"]
     assert settled["resource_accounting"]["information_set"] == info["resource_accounting"]
     assert settled["policy_disagreement"] is True
+
+
+def test_executor_batches_complete_successor_frontier_without_changing_semantics() -> None:
+    oracle = _oracle()
+    posterior = _posterior(oracle)
+    packet = _packet(oracle, posterior)
+    evaluator = _BatchFakeEvaluator()
+
+    result = execute_method(
+        packet=packet,
+        posterior=posterior,
+        transition_program=compile_whole_turn_programs(oracle),
+        method="information_set",
+        evaluator=evaluator,
+    )
+
+    assert result["root_values"] == {"wait": 0.5, "reveal": 0.0}
+    assert result["chosen_action"] == "wait"
+    assert result["evaluator_calls"] == evaluator.calls == 3
+    assert result["evaluator_batches"] == evaluator.batches == 1
+    assert result["resource_accounting"]["evaluator_calls"] == 3
+    assert result["resource_accounting"]["evaluator_batches"] == 1
 
 
 def test_executor_ignores_historical_leaf_utility_values() -> None:

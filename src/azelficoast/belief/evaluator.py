@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.core.evaluation import EvaluationLeaf
 from azelficoast.research.contracts import (
     BeliefInput,
     PublicDecisionInput,
@@ -278,6 +279,41 @@ def _dense(jnp: Any, x: Any, params: Mapping[str, Any], name: str) -> Any:
     return x @ params[f"{name}.weight"] + params[f"{name}.bias"]
 
 
+def _belief_trunk(
+    jnp: Any,
+    params: Mapping[str, Any],
+    public: Any,
+    worlds: Any,
+    weights: Any,
+) -> Any:
+    """Pool one public belief without exposing transport or realized-world identity."""
+
+    public_hidden = jnp.tanh(_dense(jnp, public, params, "public"))
+    world_hidden = jnp.tanh(_dense(jnp, worlds, params, "world"))
+    mean = jnp.sum(world_hidden * weights[:, None], axis=0)
+    centered = world_hidden - mean[None, :]
+    variance = jnp.sum(centered * centered * weights[:, None], axis=0)
+    entropy = -jnp.sum(weights * jnp.log(jnp.maximum(weights, 1e-12)))
+    effective_support = jnp.exp(entropy)
+    belief_summary = jnp.concatenate(
+        (mean, variance, jnp.stack((entropy, effective_support)).astype(jnp.float32))
+    )
+    belief_hidden = jnp.tanh(_dense(jnp, belief_summary, params, "world_post"))
+    return jnp.tanh(
+        _dense(
+            jnp,
+            jnp.concatenate((public_hidden, belief_hidden)),
+            params,
+            "trunk",
+        )
+    )
+
+
+def _value_from_trunk(jnp: Any, params: Mapping[str, Any], trunk: Any) -> Any:
+    value_hidden = jnp.tanh(_dense(jnp, trunk, params, "value_hidden"))
+    return jnp.tanh(_dense(jnp, value_hidden, params, "value"))[0]
+
+
 def forward(
     params: Mapping[str, Any],
     inputs: BeliefEvaluatorInput,
@@ -289,33 +325,94 @@ def forward(
     weights = jnp.asarray(inputs.world_weights, dtype=jnp.float32)
     actions = jnp.asarray(inputs.action_features, dtype=jnp.float32)
 
-    public_hidden = jnp.tanh(_dense(jnp, public, params, "public"))
-    world_hidden = jnp.tanh(_dense(jnp, worlds, params, "world"))
-    mean = jnp.sum(world_hidden * weights[:, None], axis=0)
-    centered = world_hidden - mean[None, :]
-    variance = jnp.sum(centered * centered * weights[:, None], axis=0)
-    entropy = -jnp.sum(weights * jnp.log(jnp.maximum(weights, 1e-12)))
-    effective_support = jnp.exp(entropy)
-    belief_summary = jnp.concatenate(
-        (mean, variance, jnp.asarray([entropy, effective_support], dtype=jnp.float32))
-    )
-    belief_hidden = jnp.tanh(_dense(jnp, belief_summary, params, "world_post"))
-    trunk = jnp.tanh(
-        _dense(
-            jnp,
-            jnp.concatenate((public_hidden, belief_hidden)),
-            params,
-            "trunk",
-        )
-    )
-
+    trunk = _belief_trunk(jnp, params, public, worlds, weights)
     action_hidden = jnp.tanh(_dense(jnp, actions, params, "action"))
     policy_context = jnp.tanh(_dense(jnp, trunk, params, "policy_context"))
     logits = action_hidden @ policy_context / math.sqrt(float(policy_context.shape[-1]))
+    return _value_from_trunk(jnp, params, trunk), logits
 
-    value_hidden = jnp.tanh(_dense(jnp, trunk, params, "value_hidden"))
-    value = jnp.tanh(_dense(jnp, value_hidden, params, "value"))[0]
-    return value, logits
+
+_BATCH_VALUE_FUNCTION: Any | None = None
+
+
+def _batched_value_function() -> Any:
+    """Return one cached JIT for shape-bucketed successor-belief evaluation."""
+
+    global _BATCH_VALUE_FUNCTION
+    if _BATCH_VALUE_FUNCTION is None:
+        jax, jnp = _require_jax()
+
+        def evaluate(
+            params: Mapping[str, Any],
+            public: Any,
+            worlds: Any,
+            weights: Any,
+        ) -> Any:
+            def one(public_row: Any, world_rows: Any, weight_row: Any) -> Any:
+                trunk = _belief_trunk(
+                    jnp,
+                    params,
+                    public_row,
+                    world_rows,
+                    weight_row,
+                )
+                return _value_from_trunk(jnp, params, trunk)
+
+            return jax.vmap(one)(public, worlds, weights)
+
+        _BATCH_VALUE_FUNCTION = jax.jit(evaluate)
+    return _BATCH_VALUE_FUNCTION
+
+
+def _shape_bucket(size: int) -> int:
+    if size <= 0:
+        raise BeliefEvaluatorError("batched evaluator dimensions must be positive")
+    return 1 << (size - 1).bit_length()
+
+
+def predict_values(
+    params: Mapping[str, Any],
+    inputs: Sequence[BeliefEvaluatorInput],
+) -> tuple[float, ...]:
+    """Evaluate a whole search frontier in one shape-bucketed JAX dispatch."""
+
+    if not inputs:
+        return ()
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError("numpy is required for batched evaluator inference") from error
+
+    public_width = len(inputs[0].public_features)
+    if not inputs[0].world_features:
+        raise BeliefEvaluatorError("batched evaluator input has no posterior worlds")
+    world_width = len(inputs[0].world_features[0])
+    batch_size = _shape_bucket(len(inputs))
+    world_count = _shape_bucket(max(len(row.world_features) for row in inputs))
+
+    public = np.zeros((batch_size, public_width), dtype=np.float32)
+    worlds = np.zeros((batch_size, world_count, world_width), dtype=np.float32)
+    weights = np.zeros((batch_size, world_count), dtype=np.float32)
+
+    for index, row in enumerate(inputs):
+        if len(row.public_features) != public_width:
+            raise BeliefEvaluatorError("batched evaluator public feature widths differ")
+        if not row.world_features or len(row.world_features) != len(row.world_weights):
+            raise BeliefEvaluatorError("batched evaluator posterior shape is invalid")
+        if any(len(world) != world_width for world in row.world_features):
+            raise BeliefEvaluatorError("batched evaluator world feature widths differ")
+        count = len(row.world_features)
+        public[index] = np.asarray(row.public_features, dtype=np.float32)
+        worlds[index, :count] = np.asarray(row.world_features, dtype=np.float32)
+        weights[index, :count] = np.asarray(row.world_weights, dtype=np.float32)
+
+    raw = _batched_value_function()(params, public, worlds, weights)
+    values = np.asarray(raw, dtype=np.float64)[: len(inputs)]
+    if values.ndim != 1 or values.shape[0] != len(inputs):
+        raise BeliefEvaluatorError("batched value head returned the wrong shape")
+    if not np.all(np.isfinite(values)):
+        raise BeliefEvaluatorError("batched value head returned non-finite values")
+    return tuple(float(value) for value in values)
 
 
 def loss(
@@ -587,12 +684,45 @@ class BeliefEvaluatorRuntime:
     def predict(self, inputs: BeliefEvaluatorInput) -> BeliefPrediction:
         return predict(self.params, inputs)
 
+    def predict_values(
+        self,
+        inputs: Sequence[BeliefEvaluatorInput],
+    ) -> tuple[float, ...]:
+        return predict_values(self.params, inputs)
+
 
 class BeliefSearchValueAdapter:
     """Expose a learned belief evaluator through the domain-neutral search contract."""
 
     def __init__(self, evaluator: Any) -> None:
         self.evaluator = evaluator
+
+    def values(self, leaves: Sequence[EvaluationLeaf]) -> tuple[float, ...]:
+        """Evaluate an already-constructed search frontier in one backend dispatch."""
+
+        inputs: list[BeliefEvaluatorInput] = []
+        for leaf in leaves:
+            if not isinstance(leaf.public_state, Mapping):
+                raise BeliefEvaluatorError("search leaf public state must be a mapping")
+            if not isinstance(leaf.posterior, Sequence):
+                raise BeliefEvaluatorError("search leaf posterior must be a sequence")
+            posterior = {
+                "conditioned_on_public_history": True,
+                "realized_hidden_state_revealed": False,
+                "worlds": [dict(world) for world in leaf.posterior],
+            }
+            inputs.append(
+                build_evaluator_input(
+                    public_state=leaf.public_state,
+                    posterior=posterior,
+                    legal_actions=leaf.legal_actions,
+                    spec=self.evaluator.spec,
+                )
+            )
+        predict_many = getattr(self.evaluator, "predict_values", None)
+        if callable(predict_many):
+            return tuple(float(value) for value in predict_many(tuple(inputs)))
+        return tuple(float(self.evaluator.predict(row).value) for row in inputs)
 
     def value(
         self,

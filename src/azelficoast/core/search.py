@@ -9,6 +9,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from azelficoast.core.contracts import BeliefEvaluator
+from azelficoast.core.evaluation import (
+    EvaluationContribution,
+    EvaluationFrontier,
+    EvaluationFrontierError,
+    EvaluationLeaf,
+)
 from azelficoast.core.program import program_for_action
 from azelficoast.core.transition import canonical_json, sha256_json
 
@@ -25,38 +31,45 @@ class PartialInformationSearchError(ValueError):
 class _EvaluatorMeter:
     evaluator: BeliefEvaluator
     calls: int = 0
+    batches: int = 0
 
-    def value(
-        self,
-        *,
-        public_state: Mapping[str, Any],
-        posterior_worlds: Sequence[Mapping[str, Any]],
-        legal_actions: Sequence[str],
-    ) -> float:
-        if not legal_actions:
-            raise PartialInformationSearchError(
-                "successor information set has no legal actions"
-            )
+    def values(self, leaves: Sequence[EvaluationLeaf]) -> tuple[float, ...]:
+        if not leaves:
+            raise PartialInformationSearchError("search produced no successor leaves")
         try:
-            value = float(
-                self.evaluator.value(
-                    public_state=public_state,
-                    posterior_worlds=posterior_worlds,
-                    legal_actions=legal_actions,
+            evaluate_many = getattr(self.evaluator, "values", None)
+            if callable(evaluate_many):
+                raw_values = tuple(float(value) for value in evaluate_many(leaves))
+                self.batches += 1
+            else:
+                raw_values = tuple(
+                    float(
+                        self.evaluator.value(
+                            public_state=leaf.public_state,
+                            posterior_worlds=leaf.posterior,
+                            legal_actions=leaf.legal_actions,
+                        )
+                    )
+                    for leaf in leaves
                 )
-            )
+                self.batches += len(leaves)
         except PartialInformationSearchError:
             raise
         except Exception as error:
             raise PartialInformationSearchError(
-                f"evaluator failed at successor leaf: {error}"
+                f"evaluator failed at successor frontier: {error}"
             ) from error
-        self.calls += 1
-        if not math.isfinite(value):
+
+        self.calls += len(leaves)
+        if len(raw_values) != len(leaves):
+            raise PartialInformationSearchError(
+                "evaluator returned the wrong number of successor values"
+            )
+        if any(not math.isfinite(value) for value in raw_values):
             raise PartialInformationSearchError(
                 "evaluator returned a non-finite successor value"
             )
-        return value
+        return raw_values
 
 
 def _normalized_inputs(
@@ -248,13 +261,12 @@ def _validated_classes(
     return classes
 
 
-def _leaf_value(
+def _leaf(
     members: Sequence[Mapping[str, Any]],
     *,
     weight_key: str,
     worlds_by_id: Mapping[str, Mapping[str, Any]],
-    evaluator: _EvaluatorMeter,
-) -> float:
+) -> EvaluationLeaf:
     if not members:
         raise PartialInformationSearchError(
             "cannot evaluate an empty successor information set"
@@ -299,22 +311,25 @@ def _leaf_value(
         row["weight"] = world_mass[world_id] / total
         posterior_worlds.append(row)
 
-    return evaluator.value(
-        public_state=successor,
-        posterior_worlds=posterior_worlds,
-        legal_actions=sorted(common_legal),
-    )
+    try:
+        return EvaluationLeaf(
+            public_state=successor,
+            posterior=tuple(posterior_worlds),
+            legal_actions=tuple(sorted(common_legal)),
+        )
+    except EvaluationFrontierError as error:
+        raise PartialInformationSearchError(str(error)) from error
 
 
-def _determinization_values(
+def _determinization_frontier(
     *,
     program_set: Mapping[str, Any],
     actions: Sequence[str],
     worlds_by_id: Mapping[str, Mapping[str, Any]],
     weights: Mapping[str, float],
-    evaluator: _EvaluatorMeter,
-) -> tuple[dict[str, float], int]:
-    values: dict[str, float] = {}
+) -> EvaluationFrontier:
+    leaves: list[EvaluationLeaf] = []
+    contributions: list[EvaluationContribution] = []
     transition_evaluations = 0
     world_ids = set(worlds_by_id)
 
@@ -331,7 +346,6 @@ def _determinization_values(
             for world_id in row["member_world_ids"]
         }
 
-        total = 0.0
         for world_id in sorted(world_ids):
             row = class_by_world[world_id]
             by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -345,30 +359,44 @@ def _determinization_values(
                     }
                 )
 
-            world_value = 0.0
             for members in by_observation.values():
                 chance = sum(float(member["chance"]) for member in members)
-                world_value += chance * _leaf_value(
-                    members,
-                    weight_key="chance",
-                    worlds_by_id=worlds_by_id,
-                    evaluator=evaluator,
+                leaf_index = len(leaves)
+                leaves.append(
+                    _leaf(
+                        members,
+                        weight_key="chance",
+                        worlds_by_id=worlds_by_id,
+                    )
                 )
-            total += weights[world_id] * world_value
-        values[action] = total
+                contributions.append(
+                    EvaluationContribution(
+                        root_action=action,
+                        leaf_index=leaf_index,
+                        coefficient=weights[world_id] * chance,
+                    )
+                )
 
-    return values, transition_evaluations
+    try:
+        return EvaluationFrontier(
+            root_actions=tuple(actions),
+            leaves=tuple(leaves),
+            contributions=tuple(contributions),
+            transition_evaluations=transition_evaluations,
+        )
+    except EvaluationFrontierError as error:
+        raise PartialInformationSearchError(str(error)) from error
 
 
-def _information_set_values(
+def _information_set_frontier(
     *,
     program_set: Mapping[str, Any],
     actions: Sequence[str],
     worlds_by_id: Mapping[str, Mapping[str, Any]],
     weights: Mapping[str, float],
-    evaluator: _EvaluatorMeter,
-) -> tuple[dict[str, float], int]:
-    values: dict[str, float] = {}
+) -> EvaluationFrontier:
+    leaves: list[EvaluationLeaf] = []
+    contributions: list[EvaluationContribution] = []
     transition_evaluations = 0
     world_ids = set(worlds_by_id)
 
@@ -396,18 +424,33 @@ def _information_set_values(
                         }
                     )
 
-        total = 0.0
         for members in by_observation.values():
             mass = sum(float(member["mass"]) for member in members)
-            total += mass * _leaf_value(
-                members,
-                weight_key="mass",
-                worlds_by_id=worlds_by_id,
-                evaluator=evaluator,
+            leaf_index = len(leaves)
+            leaves.append(
+                _leaf(
+                    members,
+                    weight_key="mass",
+                    worlds_by_id=worlds_by_id,
+                )
             )
-        values[action] = total
+            contributions.append(
+                EvaluationContribution(
+                    root_action=action,
+                    leaf_index=leaf_index,
+                    coefficient=mass,
+                )
+            )
 
-    return values, transition_evaluations
+    try:
+        return EvaluationFrontier(
+            root_actions=tuple(actions),
+            leaves=tuple(leaves),
+            contributions=tuple(contributions),
+            transition_evaluations=transition_evaluations,
+        )
+    except EvaluationFrontierError as error:
+        raise PartialInformationSearchError(str(error)) from error
 
 
 def search_transition_program(
@@ -421,7 +464,7 @@ def search_transition_program(
     result_schema: str = SEARCH_SCHEMA,
     result_schema_version: int = SEARCH_SCHEMA_VERSION,
 ) -> dict[str, Any]:
-    """Evaluate a finite transition program under one information-flow discipline."""
+    """Evaluate a finite transition program after materializing its leaf frontier."""
 
     if method not in SEARCH_METHODS:
         raise PartialInformationSearchError(f"unknown search method {method!r}")
@@ -432,23 +475,27 @@ def search_transition_program(
         expected_program_schema_version=expected_program_schema_version,
     )
 
-    meter = _EvaluatorMeter(evaluator)
     if method == "determinization":
-        root_values, transition_evaluations = _determinization_values(
+        frontier = _determinization_frontier(
             program_set=program_set,
             actions=actions,
             worlds_by_id=worlds_by_id,
             weights=weights,
-            evaluator=meter,
         )
     else:
-        root_values, transition_evaluations = _information_set_values(
+        frontier = _information_set_frontier(
             program_set=program_set,
             actions=actions,
             worlds_by_id=worlds_by_id,
             weights=weights,
-            evaluator=meter,
         )
+
+    meter = _EvaluatorMeter(evaluator)
+    leaf_values = meter.values(frontier.leaves)
+    try:
+        root_values = frontier.reduce(leaf_values)
+    except EvaluationFrontierError as error:
+        raise PartialInformationSearchError(str(error)) from error
 
     best = max(root_values.values())
     chosen_action = min(
@@ -459,8 +506,9 @@ def search_transition_program(
         "schema_version": result_schema_version,
         "method": method,
         "transition_program_digest": sha256_json(program_set),
-        "transition_evaluations": transition_evaluations,
+        "transition_evaluations": frontier.transition_evaluations,
         "evaluator_calls": meter.calls,
+        "evaluator_batches": meter.batches,
         "chosen_action": chosen_action,
         "root_values": root_values,
     }

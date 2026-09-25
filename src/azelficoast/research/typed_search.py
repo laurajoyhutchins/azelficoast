@@ -24,6 +24,12 @@ from azelficoast.research.contracts import (
     PublicSuccessorState,
     ResearchContractError,
 )
+from azelficoast.core.evaluation import (
+    EvaluationContribution,
+    EvaluationFrontier,
+    EvaluationFrontierError,
+    EvaluationLeaf,
+)
 from azelficoast.core.program import program_for_action
 from azelficoast.core.search import SEARCH_METHODS, SEARCH_SCHEMA, SEARCH_SCHEMA_VERSION
 from azelficoast.core.transition import canonical_json
@@ -46,37 +52,46 @@ class TransitionProgramSearchError(ValueError):
 class _EvaluatorMeter:
     evaluator: SearchEvaluator
     calls: int = 0
+    batches: int = 0
 
-    def value(
-        self,
-        *,
-        public_state: PublicSuccessorState,
-        posterior: BeliefInput,
-        legal_actions: Sequence[str],
-    ) -> float:
-        if not legal_actions:
-            raise TransitionProgramSearchError(
-                "successor information set has no legal actions"
-            )
+    def values(self, leaves: Sequence[EvaluationLeaf]) -> tuple[float, ...]:
+        if not leaves:
+            raise TransitionProgramSearchError("search produced no successor leaves")
         try:
-            inputs = build_evaluator_input_for_contract(
-                public_state=public_state,
-                belief=posterior,
-                legal_actions=legal_actions,
-                spec=self.evaluator.spec,
+            inputs = tuple(
+                build_evaluator_input_for_contract(
+                    public_state=leaf.public_state,
+                    belief=leaf.posterior,
+                    legal_actions=leaf.legal_actions,
+                    spec=self.evaluator.spec,
+                )
+                for leaf in leaves
             )
-            prediction = self.evaluator.predict(inputs)
+            predict_values = getattr(self.evaluator, "predict_values", None)
+            if callable(predict_values):
+                raw_values = tuple(float(value) for value in predict_values(inputs))
+                self.batches += 1
+            else:
+                raw_values = tuple(
+                    float(self.evaluator.predict(inputs_row).value)
+                    for inputs_row in inputs
+                )
+                self.batches += len(inputs)
         except Exception as error:
             raise TransitionProgramSearchError(
-                f"learned evaluator failed at successor leaf: {error}"
+                f"learned evaluator failed at successor frontier: {error}"
             ) from error
-        self.calls += 1
-        value = float(prediction.value)
-        if not math.isfinite(value):
+
+        self.calls += len(inputs)
+        if len(raw_values) != len(inputs):
+            raise TransitionProgramSearchError(
+                "learned evaluator returned the wrong number of successor values"
+            )
+        if any(not math.isfinite(value) for value in raw_values):
             raise TransitionProgramSearchError(
                 "learned evaluator returned a non-finite successor value"
             )
-        return value
+        return raw_values
 
 
 def _normalized_inputs(
@@ -232,15 +247,14 @@ def _validated_classes(
     return classes
 
 
-def _leaf_value(
+def _leaf(
     members: Sequence[Mapping[str, Any]],
     *,
     weight_key: str,
     worlds_by_id: Mapping[str, Mapping[str, Any]],
     semantic_by_transport: Mapping[str, str],
     belief: BeliefInput,
-    evaluator: _EvaluatorMeter,
-) -> float:
+) -> EvaluationLeaf:
     if not members:
         raise TransitionProgramSearchError(
             "cannot evaluate an empty successor information set"
@@ -279,23 +293,24 @@ def _leaf_value(
             )
         semantic_identity = semantic_by_transport.get(world_id)
         if semantic_identity is None:
-            raise TransitionProgramSearchError("successor references unknown semantic world")
+            raise TransitionProgramSearchError(
+                "successor references unknown semantic world"
+            )
         semantic_mass[semantic_identity] += float(member[weight_key])
 
     try:
         public_successor = PublicSuccessorState.from_record(successor)
         posterior = belief.reweighted(semantic_mass)
-    except ResearchContractError as error:
+        return EvaluationLeaf(
+            public_state=public_successor,
+            posterior=posterior,
+            legal_actions=tuple(sorted(common_legal)),
+        )
+    except (ResearchContractError, EvaluationFrontierError) as error:
         raise TransitionProgramSearchError(str(error)) from error
 
-    return evaluator.value(
-        public_state=public_successor,
-        posterior=posterior,
-        legal_actions=sorted(common_legal),
-    )
 
-
-def _determinization_values(
+def _determinization_frontier(
     *,
     program_set: Mapping[str, Any],
     actions: Sequence[str],
@@ -303,9 +318,9 @@ def _determinization_values(
     weights: Mapping[str, float],
     semantic_by_transport: Mapping[str, str],
     belief: BeliefInput,
-    evaluator: _EvaluatorMeter,
-) -> tuple[dict[str, float], int]:
-    values: dict[str, float] = {}
+) -> EvaluationFrontier:
+    leaves: list[EvaluationLeaf] = []
+    contributions: list[EvaluationContribution] = []
     transition_evaluations = 0
     world_ids = set(worlds_by_id)
 
@@ -322,7 +337,6 @@ def _determinization_values(
             for world_id in row["member_world_ids"]
         }
 
-        total = 0.0
         for world_id in sorted(world_ids):
             row = class_by_world[world_id]
             by_observation: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -336,24 +350,38 @@ def _determinization_values(
                     }
                 )
 
-            world_value = 0.0
             for members in by_observation.values():
                 chance = sum(float(member["chance"]) for member in members)
-                world_value += chance * _leaf_value(
-                    members,
-                    weight_key="chance",
-                    worlds_by_id=worlds_by_id,
-                    semantic_by_transport=semantic_by_transport,
-                    belief=belief,
-                    evaluator=evaluator,
+                leaf_index = len(leaves)
+                leaves.append(
+                    _leaf(
+                        members,
+                        weight_key="chance",
+                        worlds_by_id=worlds_by_id,
+                        semantic_by_transport=semantic_by_transport,
+                        belief=belief,
+                    )
                 )
-            total += weights[world_id] * world_value
-        values[action] = total
+                contributions.append(
+                    EvaluationContribution(
+                        root_action=action,
+                        leaf_index=leaf_index,
+                        coefficient=weights[world_id] * chance,
+                    )
+                )
 
-    return values, transition_evaluations
+    try:
+        return EvaluationFrontier(
+            root_actions=tuple(actions),
+            leaves=tuple(leaves),
+            contributions=tuple(contributions),
+            transition_evaluations=transition_evaluations,
+        )
+    except EvaluationFrontierError as error:
+        raise TransitionProgramSearchError(str(error)) from error
 
 
-def _information_set_values(
+def _information_set_frontier(
     *,
     program_set: Mapping[str, Any],
     actions: Sequence[str],
@@ -361,9 +389,9 @@ def _information_set_values(
     weights: Mapping[str, float],
     semantic_by_transport: Mapping[str, str],
     belief: BeliefInput,
-    evaluator: _EvaluatorMeter,
-) -> tuple[dict[str, float], int]:
-    values: dict[str, float] = {}
+) -> EvaluationFrontier:
+    leaves: list[EvaluationLeaf] = []
+    contributions: list[EvaluationContribution] = []
     transition_evaluations = 0
     world_ids = set(worlds_by_id)
 
@@ -391,20 +419,35 @@ def _information_set_values(
                         }
                     )
 
-        total = 0.0
         for members in by_observation.values():
             mass = sum(float(member["mass"]) for member in members)
-            total += mass * _leaf_value(
-                members,
-                weight_key="mass",
-                worlds_by_id=worlds_by_id,
-                semantic_by_transport=semantic_by_transport,
-                belief=belief,
-                evaluator=evaluator,
+            leaf_index = len(leaves)
+            leaves.append(
+                _leaf(
+                    members,
+                    weight_key="mass",
+                    worlds_by_id=worlds_by_id,
+                    semantic_by_transport=semantic_by_transport,
+                    belief=belief,
+                )
             )
-        values[action] = total
+            contributions.append(
+                EvaluationContribution(
+                    root_action=action,
+                    leaf_index=leaf_index,
+                    coefficient=mass,
+                )
+            )
 
-    return values, transition_evaluations
+    try:
+        return EvaluationFrontier(
+            root_actions=tuple(actions),
+            leaves=tuple(leaves),
+            contributions=tuple(contributions),
+            transition_evaluations=transition_evaluations,
+        )
+    except EvaluationFrontierError as error:
+        raise TransitionProgramSearchError(str(error)) from error
 
 
 def search_transition_program(
@@ -415,7 +458,7 @@ def search_transition_program(
     method: str,
     evaluator: SearchEvaluator,
 ) -> dict[str, Any]:
-    """Evaluate a verified mechanics program without consuming an exhaustive oracle."""
+    """Evaluate verified mechanics by separating search topology from numerics."""
 
     if method not in METHODS:
         raise TransitionProgramSearchError(f"unknown search method {method!r}")
@@ -425,27 +468,31 @@ def search_transition_program(
         transport_index=transport_index,
     )
 
-    meter = _EvaluatorMeter(evaluator)
     if method == "determinization":
-        root_values, transition_evaluations = _determinization_values(
+        frontier = _determinization_frontier(
             program_set=program_set,
             actions=actions,
             worlds_by_id=worlds_by_id,
             weights=weights,
             semantic_by_transport=semantic_by_transport,
             belief=belief,
-            evaluator=meter,
         )
     else:
-        root_values, transition_evaluations = _information_set_values(
+        frontier = _information_set_frontier(
             program_set=program_set,
             actions=actions,
             worlds_by_id=worlds_by_id,
             weights=weights,
             semantic_by_transport=semantic_by_transport,
             belief=belief,
-            evaluator=meter,
         )
+
+    meter = _EvaluatorMeter(evaluator)
+    leaf_values = meter.values(frontier.leaves)
+    try:
+        root_values = frontier.reduce(leaf_values)
+    except EvaluationFrontierError as error:
+        raise TransitionProgramSearchError(str(error)) from error
 
     best = max(root_values.values())
     chosen_action = min(
@@ -457,8 +504,9 @@ def search_transition_program(
         "method": method,
         "transition_program_digest": mechanics.transition_program_digest,
         "mechanics_evidence_digest": mechanics.semantic_evidence_digest,
-        "transition_evaluations": transition_evaluations,
+        "transition_evaluations": frontier.transition_evaluations,
         "evaluator_calls": meter.calls,
+        "evaluator_batches": meter.batches,
         "chosen_action": chosen_action,
         "root_values": root_values,
     }

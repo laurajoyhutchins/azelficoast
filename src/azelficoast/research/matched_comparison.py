@@ -407,6 +407,7 @@ def settle_packet(
     root_values: dict[str, dict[str, float]] = {}
     consumed: dict[str, int] = {}
     evaluator_calls: dict[str, int] = {}
+    evaluator_batches: dict[str, int] = {}
     resource_accounting: dict[str, dict[str, Any]] = {}
     transition_program_digests: dict[str, str] = {}
     chosen: dict[str, str] = {}
@@ -445,6 +446,7 @@ def settle_packet(
             raise MatchedComparisonError(f"{method}: exceeded the authorized budget")
         consumed[method] = receipt.consumed
         evaluator_calls[method] = receipt.evaluator_calls
+        evaluator_batches[method] = receipt.evaluator_batches
         if oracle_digest is None:
             oracle_digest = receipt.transition_oracle_digest
         elif receipt.transition_oracle_digest != oracle_digest:
@@ -533,6 +535,7 @@ def settle_packet(
         "budget_unit_definition": COMPUTE_BUDGET_UNIT_DEFINITION,
         "evaluator_call_unit_definition": EVALUATOR_CALL_UNIT_DEFINITION,
         "evaluator_calls": evaluator_calls,
+        "evaluator_batches": evaluator_batches,
         "compute_budget": dict(packet["compute_budget"]),
         "compute_consumed": consumed,
         "resource_accounting": resource_accounting,
