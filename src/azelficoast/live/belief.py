@@ -32,7 +32,11 @@ from azelficoast.research.typed_search import (
     search_transition_program,
 )
 from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERSION
-from azelficoast.live.timing import DecisionDeadline, DecisionDeadlineExceeded
+from azelficoast.live.timing import (
+    DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS,
+    DecisionDeadline,
+    DecisionDeadlineExceeded,
+)
 
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
@@ -571,7 +575,7 @@ class PinnedShowdownBeliefPolicy:
         self,
         showdown_root: str | Path,
         *,
-        operation_timeout_seconds: float = 20.0,
+        operation_timeout_seconds: float = DEFAULT_LIVE_OPERATION_TIMEOUT_SECONDS,
         learned_evaluator: Any | None = None,
         search_gate: Any | None = None,
     ) -> None:
