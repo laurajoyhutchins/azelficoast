@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.belief_evaluator import BeliefEvaluatorRuntime
 from azelficoast.matched_comparison import freeze_packet, settle_packet, validate_plan
 from azelficoast.matched_oracle_search import execute_method
 from azelficoast.posterior_treatments import build_posterior
@@ -101,8 +102,14 @@ def run_state(
     manifest: Mapping[str, Any],
     population_index: int,
     oracle: Mapping[str, Any],
+    evaluator: Any,
 ) -> list[dict[str, Any]]:
     checked_plan = validate_plan(plan)
+    identity = getattr(evaluator, "identity", None)
+    if not isinstance(identity, Mapping) or dict(identity) != checked_plan["evaluator"]:
+        raise MatchedPopulationRunError(
+            "loaded evaluator differs from the frozen matched-comparison plan"
+        )
     selection = _selection(manifest, population_index=population_index)
     state = _state_from_source(
         source=source,
@@ -129,6 +136,7 @@ def run_state(
                     posterior=posterior,
                     oracle=oracle,
                     method=method,
+                    evaluator=evaluator,
                 )
                 for method in ("determinization", "information_set")
             ]
@@ -194,6 +202,7 @@ def _parser() -> argparse.ArgumentParser:
     state.add_argument("manifest", type=Path)
     state.add_argument("oracle", type=Path)
     state.add_argument("--population-index", required=True, type=int)
+    state.add_argument("--evaluator-checkpoint", required=True, type=Path)
     state.add_argument("--output-dir", required=True, type=Path)
 
     cohort = commands.add_parser("cohort")
@@ -205,12 +214,16 @@ def _parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "state":
+        evaluator = BeliefEvaluatorRuntime.from_checkpoint(
+            args.evaluator_checkpoint
+        )
         rows = run_state(
             plan=_load_object(args.plan),
             source=_load_object(args.source),
             manifest=_load_object(args.manifest),
             population_index=args.population_index,
             oracle=_load_object(args.oracle),
+            evaluator=evaluator,
         )
         results_dir = args.output_dir / "results"
         for row in rows:
