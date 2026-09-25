@@ -385,12 +385,3 @@ def test_deferred_promotion_rejects_mismatched_battle_identity(tmp_path) -> None
             promotion_file=tmp_path / "current.json",
             receipts_dir=tmp_path / "receipts",
         )
-
-
-    with pytest.raises(ImprovementError, match="candidate checkpoint does not match"):
-        promote_deferred_candidate(
-            improvement,
-            battle_evidence=battle_evidence,
-            promotion_file=tmp_path / "current.json",
-            receipts_dir=tmp_path / "receipts",
-        )
