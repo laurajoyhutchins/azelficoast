@@ -2,6 +2,7 @@ name: protect-speed-fork-mechanics
 
 on:
   pull_request:
+    types: [ready_for_review]
     paths:
       - "experiments/protect-speed-forks.json"
       - "scripts/probe_protect_speed_forks.cjs"
@@ -10,6 +11,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   probe:
