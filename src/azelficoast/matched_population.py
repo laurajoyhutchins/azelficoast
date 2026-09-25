@@ -124,6 +124,17 @@ def aggregate_population(
             raise MatchedPopulationError("population contains an unmatched input")
         if row.get("matched_authorized_compute") is not True:
             raise MatchedPopulationError("population contains unmatched compute")
+        if row.get("matched_evaluator") is not True:
+            raise MatchedPopulationError("population contains an unmatched evaluator")
+        if row.get("matched_evaluator_checkpoint") is not True:
+            raise MatchedPopulationError(
+                "population contains an unverified evaluator checkpoint"
+            )
+        if row.get("evaluator") != checked_plan["evaluator"]:
+            raise MatchedPopulationError("population mixed evaluator checkpoints")
+        expected_checkpoint = checked_plan["evaluator"]["checkpoint_digest"]
+        if row.get("evaluator_checkpoint_digest") != expected_checkpoint:
+            raise MatchedPopulationError("population mixed evaluator checkpoint digests")
 
         fixture_id = str(row.get("fixture_id"))
         treatment = str(row.get("posterior_treatment"))
@@ -227,9 +238,13 @@ def aggregate_population(
         "depths": list(checked_plan["depths"]),
         "opponent_model": checked_plan["opponent_model"],
         "compute_budget": dict(checked_plan["compute_budget"]),
+        "evaluator": dict(checked_plan["evaluator"]),
+        "evaluator_checkpoint_digest": checked_plan["evaluator"]["checkpoint_digest"],
         "matrix_complete": True,
         "matched_input": True,
         "matched_authorized_compute": True,
+        "matched_evaluator": True,
+        "matched_evaluator_checkpoint": True,
         "bootstrap": {
             "cluster_unit": "battle_tag",
             "replicates": replicates,
