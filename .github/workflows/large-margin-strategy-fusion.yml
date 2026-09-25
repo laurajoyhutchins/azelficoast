@@ -42,101 +42,20 @@ jobs:
       - name: Test outcome-blind selector
         run: uv run pytest tests/test_fusion_search.py
 
-      - name: Verify and download immutable live corpus
+      - name: Verify and recover frozen selection
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           actual_digest="$(gh api \
-            repos/${{ github.repository }}/actions/artifacts/10836574187 \
+            repos/${{ github.repository }}/actions/artifacts/10840767342 \
             --jq '.digest')"
           test "$actual_digest" = \
-            "sha256:d0794a33b3ab585e1a68862c34507935dffec47b3573cbaeb85e77ff14a05df2"
+            "sha256:878a1d7f167253ccb133dd18621ac87e0c2c9b1a26a99db9015c3eef0cfa41fe"
 
-          mkdir -p /tmp/source-artifact
-          gh run download 36068967462 \
-            --name live-belief-coverage \
-            --dir /tmp/source-artifact
-
-          test -s /tmp/source-artifact/decisions.jsonl
-
-      - name: Fetch pinned Pokémon Showdown
-        run: |
-          git init /tmp/pokemon-showdown
-          git -C /tmp/pokemon-showdown remote add origin \
-            https://github.com/smogon/pokemon-showdown.git
-          git -C /tmp/pokemon-showdown fetch --depth 1 origin \
-            a5df8274e85b0889bf2a9b3422a08b39732374fc
-          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
-
-      - name: Build Pokémon Showdown
-        working-directory: /tmp/pokemon-showdown
-        run: |
-          npm ci --omit=optional --no-audit --no-fund
-          npm run build
-
-      - name: Freeze broad hidden-item decision corpus
-        run: |
-          mkdir -p /tmp/large-margin/selected
-          uv run python - <<'PY' | tee /tmp/large-margin/corpus-summary.json
-          import json
-
-          from azelficoast.corpus import build_fixtures, write_corpus
-
-          def structurally_relevant(state):
-              opponent = state.get("opponent_active")
-              if not isinstance(opponent, dict):
-                  return False
-              if opponent.get("item") is not None:
-                  return False
-              actions = state.get("legal_actions", ())
-              if not isinstance(actions, list) or len(actions) < 2:
-                  return False
-              return any(
-                  str(action).startswith("/choose move protect")
-                  or str(action).startswith("/choose switch ")
-                  for action in actions
-              )
-
-          fixtures = build_fixtures(
-              ["/tmp/source-artifact/decisions.jsonl"],
-              decision_predicate=structurally_relevant,
-          )
-          digest = write_corpus(fixtures, "/tmp/large-margin/corpus.jsonl")
-          print(json.dumps({
-              "schema": "azelficoast.large-margin-source-corpus",
-              "schema_version": 1,
-              "fixture_count": len(fixtures),
-              "corpus_sha256": digest,
-          }, sort_keys=True))
-          PY
-
-      - name: Mine persistent hidden-Choice information sets
-        run: |
-          uv run python -m azelficoast.natural_disagreements \
-            /tmp/large-margin/corpus.jsonl \
-            --showdown-root /tmp/pokemon-showdown \
-            --rounds 2048 \
-            --persistent-only \
-            | tee /tmp/large-margin/candidates.json
-
-      - name: Measure mechanics separation without policy values
-        run: |
-          node scripts/screen_public_belief_speed_forks.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/large-margin/candidates.json \
-            /tmp/large-margin/corpus.jsonl \
-            | tee /tmp/large-margin/mechanics.json
-
-      - name: Freeze top six before exact policy evaluation
-        run: |
-          uv run python -m azelficoast.fusion_search \
-            experiments/large-margin-strategy-fusion-plan.json \
-            /tmp/large-margin/candidates.json \
-            /tmp/large-margin/mechanics.json \
-            /tmp/large-margin/corpus.jsonl \
-            --output-dir /tmp/large-margin/selected \
-            --manifest /tmp/large-margin/selection.json \
-            | tee /tmp/large-margin/selection-stdout.json
+          mkdir -p /tmp/large-margin
+          gh run download 36077651662 \
+            --name large-margin-selection \
+            --dir /tmp/large-margin
 
           python - <<'PY'
           import json
@@ -148,15 +67,28 @@ jobs:
           selection = json.loads(
               Path("/tmp/large-margin/selection.json").read_text()
           )
+          frozen = plan["frozen_selection"]
 
+          assert frozen["frozen_before_exact_policy_results"] is True, frozen
+          assert frozen["artifact_id"] == 10840767342, frozen
           assert selection["ranking_uses_policy_result"] is False, selection
           assert selection["selected_count"] == plan["discovery"]["top_k"] == 6, selection
-          assert len(selection["selected"]) == 6, selection
           assert selection["showdown_commit"] == plan["showdown_commit"], selection
 
-          for expected_rank, row in enumerate(selection["selected"], start=1):
-              assert row["selection_rank"] == expected_rank, row
-              assert (Path("/tmp/large-margin/selected") / row["filename"]).is_file(), row
+          observed = [
+              {
+                  "selection_rank": row["selection_rank"],
+                  "fixture_id": row["fixture_id"],
+                  "rank_key": row["rank_key"],
+              }
+              for row in selection["selected"]
+          ]
+          assert observed == frozen["selected"], (observed, frozen["selected"])
+
+          for row in selection["selected"]:
+              assert (
+                  Path("/tmp/large-margin/selected") / row["filename"]
+              ).is_file(), row
           PY
 
       - id: matrix
@@ -190,9 +122,6 @@ jobs:
         with:
           name: large-margin-selection
           path: |
-            /tmp/large-margin/corpus-summary.json
-            /tmp/large-margin/candidates.json
-            /tmp/large-margin/mechanics.json
             /tmp/large-margin/selection.json
             /tmp/large-margin/selected
           if-no-files-found: error
