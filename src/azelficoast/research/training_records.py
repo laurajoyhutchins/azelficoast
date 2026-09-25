@@ -100,7 +100,7 @@ def _load_trace_records(paths: Sequence[str | Path]) -> list[dict[str, Any]]:
 
 def _terminal_outcomes(
     trace_paths: Sequence[str | Path],
-) -> dict[tuple[str, str, str | None], dict[str, Any]]:
+) -> dict[tuple[str, str], dict[str, Any]]:
     terminals: dict[tuple[str, str], dict[str, Any]] = {}
     for record in _load_trace_records(trace_paths):
         if record.get("kind") != "terminal":
