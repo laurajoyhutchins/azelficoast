@@ -11,7 +11,7 @@ def test_json_stream_writer_preserves_values_and_honors_backpressure() -> None:
     program = r"""
 const assert = require("node:assert/strict");
 const {Writable} = require("node:stream");
-const {writeJsonStream} = require("./scripts/json_stream_writer.cjs");
+const {writeJsonStream} = require("./showdown/runtime/json_stream_writer.cjs");
 
 const expected = {
   schema: "azelficoast.test",

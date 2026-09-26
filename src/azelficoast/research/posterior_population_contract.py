@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.contracts import stable_digest
 from azelficoast.research.matched_comparison import (
     PLAN_SCHEMA,
@@ -17,8 +17,6 @@ SCHEMA = "azelficoast.posterior-stratified-population-contract"
 SCHEMA_VERSION = 1
 EXECUTION_SCHEMA = "azelficoast.posterior-stratified-population-execution-plan"
 EXECUTION_SCHEMA_VERSION = 1
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-SHOWDOWN_REVISION_PATH = REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"
 
 
 class PosteriorPopulationContractError(ValueError):
@@ -39,10 +37,7 @@ def _digest(value: object, *, field: str) -> str:
 
 
 def _showdown_revision() -> str:
-    revision = SHOWDOWN_REVISION_PATH.read_text(encoding="utf-8").strip()
-    if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
-        raise PosteriorPopulationContractError("repository Showdown revision is malformed")
-    return revision
+    return PINNED_SHOWDOWN_COMMIT
 
 
 def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
@@ -51,7 +46,7 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
         raise PosteriorPopulationContractError("unexpected posterior-population contract schema")
     if contract.get("issue") != 69:
         raise PosteriorPopulationContractError("posterior-population contract must bind issue #69")
-    if contract.get("showdown_revision_source") != "experiments/showdown-revision.txt":
+    if contract.get("showdown_revision_source") != "showdown/revision.json":
         raise PosteriorPopulationContractError("Showdown authority must come from repository contract")
 
     treatments = contract.get("completion_posterior_treatments")

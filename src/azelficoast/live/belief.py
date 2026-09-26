@@ -33,7 +33,7 @@ from azelficoast.research.contracts import (
     ResearchContractError,
     parse_belief_artifact,
 )
-from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
@@ -710,7 +710,7 @@ class PinnedShowdownBeliefPolicy:
         posterior_only: bool = False,
         transition_program_only: bool = False,
     ) -> Mapping[str, Any]:
-        script = Path(__file__).resolve().parents[3] / "scripts" / "probe_real_belief_trace.cjs"
+        script = Path(__file__).resolve().parents[3] / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
         with tempfile.TemporaryDirectory(prefix="azelficoast-live-belief-") as temp_dir:
             source_path = Path(temp_dir) / "source.json"
             source_path.write_text(

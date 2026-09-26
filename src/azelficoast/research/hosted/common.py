@@ -210,10 +210,9 @@ def as_dict(value: object, *, label: str) -> dict[str, object]:
 
 
 def showdown_revision() -> str:
-    revision = Path("experiments/showdown-revision.txt").read_text(encoding="utf-8").strip()
-    if len(revision) != 40 or any(character not in "0123456789abcdef" for character in revision):
-        raise HostedResearchError("invalid authoritative Pokémon Showdown revision")
-    return revision
+    from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
+
+    return PINNED_SHOWDOWN_COMMIT
 
 
 def print_json(value: object) -> None:

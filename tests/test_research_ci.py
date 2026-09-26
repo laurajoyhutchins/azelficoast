@@ -113,7 +113,7 @@ def test_contract_registry_change_selects_every_contract() -> None:
 
 
 def test_repository_showdown_revision_selects_only_showdown_consumers() -> None:
-    selected = experiments_for_paths(("experiments/showdown-revision.txt",))
+    selected = experiments_for_paths(("showdown/revision.json",))
     assert selected
     assert all(experiment.showdown for experiment in selected)
     assert "jax-simulator" not in {experiment.name for experiment in selected}

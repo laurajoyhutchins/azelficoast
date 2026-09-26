@@ -131,7 +131,7 @@ def natural_population_shard(shard: int, shard_count: int) -> None:
             continue
         source = EVIDENCE_ROOT / "population" / "selected" / str(row["filename"])
         node(
-            "scripts/probe_real_belief_trace.cjs",
+            "showdown/runtime/probe_real_belief_trace.cjs",
             str(SHOWDOWN_ROOT),
             str(source),
             stdout="/tmp/oracle.json",
@@ -314,7 +314,7 @@ def natural_depth_shard(shard: int, shard_count: int) -> None:
             "AZELFICOAST_CONTINUATION_DECISION_HORIZONS": str(deeper_horizon),
         }
         node(
-            "scripts/probe_real_belief_trace.cjs",
+            "showdown/runtime/probe_real_belief_trace.cjs",
             str(SHOWDOWN_ROOT),
             str(source),
             stdout="/tmp/shallow-oracle.json",
@@ -327,7 +327,7 @@ def natural_depth_shard(shard: int, shard_count: int) -> None:
             env=shallow_env,
         )
         node(
-            "scripts/probe_real_belief_trace.cjs",
+            "showdown/runtime/probe_real_belief_trace.cjs",
             str(SHOWDOWN_ROOT),
             str(source),
             stdout="/tmp/deeper-oracle.json",

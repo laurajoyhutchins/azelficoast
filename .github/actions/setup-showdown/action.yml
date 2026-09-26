@@ -2,6 +2,10 @@ name: Setup pinned Pokémon Showdown
 description: Restore or build the exact pinned Pokémon Showdown oracle revision.
 
 inputs:
+  sha:
+    description: Exact Pokémon Showdown commit SHA that defines oracle authority.
+    required: false
+    default: ""
   path:
     description: Destination path for the restored or built checkout.
     required: false
@@ -19,17 +23,23 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Read repository Showdown revision
-      id: revision
+    - name: Resolve Showdown revision authority
+      id: authority
       shell: bash
+      env:
+        REQUESTED_SHA: ${{ inputs.sha }}
       run: |
         set -euo pipefail
-        revision="$(tr -d '[:space:]' < experiments/showdown-revision.txt)"
-        [[ "${#revision}" == 40 && "${revision}" =~ ^[0-9a-f]{40}$ ]] || {
-          echo "invalid experiments/showdown-revision.txt" >&2
+        if [[ -n "${REQUESTED_SHA}" ]]; then
+          showdown_sha="${REQUESTED_SHA}"
+        else
+          showdown_sha="$(node -p "require('./showdown/revision.json').commit")"
+        fi
+        [[ "${showdown_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+          echo "invalid Showdown authority: ${showdown_sha}" >&2
           exit 1
         }
-        echo "sha=${revision}" >> "${GITHUB_OUTPUT}"
+        echo "sha=${showdown_sha}" >> "${GITHUB_OUTPUT}"
 
     - name: Identify existing JavaScript runtime
       id: runtime
@@ -44,14 +54,14 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ inputs.path }}
-        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ steps.revision.outputs.sha }}
+        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ steps.authority.outputs.sha }}
 
     - name: Verify or build exact Showdown revision
       id: verify
       shell: bash
       env:
         SHOWDOWN_PATH: ${{ inputs.path }}
-        SHOWDOWN_SHA: ${{ steps.revision.outputs.sha }}
+        SHOWDOWN_SHA: ${{ steps.authority.outputs.sha }}
       run: |
         set -euo pipefail
 
@@ -120,4 +130,4 @@ runs:
       uses: actions/cache/save@v6
       with:
         path: ${{ inputs.path }}
-        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ steps.revision.outputs.sha }}
+        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ steps.authority.outputs.sha }}

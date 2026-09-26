@@ -21,7 +21,7 @@ _SHARED_PYTHON_PATHS = {
 }
 _SHARED_SHOWDOWN_PATHS = {
     ".github/actions/setup-showdown/action.yml",
-    "experiments/showdown-revision.txt",
+    "showdown/revision.json",
 }
 _SHARED_EVIDENCE_PATHS = {
     ".github/actions/setup-research-evidence/action.yml",

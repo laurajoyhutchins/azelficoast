@@ -81,11 +81,11 @@ def test_pr_ci_cancels_superseded_heads() -> None:
 def test_ci_checks_entire_javascript_script_frontier() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
 
-    assert "npm run lint:scripts" in source
-    assert "npm run typecheck:scripts" in source
-    assert "find scripts -type f -name '*.cjs' -print0" in source
+    assert "npm run lint:showdown" in source
+    assert "npm run typecheck:showdown" in source
+    assert "find showdown -type f -name '*.cjs' -print0" in source
     assert 'node --check "$script"' in source
-    assert "node --check scripts/probe_real_belief_trace.cjs" not in source
+    assert "node --check showdown/runtime/probe_real_belief_trace.cjs" not in source
 
 
 def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
@@ -159,7 +159,7 @@ def test_evidence_setup_runs_after_python_environment() -> None:
 
 def test_training_workflow_observes_replay_bridge_changes() -> None:
     source = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
-    assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
+    assert '- "showdown/verification/replay_inputlog_to_streams.cjs"' in source
 
 
 def test_repository_evidence_admission_is_owned_by_python() -> None:
@@ -289,32 +289,35 @@ def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
     action = (
         ROOT / ".github" / "actions" / "setup-showdown" / "action.yml"
     ).read_text(encoding="utf-8")
-    revision = (
-        ROOT / "experiments" / "showdown-revision.txt"
-    ).read_text(encoding="utf-8").strip()
+    document = json.loads(
+        (ROOT / "showdown" / "revision.json").read_text(encoding="utf-8")
+    )
+    revision = document["commit"]
     runner = (
         ROOT / "src" / "azelficoast" / "research" / "ci.py"
     ).read_text(encoding="utf-8")
-    probe = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
-        encoding="utf-8"
-    )
+    probe = (
+        ROOT / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
+    ).read_text(encoding="utf-8")
 
+    assert document["schema"] == "azelficoast.showdown-revision"
+    assert document["schema_version"] == 1
     assert re.fullmatch(r"[0-9a-f]{40}", revision)
-    assert "steps.revision.outputs.sha" in action
-    assert 'REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"' in runner
-    assert "../experiments/showdown-revision.txt" in probe
+    assert "require('./showdown/revision.json').commit" in action
+    assert "azelficoast.core.showdown" in runner
+    assert "../shared/revision.cjs" in probe
+    assert revision not in action
     assert revision not in runner
     assert revision not in probe
-
 
 def test_showdown_workflow_triggers_observe_revision_contract() -> None:
     research = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
     training = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
     cache = (WORKFLOWS / "showdown-build-cache.yml").read_text(encoding="utf-8")
 
-    assert '- "experiments/**"' in research
-    assert '- "experiments/showdown-revision.txt"' in training
-    assert '- "experiments/showdown-revision.txt"' in cache
+    assert '- "showdown/**"' in research
+    assert '- "showdown/revision.json"' in training
+    assert '- "showdown/revision.json"' in cache
 
 
 def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
@@ -323,7 +326,7 @@ def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
             encoding="utf-8"
         )
     )
-    script = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
+    script = (ROOT / "showdown" / "runtime" / "probe_real_belief_trace.cjs").read_text(
         encoding="utf-8"
     )
 

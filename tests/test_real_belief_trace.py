@@ -476,7 +476,7 @@ def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
 
 
 def test_showdown_probe_preserves_semantic_support_before_execution_projection() -> None:
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    scripts = Path(__file__).resolve().parents[1] / "showdown" / "runtime"
     source = (scripts / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
     generator_source = (
         scripts / "real_belief_probe" / "generator_population.cjs"
@@ -610,7 +610,7 @@ def test_oracle_document_loader_streams_large_top_level_arrays(tmp_path: Path) -
 
 def test_declared_reads_receives_transition_evidence_explicitly() -> None:
     root = Path(__file__).resolve().parents[1]
-    source = (root / "scripts" / "probe_real_belief_trace.cjs").read_text(
+    source = (root / "showdown" / "runtime" / "probe_real_belief_trace.cjs").read_text(
         encoding="utf-8"
     )
 

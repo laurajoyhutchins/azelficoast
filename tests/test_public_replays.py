@@ -22,7 +22,8 @@ def test_replay_bridge_resolves_to_repository_script() -> None:
     script = public_replays._bridge_script()
 
     assert script.name == "replay_inputlog_to_streams.cjs"
-    assert script.parent.name == "scripts"
+    assert script.parent.name == "verification"
+    assert script.parent.parent.name == "showdown"
     assert script.is_file()
 
 

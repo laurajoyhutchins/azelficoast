@@ -11,7 +11,7 @@ on:
       - "uv.lock"
       - "README.md"
       - "src/**"
-      - "scripts/**"
+      - "showdown/**"
       - "tests/**"
   workflow_dispatch:
     inputs:

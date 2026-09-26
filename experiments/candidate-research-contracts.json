@@ -14,7 +14,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
           "output": "showdown-gen9-damage-fixtures.json"
         }
       ],
@@ -65,7 +65,7 @@
         "src/azelficoast/research/mechanics/class_native_belief.py",
         "src/azelficoast/research/mechanics/native_damage_compiler.py",
         "src/azelficoast/research/experiments/attack_transition_experiment.py",
-        "scripts/generate_showdown_attack_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_attack_fixtures.cjs",
         "tests/test_gen9_attack.py",
         "tests/test_class_native_belief.py",
         "tests/test_native_damage_compiler.py",
@@ -76,7 +76,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_attack_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_attack_fixtures.cjs",
           "output": "showdown-attack-fixtures.json"
         }
       ],
@@ -133,7 +133,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
           "output": "showdown-gen9-damage-fixtures.json"
         }
       ],
@@ -175,7 +175,7 @@
         "src/azelficoast/research/verification/showdown_damage_corpus.py",
         "src/azelficoast/research/mechanics/jax_gen9_damage.py",
         "src/azelficoast/research/experiments/jax_gen9_damage_experiment.py",
-        "scripts/generate_showdown_damage_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
         "tests/test_gen9_damage.py",
         "tests/test_showdown_damage_corpus.py",
         "tests/test_jax_gen9_damage.py"
@@ -185,7 +185,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
           "output": "showdown-gen9-damage-fixtures.json"
         }
       ],
@@ -267,7 +267,7 @@
         "src/azelficoast/research/experiments/native_damage_experiment.py",
         "src/azelficoast/research/mechanics/jax_gen9_damage.py",
         "src/azelficoast/research/verification/showdown_damage_corpus.py",
-        "scripts/generate_showdown_damage_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
         "tests/test_native_damage_compiler.py"
       ],
       "artifact_name": "native-damage-evidence",
@@ -275,7 +275,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
           "output": "showdown-gen9-damage-fixtures.json"
         }
       ],
@@ -428,7 +428,7 @@
       "paths": [
         "src/azelficoast/research/mechanics/simulator_ir.py",
         "src/azelficoast/research/verification/showdown_transition_corpus.py",
-        "scripts/generate_showdown_transition_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_transition_fixtures.cjs",
         "tests/test_showdown_transition_corpus.py"
       ],
       "artifact_name": "showdown-transition-dependency-evidence",
@@ -436,7 +436,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_transition_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_transition_fixtures.cjs",
           "output": "showdown-transition-fixtures.json"
         }
       ],
@@ -493,7 +493,7 @@
         "src/azelficoast/research/mechanics/ordered_attack_belief.py",
         "src/azelficoast/research/mechanics/ordered_attack_compiler.py",
         "src/azelficoast/research/experiments/ordered_attack_experiment.py",
-        "scripts/generate_showdown_ordered_attack_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_ordered_attack_fixtures.cjs",
         "tests/test_gen9_ordered_attack.py"
       ],
       "artifact_name": "ordered-attack-evidence",
@@ -501,7 +501,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_ordered_attack_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_ordered_attack_fixtures.cjs",
           "output": "showdown-ordered-attack-fixtures.json"
         }
       ],
@@ -534,7 +534,7 @@
         "src/azelficoast/research/mechanics/two_attack_turn_belief.py",
         "src/azelficoast/research/mechanics/two_attack_turn_compiler.py",
         "src/azelficoast/research/experiments/two_attack_turn_experiment.py",
-        "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_two_attack_turn_fixtures.cjs",
         "tests/test_gen9_two_attack_turn.py"
       ],
       "artifact_name": "two-attack-turn-evidence",
@@ -542,7 +542,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_two_attack_turn_fixtures.cjs",
           "output": "showdown-two-attack-turn-fixtures.json"
         }
       ],
@@ -563,7 +563,7 @@
       "paths": [
         "src/azelficoast/research/mechanics/stateful_protect_turn.py",
         "src/azelficoast/research/experiments/stateful_protect_experiment.py",
-        "scripts/generate_showdown_stateful_protect_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_stateful_protect_fixtures.cjs",
         "tests/test_stateful_protect_turn.py"
       ],
       "artifact_name": "stateful-protect-evidence",
@@ -571,7 +571,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_stateful_protect_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_stateful_protect_fixtures.cjs",
           "output": "stateful-protect-fixtures.json"
         }
       ],
@@ -601,7 +601,7 @@
       "paths": [
         "src/azelficoast/research/mechanics/switch_hazard_turn.py",
         "src/azelficoast/research/experiments/switch_hazard_experiment.py",
-        "scripts/generate_showdown_switch_hazard_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_switch_hazard_fixtures.cjs",
         "tests/test_switch_hazard_turn.py"
       ],
       "artifact_name": "switch-entry-hazard-evidence",
@@ -609,7 +609,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_switch_hazard_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_switch_hazard_fixtures.cjs",
           "output": "switch-hazard-fixtures.json"
         }
       ],
@@ -644,7 +644,7 @@
         "src/azelficoast/research/mechanics/staged_attack.py",
         "src/azelficoast/research/mechanics/switch_intimidate_turn.py",
         "src/azelficoast/research/experiments/switch_intimidate_experiment.py",
-        "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_switch_intimidate_fixtures.cjs",
         "tests/test_switch_intimidate_turn.py"
       ],
       "artifact_name": "switch-intimidate-evidence",
@@ -652,7 +652,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_switch_intimidate_fixtures.cjs",
           "output": "switch-intimidate-fixtures.json"
         }
       ],
@@ -682,7 +682,7 @@
       "paths": [
         "src/azelficoast/research/mechanics/voluntary_switch_turn.py",
         "src/azelficoast/research/experiments/voluntary_switch_experiment.py",
-        "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
+        "showdown/verification/fixtures/generate_showdown_voluntary_switch_fixtures.cjs",
         "tests/test_voluntary_switch_turn.py"
       ],
       "artifact_name": "voluntary-switch-evidence",
@@ -690,7 +690,7 @@
       "showdown": true,
       "generators": [
         {
-          "script": "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
+          "script": "showdown/verification/fixtures/generate_showdown_voluntary_switch_fixtures.cjs",
           "output": "voluntary-switch-fixtures.json"
         }
       ],

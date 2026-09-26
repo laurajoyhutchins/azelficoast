@@ -230,6 +230,13 @@ def test_public_posterior_source_reuses_generator_population_cache(
         }
         assert all("--generator-cache-dir" in call for call in node_calls)
         assert all(str(cache_root) in call for call in node_calls)
+        expected_script = (
+            Path(public_pretraining.__file__).resolve().parents[3]
+            / "showdown"
+            / "runtime"
+            / "probe_real_belief_trace.cjs"
+        )
+        assert all(Path(call[1]) == expected_script for call in node_calls)
     finally:
         source.close()
 
@@ -239,12 +246,13 @@ def test_public_posterior_source_reuses_generator_population_cache(
 def test_pinned_showdown_posterior_probe_declares_generator_faithful_treatment() -> None:
     script = (
         Path(public_pretraining.__file__).resolve().parents[3]
-        / "scripts"
+        / "showdown"
+        / "runtime"
         / "probe_real_belief_trace.cjs"
     )
     source = script.read_text(encoding="utf-8")
-    posterior_only = source.split("if (posteriorOnly) {", 1)[1].split("process.exit(0);", 1)[0]
-    assert 'treatment: "generator_faithful"' in posterior_only
+    assert source.count('treatment: "generator_faithful"') == 1
+    assert "function runProbe(argv, sourceDocument = null)" in source
 
 
 def test_public_pretraining_refuses_to_replace_existing_promoted_evaluator(

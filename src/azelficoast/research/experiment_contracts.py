@@ -232,7 +232,7 @@ _SHARED_PYTHON_PATHS = {
 }
 _SHARED_SHOWDOWN_PATHS = {
     ".github/actions/setup-showdown/action.yml",
-    "experiments/showdown-revision.txt",
+    "showdown/revision.json",
 }
 
 

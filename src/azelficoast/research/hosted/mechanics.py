@@ -37,7 +37,7 @@ def opponent_team_completion_support() -> None:
 
     for name in ("turn12", "turn13"):
         node(
-            "scripts/enumerate_team_completion_support.cjs",
+            "showdown/research/belief/enumerate_team_completion_support.cjs",
             str(SHOWDOWN_ROOT),
             f"/tmp/{name}.json",
             stdout=f"/tmp/{name}-support.json",
@@ -80,7 +80,7 @@ def policy_boundary_refinement() -> None:
         for index in range(1, 10)
     ]
     python_script(
-        "scripts/policy_boundary_refinement_experiment.py",
+        "src/azelficoast/research/experiments/policy_boundary_refinement_experiment.py",
         *inputs,
         stdout="/tmp/policy-boundary-refinement-results.json",
     )
@@ -172,7 +172,7 @@ def protect_continuation() -> None:
 
 def protect_speed_fork() -> None:
     node(
-        "scripts/probe_protect_speed_forks.cjs",
+        "showdown/research/mechanics/probe_protect_speed_forks.cjs",
         str(SHOWDOWN_ROOT),
         "experiments/protect-speed-forks.json",
         stdout="/tmp/protect-speed-fork-mechanics.json",
@@ -228,7 +228,7 @@ def protect_speed_fork() -> None:
 def replay_world() -> None:
     checkout_showdown_in_place(HISTORICAL_REPLAY_SHOWDOWN, build=False)
     node(
-        "scripts/sample_showdown_worlds.cjs",
+        "showdown/research/belief/sample_showdown_worlds.cjs",
         str(SHOWDOWN_ROOT),
         "infernape",
         "closecombat",
@@ -273,7 +273,7 @@ def replay_world() -> None:
     assert len(str(result["belief_sha256"])) == 64
 
     node(
-        "scripts/sample_showdown_worlds.cjs",
+        "showdown/research/belief/sample_showdown_worlds.cjs",
         str(SHOWDOWN_ROOT),
         "infernape",
         "closecombat,flareblitz",

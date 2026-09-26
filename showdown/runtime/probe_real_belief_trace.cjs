@@ -7,12 +7,13 @@ const path = require("node:path");
 const {execFileSync} = require("node:child_process");
 const {writeJsonStream} = require("./json_stream_writer.cjs");
 
+class ProbeError extends Error {}
+
 function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(2);
+  throw new ProbeError(String(message));
 }
 
-const argv = process.argv.slice(2);
+function runProbe(argv, sourceDocument = null) {
 const showdownRoot = argv[0];
 const fixturePath = argv[1];
 let benchPriorPath = null;
@@ -65,13 +66,7 @@ if (
   fail("--historical-showdown-commit must be a 40-hex commit");
 }
 
-const PINNED_SHOWDOWN_COMMIT = fs.readFileSync(
-  path.join(__dirname, "../experiments/showdown-revision.txt"),
-  "utf8"
-).trim();
-if (!/^[0-9a-f]{40}$/.test(PINNED_SHOWDOWN_COMMIT)) {
-  fail("invalid repository Pokémon Showdown revision contract");
-}
+const {PINNED_SHOWDOWN_COMMIT} = require("../shared/revision.cjs");
 const SHOWDOWN_COMMIT = historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT;
 const GENERATOR_ROUNDS = 2048;
 
@@ -179,7 +174,9 @@ if (actualCommit !== SHOWDOWN_COMMIT) {
   fail(`expected Showdown ${SHOWDOWN_COMMIT}, got ${actualCommit}`);
 }
 
-const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+const source = sourceDocument === null
+  ? JSON.parse(fs.readFileSync(fixturePath, "utf8"))
+  : JSON.parse(JSON.stringify(sourceDocument));
 if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
   fail("unexpected source fixture schema");
 }
@@ -507,7 +504,7 @@ function normalizedOpponentPolicy() {
 
 const opponentPolicySemantics = JSON.parse(
   fs.readFileSync(
-    path.join(__dirname, "../experiments/opponent-policy-semantics.json"),
+    path.join(__dirname, "..", "..", "experiments", "opponent-policy-semantics.json"),
     "utf8"
   )
 );
@@ -523,7 +520,7 @@ const OPPONENT_POLICY_SEMANTICS_VERSION =
 const OPPONENT_POLICY = normalizedOpponentPolicy();
 
 const {createGeneratorPopulationSource} = require(
-  path.join(path.dirname(process.argv[1]), "real_belief_probe", "generator_population.cjs")
+  path.join(__dirname, "real_belief_probe", "generator_population.cjs")
 );
 const {generatorVariants, mechanicsProjectionVariantCount} =
   createGeneratorPopulationSource({
@@ -1100,7 +1097,7 @@ function legalP1Continuations(battle) {
 }
 
 const {createOpponentPolicyEngine} = require(
-  path.join(path.dirname(process.argv[1]), "real_belief_probe", "opponent_policy.cjs")
+  path.join(__dirname, "real_belief_probe", "opponent_policy.cjs")
 );
 const {opponentDistributionForSnapshot} = createOpponentPolicyEngine({
   Battle,
@@ -1484,8 +1481,9 @@ const outputWorlds = worlds.map(world => ({
   },
 }));
 
+let posteriorDocument = null;
 if (posteriorOnly) {
-  void writeJsonStream({
+  posteriorDocument = {
     schema: "azelficoast.live-belief-posterior",
     schema_version: 1,
     source_fixture_id: fixture.fixture_id,
@@ -1507,19 +1505,17 @@ if (posteriorOnly) {
       observed_opponent_moves: observedOpponentMoves(),
       known_opponent_item: source.known_opponent_item || null,
       opponent_policy: OPPONENT_POLICY,
+      opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
       opponent_bench_species: OPPONENT_BENCH_SPECIES,
     },
     legal_actions: legalActions,
     worlds: outputWorlds,
-  }).catch(error => {
-    process.stderr.write(String(error.stack || error) + "\n");
-    process.exitCode = 1;
-  });
-} else {
+  };
+}
 const {createTransitionProgramCompiler} = require(
-  path.join(path.dirname(process.argv[1]), "real_belief_probe", "transition_program_compiler.cjs")
+  path.join(__dirname, "real_belief_probe", "transition_program_compiler.cjs")
 );
 const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
   Battle,
@@ -1551,11 +1547,17 @@ const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
   stateSummary,
 });
 
+if (posteriorOnly) {
+  return {
+    document: posteriorDocument,
+    compileTransitionProgram(cacheMode = "projection") {
+      return compileLazyWholeTurnPrograms(cacheMode);
+    },
+  };
+}
+
 if (transitionProgramOnly) {
-  process.stdout.write(
-    JSON.stringify(compileLazyWholeTurnPrograms(), null, 2) + "\n"
-  );
-  process.exit(0);
+  return compileLazyWholeTurnPrograms();
 }
 
 
@@ -1617,7 +1619,7 @@ const factoredHidden = benchFactor
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action, transitions)])
 );
-void writeJsonStream({
+return {
   schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
@@ -1636,7 +1638,7 @@ void writeJsonStream({
         : "uniform legal moves"
     ),
     opponent_policy: OPPONENT_POLICY,
-    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
+      opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
     continuation_scope:
       CONTINUATION_DECISION_HORIZONS === 1
         ? "all non-Tera player choices at the next decision"
@@ -1656,7 +1658,7 @@ void writeJsonStream({
       "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
     observed_opponent_moves: observedOpponentMoves(),
     opponent_policy: OPPONENT_POLICY,
-    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
+      opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
     opponent_bench_species: OPPONENT_BENCH_SPECIES,
@@ -1675,8 +1677,29 @@ void writeJsonStream({
   worlds: outputWorlds,
   legal_actions: legalActions,
   transitions,
-}).catch(error => {
-  process.stderr.write(String(error.stack || error) + "\n");
-  process.exitCode = 1;
-});
+};
 }
+
+
+if (require.main === module) {
+  try {
+    const result = runProbe(process.argv.slice(2));
+    const document =
+      result && typeof result.compileTransitionProgram === "function"
+        ? result.document
+        : result;
+    void writeJsonStream(document, process.stdout, {pretty: true}).catch(error => {
+      process.stderr.write(
+        (error instanceof Error ? error.stack || error.message : String(error)) + "\n"
+      );
+      process.exitCode = 1;
+    });
+  } catch (error) {
+    process.stderr.write(
+      (error instanceof Error ? error.message : String(error)) + "\n"
+    );
+    process.exit(2);
+  }
+}
+
+module.exports = {ProbeError, runProbe};

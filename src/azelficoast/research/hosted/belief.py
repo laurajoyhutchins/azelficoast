@@ -57,7 +57,7 @@ def _candidate(fixture_id: str) -> dict[str, object]:
 def conditional_team_prior() -> None:
     output = Path("/tmp/conditional-team-prior.json")
     node(
-        "scripts/evaluate_conditional_team_prior.cjs",
+        "showdown/research/belief/evaluate_conditional_team_prior.cjs",
         str(SHOWDOWN_ROOT),
         "80000",
         "10000",
@@ -120,7 +120,7 @@ def decision_relevance_quotient() -> None:
     for name, source in sources.items():
         oracle = Path(f"/tmp/{name}-oracle.json")
         node(
-            "scripts/probe_real_belief_trace.cjs",
+            "showdown/runtime/probe_real_belief_trace.cjs",
             str(SHOWDOWN_ROOT),
             str(source),
             stdout=oracle,
@@ -253,7 +253,7 @@ def exhausted_bench(name: str) -> None:
     write_json("/tmp/source.json", source)
 
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         "/tmp/source.json",
         stdout="/tmp/oracle.json",
@@ -302,7 +302,7 @@ def factored_hidden_bench_prior() -> None:
     write_json("/tmp/source.json", source)
 
     node(
-        "scripts/evaluate_conditional_team_prior.cjs",
+        "showdown/research/belief/evaluate_conditional_team_prior.cjs",
         str(SHOWDOWN_ROOT),
         "80000",
         "10000",
@@ -323,7 +323,7 @@ def factored_hidden_bench_prior() -> None:
     assert abs(sum(float(as_dict(row, label="species prior row")["probability"]) for row in species_prior) - 1) <= 1e-9
 
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         "/tmp/source.json",
         "--bench-prior",
@@ -409,7 +409,7 @@ def joint_random_battle_posterior() -> None:
     print(f"fixture={source}")
 
     node(
-        "scripts/sample_joint_random_battle_posterior.cjs",
+        "showdown/research/belief/sample_joint_random_battle_posterior.cjs",
         str(SHOWDOWN_ROOT),
         source,
         "--target-particles",
@@ -515,7 +515,7 @@ def natural_status_move() -> None:
     assert str(source["opponent_response_move"]).lower() == "roost"
 
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         str(source_path),
         stdout="/tmp/status-oracle.json",
@@ -676,13 +676,13 @@ def public_belief_exact(name: str) -> None:
     if not _public_candidate_source(name):
         return
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         "/tmp/candidate-source.json",
         stdout="/tmp/candidate-oracle.json",
     )
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         "/tmp/candidate-source.json",
         "--transition-program-only",
@@ -738,13 +738,13 @@ def public_belief_exact(name: str) -> None:
 def real_belief_decision_trace() -> None:
     source = "experiments/real-belief-source-gliscor-urshifu.json"
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         source,
         stdout="/tmp/real-belief-transition-oracle.json",
     )
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         source,
         "--transition-program-only",
@@ -842,7 +842,7 @@ def real_belief_survival_witness() -> None:
     assert source["opponent_bench_species"] == "Hippowdon"
 
     node(
-        "scripts/probe_real_belief_trace.cjs",
+        "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
         str(source_path),
         stdout="/tmp/tropius-chiyu-oracle.json",

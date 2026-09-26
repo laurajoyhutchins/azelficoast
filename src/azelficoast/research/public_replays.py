@@ -292,7 +292,7 @@ def _require_replay_revision(replay: PublicReplay, revision: str) -> None:
 
 
 def _bridge_script() -> Path:
-    return Path(__file__).resolve().parents[3] / "scripts" / "replay_inputlog_to_streams.cjs"
+    return Path(__file__).resolve().parents[3] / "showdown" / "verification" / "replay_inputlog_to_streams.cjs"
 
 
 def _replay_streams(showdown_root: Path, inputlog: str) -> dict[str, list[str]]:

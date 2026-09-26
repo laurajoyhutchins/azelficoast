@@ -5,6 +5,7 @@ from importlib.resources import files
 
 import pytest
 
+import azelficoast.core.sql as sql_module
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN
 from azelficoast.core.sql import (
     ACTION_SUMMARY_QUERY,
@@ -570,6 +571,45 @@ def test_explain_binds_policy_parameters_without_hiding_source_identity() -> Non
     assert explanation["parameter_bindings_identity"] == (
         prepared.parameter_bindings_identity
     )
+
+
+def test_parameter_discovery_survives_explain_without_parameter_tokens() -> None:
+    program_rows = [
+        (0, "Variable", 1, 1, 0, None, 0, None),
+        (1, "Variable", 2, 2, 0, None, 0, None),
+        (2, "Variable", 1, 3, 0, None, 0, None),
+    ]
+    sql = """
+    SELECT
+        ':ignored',
+        [@quoted],
+        :risk + @bonus + :risk
+    /* $ignored */
+    -- ? ignored
+    """
+
+    assert sql_module._sqlite_parameter_names(program_rows, sql) == (
+        "bonus",
+        "risk",
+    )
+
+
+def test_parameter_discovery_rejects_source_program_mismatch() -> None:
+    program_rows = [(0, "Variable", 1, 1, 0, None, 0, None)]
+
+    with pytest.raises(
+        SQLQueryError,
+        match="SQLite parameter program does not match SQL source",
+    ):
+        sql_module._sqlite_parameter_names(
+            program_rows,
+            "SELECT :risk + @bonus",
+        )
+
+
+def test_parameter_discovery_rejects_positional_parameters() -> None:
+    with pytest.raises(SQLQueryError, match="only named SQL parameters"):
+        sql_module._sqlite_parameter_names([], "SELECT ?")
 
 
 def test_parameter_bindings_are_exact_and_fail_closed() -> None:
