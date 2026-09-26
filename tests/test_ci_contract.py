@@ -328,3 +328,13 @@ def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
     assert "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION" in script
     assert "versioned contract lives in" in architecture
     assert "experiments/opponent-policy-semantics.json" in architecture
+
+
+def test_oracle_workflows_observe_opponent_semantics_contract_changes() -> None:
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        if "scripts/probe_real_belief_trace.cjs" not in source or "    paths:\n" not in source:
+            continue
+        assert '- "experiments/opponent-policy-semantics.json"' in source, (
+            f"{path.name} must rerun when oracle opponent semantics change"
+        )
