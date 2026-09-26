@@ -16,6 +16,7 @@ on:
       - ".github/workflows/natural-depth-regret.yml"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "experiments/showdown-revision.txt"
   workflow_dispatch:
 
 permissions:
