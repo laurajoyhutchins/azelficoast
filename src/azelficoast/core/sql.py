@@ -639,7 +639,7 @@ def prepare_sql_query(
     if not canonical:
         raise SQLQueryError("SQL query must be non-empty")
 
-     relations: set[str] = set()
+    relations: set[str] = set()
     functions: set[str] = set()
 
     def authorize(
