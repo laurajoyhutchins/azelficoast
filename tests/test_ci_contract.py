@@ -100,6 +100,17 @@ def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
     assert "cancel-in-progress: true" in source
 
 
+def test_hosted_research_preserves_candidate_only_cadence() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    hosted = source[source.index("  hosted-plan:\n") : source.index("  hosted-run:\n")]
+
+    assert (
+        "if: github.event_name == 'workflow_dispatch' "
+        "|| github.event.action == 'ready_for_review'"
+    ) in hosted
+    assert "github.event.pull_request.draft == false" not in hosted
+
+
 def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
     source = (
         ROOT / ".github" / "actions" / "setup-python-environment" / "action.yml"
