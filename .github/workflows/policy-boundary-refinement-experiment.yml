@@ -45,7 +45,7 @@ jobs:
 
       - name: Verify fixed evidence
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 

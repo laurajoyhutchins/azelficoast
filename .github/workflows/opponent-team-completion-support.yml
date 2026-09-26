@@ -32,7 +32,7 @@ jobs:
 
       - name: Extract two one-slot-hidden Staraptor fixtures
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
@@ -74,7 +74,7 @@ jobs:
 
       - name: Verify deterministic public-prefix support
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 

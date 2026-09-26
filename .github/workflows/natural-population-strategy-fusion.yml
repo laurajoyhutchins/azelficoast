@@ -5,6 +5,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - "experiments/opponent-policy-semantics.json"
       - "experiments/natural-population-strategy-fusion-plan.json"
       - "src/azelficoast/research/population.py"
@@ -50,7 +51,7 @@ jobs:
 
       - name: Verify frozen outcome-blind cohort
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           manifest = json.loads(
@@ -78,7 +79,7 @@ jobs:
           AZELFICOAST_CHANCE_SEED_FAMILY: "0"
         run: |
           mkdir -p /tmp/results
-          python - <<'PY' > /tmp/shard.tsv
+          uv run python - <<'PY' > /tmp/shard.tsv
           import json
           import os
           from pathlib import Path
@@ -126,7 +127,7 @@ jobs:
 
       - name: Verify frozen outcome-blind cohort
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           manifest = json.loads(
@@ -154,7 +155,7 @@ jobs:
             /tmp/exact \
             --output /tmp/natural-population-aggregate.json \
             | tee /tmp/aggregate-output.json
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           result = json.loads(

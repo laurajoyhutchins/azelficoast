@@ -5,6 +5,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - "experiments/opponent-policy-semantics.json"
       - "experiments/natural-depth-regret-plan.json"
       - "src/azelficoast/research/depth_population.py"
@@ -59,7 +60,7 @@ jobs:
 
       - name: Verify frozen cohort identity
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
@@ -92,7 +93,7 @@ jobs:
           AZELFICOAST_CHANCE_SEED_FAMILY: "0"
         run: |
           mkdir -p /tmp/results
-          python - <<'PY' > /tmp/shard.tsv
+          uv run python - <<'PY' > /tmp/shard.tsv
           import json
           import os
           from pathlib import Path
@@ -179,7 +180,7 @@ jobs:
             --output /tmp/natural-depth-regret-aggregate.json \
             | tee /tmp/aggregate-output.json
 
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
