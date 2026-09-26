@@ -5,24 +5,21 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Mapping, Sequence
 
 from azelficoast.belief.evaluator import (
     BeliefEvaluatorError,
+    BeliefEvaluatorInput,
     _require_jax,
     loss,
 )
-
-
-class TrainingInput(Protocol):
-    legal_actions: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class TrainingExample:
     """One supervised target over a frozen public-belief state."""
 
-    inputs: TrainingInput
+    inputs: BeliefEvaluatorInput
     value_target: float
     policy_target: tuple[float, ...]
 
