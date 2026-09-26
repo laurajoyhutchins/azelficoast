@@ -74,6 +74,13 @@ files = [
   "src/azelficoast/live",
   "src/azelficoast/belief",
 
+  # Evidence acquisition, verification, and candidate-gate control.
+  "src/azelficoast/research/verification",
+  "src/azelficoast/research/ci.py",
+  "src/azelficoast/research/public_replays.py",
+  "src/azelficoast/research/training_records.py",
+  "src/azelficoast/research/training_service.py",
+
   # Research contracts and matched experiment settlement.
   "src/azelficoast/research/contracts.py",
   "src/azelficoast/research/matched_comparison.py",

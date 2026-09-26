@@ -307,7 +307,7 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             raise BeliefTraceError(
                 f"factored hidden field {field!r} must declare unread_actions"
             )
-        unread = list(dict.fromkeys(unread_actions))
+        normalized_unread_actions = list(dict.fromkeys(unread_actions))
         evidence = raw_factor.get("evidence")
         if evidence is not None and not isinstance(evidence, Mapping):
             raise BeliefTraceError(
@@ -315,20 +315,20 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             )
         factored_hidden[field] = {
             "distribution": normalized_distribution,
-            "unread_actions": unread,
+            "unread_actions": normalized_unread_actions,
             "evidence": dict(evidence or {}),
         }
 
     for field, factor in factored_hidden.items():
-        unread = set(factor["unread_actions"])
-        unknown_actions = unread - set(legal_actions)
+        unread_action_set = set(factor["unread_actions"])
+        unknown_actions = unread_action_set - set(legal_actions)
         if unknown_actions:
             raise BeliefTraceError(
                 f"factored hidden field {field!r} names unknown actions: "
                 f"{sorted(unknown_actions)!r}"
             )
         requiring_expansion = [
-            action for action in legal_actions if action not in unread
+            action for action in legal_actions if action not in unread_action_set
         ]
         if requiring_expansion:
             raise BeliefTraceError(
@@ -340,8 +340,8 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
         raise BeliefTraceError("declared_reads must be an action-to-fields object")
 
     for field, factor in factored_hidden.items():
-        unread = set(factor["unread_actions"])
-        for action in unread:
+        unread_action_set = set(factor["unread_actions"])
+        for action in unread_action_set:
             for world_id in world_by_id:
                 for outcome in _outcomes(transitions[(world_id, action)]):
                     raw_reads = outcome.get("hidden_reads")
@@ -395,7 +395,7 @@ def analyze_oracle(document: Mapping[str, Any]) -> dict[str, Any]:
             for outcome_index, outcome in enumerate(_outcomes(transition)):
                 chance = float(outcome["probability"])
                 observation_key = _canonical(outcome.get("observation"))
-                member = {
+                member: dict[str, Any] = {
                     "world_id": world_id,
                     "chance": chance,
                     "mass": prior * chance,

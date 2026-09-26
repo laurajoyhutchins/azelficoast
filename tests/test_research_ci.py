@@ -84,11 +84,11 @@ def test_host_performance_does_not_override_semantic_candidate_certification() -
         and check.expected is True
         for check in attack.checks
     )
-    assert all(
-        not experiment.allow_nonzero_module_results
+    assert {
+        experiment.name
         for experiment in EXPERIMENTS
-        if experiment.name != "attack-transition"
-    )
+        if experiment.allow_nonzero_module_results
+    } == {"attack-transition", "two-attack-turn"}
 
 
 
