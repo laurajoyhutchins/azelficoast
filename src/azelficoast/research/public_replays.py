@@ -485,7 +485,8 @@ class _ReplayTraceReader(Player):
         async def _noop(*args: Any, **kwargs: Any) -> None:
             return None
 
-        setattr(self.ps_client, "send_message", _noop)
+        ps_client: Any = self.ps_client
+        ps_client.send_message = _noop
 
     async def _handle_battle_request(
         self,
