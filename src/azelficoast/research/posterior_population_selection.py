@@ -201,6 +201,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--selected-dir", required=True, type=Path)
     parser.add_argument("--manifest", required=True, type=Path)
     parser.add_argument("--execution-plan", required=True, type=Path)
+    parser.add_argument("--matched-plan", required=True, type=Path)
     args = parser.parse_args(argv)
 
     try:
@@ -217,6 +218,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     _write_json(args.manifest, manifest)
     _write_json(args.execution_plan, execution_plan)
+    matched_plan = execution_plan.get("matched_plan")
+    if not isinstance(matched_plan, Mapping):
+        raise PosteriorPopulationSelectionError("execution plan lacks matched plan")
+    _write_json(args.matched_plan, matched_plan)
     print(
         json.dumps(
             {
