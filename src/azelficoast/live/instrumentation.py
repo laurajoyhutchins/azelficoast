@@ -91,8 +91,9 @@ def battle_view(battle: AbstractBattle) -> dict[str, Any]:
     if request_tera_type is not None and active is not None:
         active = {**active, "tera_type": request_tera_type}
         for key, pokemon in battle.team.items():
-            if pokemon is active_pokemon and team.get(key) is not None:
-                team[key] = {**team[key], "tera_type": request_tera_type}
+            current = team.get(key)
+            if pokemon is active_pokemon and current is not None:
+                team[key] = {**current, "tera_type": request_tera_type}
 
     return {
         "battle_tag": battle.battle_tag,

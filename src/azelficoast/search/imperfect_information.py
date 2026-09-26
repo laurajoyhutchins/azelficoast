@@ -78,13 +78,13 @@ def parse_game(fixture: DecisionFixture) -> HiddenWorldGame:
     worlds: list[HiddenWorld] = []
     world_names: set[str] = set()
     for index, raw_world in enumerate(raw_worlds):
-        world = _require_mapping(raw_world, f"{GAME_KEY}.worlds[{index}]")
-        name = world.get("name")
+        world_record = _require_mapping(raw_world, f"{GAME_KEY}.worlds[{index}]")
+        name = world_record.get("name")
         if not isinstance(name, str) or not name:
             raise ImperfectInformationError(f"world {index} must have a non-empty name")
         if name in world_names:
             raise ImperfectInformationError(f"duplicate hidden world {name!r}")
-        weight = _require_number(world.get("weight"), f"world {name!r} weight")
+        weight = _require_number(world_record.get("weight"), f"world {name!r} weight")
         if weight <= 0:
             raise ImperfectInformationError(f"world {name!r} weight must be positive")
         world_names.add(name)

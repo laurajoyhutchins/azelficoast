@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.player import SimpleHeuristicsPlayer
@@ -119,5 +119,5 @@ class DirtyTricksPlayer(SimpleHeuristicsPlayer):
     def choose_move(self, battle: AbstractBattle) -> BattleOrder:
         move = dirty_tricks_move(battle)
         if move is not None:
-            return self.create_order(move)
-        return super().choose_move(battle)
+            return cast(BattleOrder, self.create_order(move))
+        return cast(BattleOrder, super().choose_move(battle))
