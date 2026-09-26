@@ -14,6 +14,7 @@ on:
       - "scripts/sample_showdown_worlds.cjs"
       - "scripts/screen_public_belief_speed_forks.cjs"
       - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/opponent-policy-semantics.json"
       - "tests/test_population_study.py"
       - "tests/test_natural_disagreements.py"
       - ".github/workflows/natural-population-strategy-fusion.yml"
