@@ -59,3 +59,84 @@ it.
 
 That boundary is intentional: SQL is the source language, but mechanics, posterior
 meaning, evaluator semantics, and evidence admission remain outside the language.
+
+
+## Named semantic query classes
+
+SQL is no longer limited to alternate spellings of one expected-value query. The writer
+surface has named semantic query classes, each with its own result contract and semantic
+identity.
+
+### `decision.expected_value`
+
+This is the existing live decision policy and the only query class currently lowered to
+the packed/JAX executor:
+
+```sql
+SELECT
+    action_id,
+    SUM(weight * value) AS expected_value
+FROM action_value_terms
+GROUP BY action_id
+ORDER BY expected_value DESC, action_id ASC;
+```
+
+### `analysis.action_summary`
+
+The `action_statistics` relation exposes reusable policy inputs:
+
+```text
+action_statistics(
+    action_id,
+    posterior_mass,
+    expected_value,
+    worst_value,
+    best_value
+)
+```
+
+The packaged `action_summary.sql` query returns those metrics directly. It is admitted
+as its own semantic class but is not a live decision policy.
+
+### `decision.maximin`
+
+The first intentionally different policy is written as ordinary SQL with a named CTE:
+
+```sql
+WITH policy AS (
+    SELECT
+        action_id,
+        worst_value AS score
+    FROM action_statistics
+)
+SELECT
+    action_id,
+    score
+FROM policy
+ORDER BY score DESC, action_id ASC;
+```
+
+This means "prefer the action with the best worst evaluated outcome." It has a distinct
+semantic identity from expected value.
+
+Azelficoast deliberately does **not** lower this policy to packed/JAX execution yet.
+Admission proves that the SQL belongs to the reviewed maximin query class; execution
+authority is a separate concern. Attempting to feed maximin semantics into the
+expected-value packed lowerer still fails closed.
+
+That separation is the point of the named-query layer:
+
+```text
+SQL source
+   |
+   v
+named query class
+   |
+   +--> semantic identity
+   |
+   +--> result contract
+   |
+   +--> optional physical lowering
+```
+
+Adding a useful query does not silently grant it live battle authority.
