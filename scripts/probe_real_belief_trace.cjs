@@ -2248,6 +2248,7 @@ if (posteriorOnly) {
     showdown_commit: actualCommit,
     conditioned_on_public_history: true,
     realized_hidden_state_revealed: false,
+    treatment: "generator_faithful",
     reconstruction: {
       generator_rounds: GENERATOR_ROUNDS,
       generator_matches: matched,
