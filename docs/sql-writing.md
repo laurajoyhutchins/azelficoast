@@ -114,8 +114,7 @@ identity.
 
 ### `decision.expected_value`
 
-This is the existing live decision policy and the only query class currently lowered to
-the packed/JAX executor:
+This query asks for the exact expected value of every legal root action:
 
 ```sql
 SELECT
@@ -125,6 +124,36 @@ FROM action_value_terms
 GROUP BY action_id
 ORDER BY expected_value DESC, action_id ASC;
 ```
+
+Because every row is part of the result contract, its packed/JAX lowering evaluates the
+complete successor frontier.
+
+### `decision.best_action`
+
+This packaged query deliberately asks for less:
+
+```sql
+SELECT
+    action_id,
+    SUM(weight * value) AS expected_value
+FROM action_value_terms
+GROUP BY action_id
+ORDER BY expected_value DESC, action_id ASC
+LIMIT 1;
+```
+
+That `LIMIT 1` is semantic, not presentation sugar. It gives the physical planner
+permission to use exact bound-based pruning. The packed value head is certified to stay
+inside `[-1, 1]`; after an exact incumbent is established, a losing action may stop
+evaluating leaves once its conservative upper bound is strictly below the incumbent's
+conservative lower bound.
+
+The result still contains the exact winning `action_id` and `expected_value`.
+Unevaluated losers are retained only as certificate intervals in execution evidence.
+They are never fabricated as SQL result rows.
+
+Changing or removing `LIMIT 1` changes the semantic query class and therefore removes
+this bounded-lowering authority.
 
 ### `analysis.action_summary`
 

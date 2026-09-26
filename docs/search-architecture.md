@@ -413,3 +413,35 @@ other consumers whose contract genuinely asks only which action wins.
 The optimization changes only evaluator work. Transition-program validation,
 information-set construction, posterior transport, and transition-evaluation accounting
 remain unchanged.
+
+
+### SQL authorization for winner-only pruning
+
+Bounded pruning is now reachable through the SQL semantic layer rather than only through
+a hand-built execution API.
+
+`decision.best_action` is a packaged read-only query whose explicit `LIMIT 1`
+contract asks for exactly one ranked action and its exact expected value. Its semantic
+identity lowers to the bounded packed executor:
+
+```text
+decision.best_action
+        ↓
+reviewed SQL semantic identity
+        ↓
+compiled information-set topology
+        ↓
+packed posterior transport
+        ↓
+bounded evaluate/reduce
+        ↓
+exact winner + exact winning value
+        + certified loser intervals
+```
+
+The ordinary `decision.expected_value` query keeps the full evaluator path because its
+contract requires exact values for every action. The two SQL queries therefore share the
+same underlying decision algebra but authorize different physical result contracts.
+
+This distinction is fail-closed: a full-result query cannot silently inherit pruning,
+and a winner-only query cannot expose unevaluated loser intervals as exact root values.
