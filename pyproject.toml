@@ -58,16 +58,29 @@ extend-immutable-calls = [
 python_version = "3.11"
 strict = true
 follow_imports = "silent"
-exclude = ["src/azelficoast/core/compiled_search.py"]
+exclude = [
+  "src/azelficoast/core/compiled_search.py",
+  "src/azelficoast/live/harness.py",
+]
 files = [
   # The authoritative core is checked as a package: new core modules enter strict CI automatically.
   "src/azelficoast/core",
 
-  # Decision-time belief and live inputs that feed the checked search boundary.
+  # Search and live runtime surfaces are package frontiers. The CLI harness is
+  # the one explicit live exception while it is decomposed into typed services.
+  "src/azelficoast/search",
+  "src/azelficoast/live",
+
+  # Belief contracts admitted to the static frontier.
+  "src/azelficoast/belief/battle_promotion.py",
+  "src/azelficoast/belief/competence.py",
+  "src/azelficoast/belief/coverage.py",
+  "src/azelficoast/belief/joint_posterior.py",
+  "src/azelficoast/belief/statistics.py",
+  "src/azelficoast/belief/status_move_prior.py",
+  "src/azelficoast/belief/training.py",
+  "src/azelficoast/belief/treatments.py",
   "src/azelficoast/belief/validity.py",
-  "src/azelficoast/live/belief.py",
-  "src/azelficoast/live/corpus.py",
-  "src/azelficoast/search/fusion.py",
 
   # Research contracts and matched experiment settlement.
   "src/azelficoast/research/contracts.py",
