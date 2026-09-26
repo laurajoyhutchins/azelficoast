@@ -31,6 +31,8 @@ EXPECTED_GENERATOR_CONTEXT = {
     "teamDetails": {},
     "isLead": False,
     "isDoubles": False,
+    "publicLevel": None,
+    "publicAbility": None,
 }
 
 # (physical attack multiplier, final damage multiplier)
