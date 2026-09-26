@@ -8,6 +8,7 @@ from typing import Any, Mapping, Sequence
 import pytest
 
 from azelficoast.belief.compiled_search import (
+    PACKED_COMPILED_EXECUTION_STAGES,
     search_packed_compiled_transition_program,
 )
 from azelficoast.belief.packed_evaluator import (
@@ -17,8 +18,14 @@ from azelficoast.belief.packed_evaluator import (
     predict_packed_values,
 )
 from azelficoast.belief.showdown_packing import ShowdownVocabulary
+from azelficoast.belief.sql_compiled_search import (
+    SQLPackedLoweringError,
+    compile_packed_sql_decision_query,
+    search_sql_packed_transition_program,
+)
 from azelficoast.core.compiled_search import compile_search_topology
 from azelficoast.core.search import search_transition_program
+from azelficoast.core.sql import DEFAULT_DECISION_SQL, prepare_decision_query
 
 
 def _digest(value: object) -> str:
@@ -357,3 +364,94 @@ def test_shared_world_compiled_search_reuses_topology_across_prior_weights() -> 
 
     assert first["compiled_topology_digest"] == second["compiled_topology_digest"]
     assert first["root_values"] != second["root_values"]
+
+
+
+def test_sql_decision_query_lowers_to_current_packed_jax_physical_plan() -> None:
+    prepared = prepare_decision_query(DEFAULT_DECISION_SQL)
+    plan = compile_packed_sql_decision_query(prepared)
+
+    assert plan.physical_execution_stages == PACKED_COMPILED_EXECUTION_STAGES
+    assert [binding.operator.value for binding in plan.bindings] == [
+        "scan",
+        "filter",
+        "project",
+        "partition",
+        "transition",
+        "observe",
+        "update_belief",
+        "evaluate",
+        "aggregate",
+    ]
+    assert plan.bindings[0].implementation == "pack_joint_posterior"
+    assert plan.bindings[1].implementation == "pack_joint_posterior"
+    assert plan.bindings[-2].implementation == "predict_packed_shared_world_values"
+    assert plan.bindings[-1].implementation == "reduce_compiled_root_values"
+    assert plan.numeric_backend == "jax-shared-packed-worlds"
+    assert plan.plan_sha256.startswith("sha256:")
+
+
+def test_sql_packed_lowering_fails_closed_for_unreviewed_semantic_change() -> None:
+    changed = DEFAULT_DECISION_SQL.replace(
+        "ORDER BY expected_value DESC",
+        "ORDER BY expected_value ASC",
+    )
+    prepared = prepare_decision_query(changed)
+
+    with pytest.raises(
+        SQLPackedLoweringError,
+        match="no reviewed packed/JAX lowering",
+    ):
+        compile_packed_sql_decision_query(prepared)
+
+
+def test_sql_generated_plan_executes_same_packed_jax_path_as_hand_built_search() -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=16,
+        action_width=8,
+        embedding_width=6,
+        member_hidden_width=9,
+        world_hidden_width=10,
+        hidden_width=12,
+    )
+    params = init_packed_params(spec, seed=53)
+    posterior = _posterior()
+    program = _program()
+
+    hand_built = search_packed_compiled_transition_program(
+        program_set=program,
+        posterior=posterior,
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    generated = search_sql_packed_transition_program(
+        program_set=program,
+        posterior=posterior,
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert generated["compiled_topology_digest"] == hand_built["compiled_topology_digest"]
+    assert generated["transition_evaluations"] == hand_built["transition_evaluations"]
+    assert generated["evaluator_calls"] == hand_built["evaluator_calls"]
+    assert generated["evaluator_batches"] == hand_built["evaluator_batches"] == 1
+    assert generated["chosen_action"] == hand_built["chosen_action"]
+    assert generated["root_values"] == pytest.approx(hand_built["root_values"], abs=1e-6)
+    assert generated["physical_execution_stages"] == list(
+        PACKED_COMPILED_EXECUTION_STAGES
+    )
+    assert generated["sql_physical_plan"]["physical_execution_stages"] == list(
+        PACKED_COMPILED_EXECUTION_STAGES
+    )
+    assert generated["sql_execution_matches_hand_built_plan"] is True

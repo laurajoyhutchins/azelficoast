@@ -249,3 +249,58 @@ use it without reconstructing successor action sets from Python strings.
 
 The current implementation remains a research path. Candidate evidence must establish
 semantic equivalence and mass conservation before any live routing change.
+
+
+
+## SQL lowering into the packed/JAX path
+
+The read-only SQL decision DSL now has one reviewed accelerator lowering. The supported
+query is the exact default decision query; other admitted SQL remains explainable but
+does not silently acquire execution semantics.
+
+The logical SQL operators bind to existing machinery:
+
+```text
+SCAN + FILTER
+    -> pack_joint_posterior
+
+PROJECT + PARTITION + TRANSITION + OBSERVE
+    -> compile_search_topology
+
+UPDATE_BELIEF
+    -> transport_posterior_mass
+
+EVALUATE
+    -> predict_packed_shared_world_values
+
+AGGREGATE
+    -> reduce_compiled_root_values
+```
+
+The physical order is allowed to differ from the relational source order. The current
+packed path hoists topology compilation ahead of posterior packing because topology
+identity is independent of posterior weights:
+
+```text
+compile_search_topology
+        |
+        v
+pack_joint_posterior
+        |
+        v
+transport_posterior_mass
+        |
+        v
+predict_packed_shared_world_values
+        |
+        v
+reduce_compiled_root_values
+```
+
+The SQL-generated plan is content-addressed and compared at execution time with the
+physical-stage declaration emitted by the existing hand-built packed/JAX path. Any drift
+fails closed rather than letting the SQL compiler and executable path quietly disagree.
+
+This is intentionally a narrow compiler, not a promise that arbitrary SQLite syntax can
+be lowered to JAX. Expanding the SQL surface requires a reviewed lowering plus exact
+equivalence evidence for each newly admitted query shape.
