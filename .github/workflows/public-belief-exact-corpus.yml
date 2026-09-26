@@ -15,6 +15,7 @@ on:
       - "src/azelficoast/core/transition.py"
       - "src/azelficoast/core/whole_turn_program.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/opponent-policy-semantics.json"
       - "tests/hostile/test_transition_program_hostile.py"
       - ".github/workflows/public-belief-exact-corpus.yml"
       - "experiments/showdown-revision.txt"
