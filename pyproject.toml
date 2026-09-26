@@ -60,28 +60,19 @@ strict = true
 follow_imports = "silent"
 exclude = [
   "src/azelficoast/core/compiled_search.py",
-  "src/azelficoast/live/harness.py",
+  "src/azelficoast/belief/compiled_search.py",
+  "src/azelficoast/belief/packed_evaluator.py",
+  "src/azelficoast/belief/showdown_packing.py",
 ]
 files = [
   # The authoritative core is checked as a package: new core modules enter strict CI automatically.
   "src/azelficoast/core",
 
-  # Search and live runtime surfaces are package frontiers. The CLI harness is
-  # the one explicit live exception while it is decomposed into typed services.
+  # Runtime semantics are package frontiers. Only modules whose implementation
+  # genuinely requires the optional JAX stack are checked in the accelerator frontier.
   "src/azelficoast/search",
   "src/azelficoast/live",
-
-  # Belief contracts admitted to the static frontier.
-  "src/azelficoast/belief/battle_promotion.py",
-  "src/azelficoast/belief/competence.py",
-  "src/azelficoast/belief/coverage.py",
-  "src/azelficoast/belief/evaluator.py",
-  "src/azelficoast/belief/joint_posterior.py",
-  "src/azelficoast/belief/statistics.py",
-  "src/azelficoast/belief/status_move_prior.py",
-  "src/azelficoast/belief/training.py",
-  "src/azelficoast/belief/treatments.py",
-  "src/azelficoast/belief/validity.py",
+  "src/azelficoast/belief",
 
   # Research contracts and matched experiment settlement.
   "src/azelficoast/research/contracts.py",

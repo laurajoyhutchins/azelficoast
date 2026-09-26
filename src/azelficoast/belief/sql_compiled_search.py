@@ -252,6 +252,7 @@ def compile_packed_sql_decision_query(
             "decision SQL logical plan differs from the reviewed lowering"
         )
 
+    stages: tuple[str, ...]
     if query.semantic_identity == DECISION_QUERY_SEMANTIC_ID:
         if query.query_class != DECISION_EXPECTED_VALUE_QUERY:
             raise SQLPackedLoweringError(

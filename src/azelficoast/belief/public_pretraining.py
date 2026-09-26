@@ -257,7 +257,7 @@ def build_public_pretraining_records(
 
     rows: list[dict[str, Any]] = []
     source_decisions = 0
-    excluded = Counter()
+    excluded: Counter[str] = Counter()
 
     for fixture in fixtures:
         human_controls = [
