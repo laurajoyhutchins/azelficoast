@@ -1,0 +1,10 @@
+{
+  "schema": "azelficoast.sql-policy-parameter-sweep-plan",
+  "schema_version": 1,
+  "policy_resource": "risk_adjusted.sql",
+  "fixture_resource": "../fixtures/policy_action_statistics.json",
+  "parameter_grid": {
+    "risk_aversion": [0.0, 0.25, 0.5, 0.75, 1.0]
+  },
+  "require_all_actions": true
+}
