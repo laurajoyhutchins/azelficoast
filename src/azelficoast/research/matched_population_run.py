@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Sequence
 
 from azelficoast.belief.treatments import build_posterior
 from azelficoast.research.matched_comparison import freeze_packet, settle_packet, validate_plan
@@ -89,15 +89,31 @@ def run_state(
     manifest: Mapping[str, Any],
     population_index: int,
     oracle: Mapping[str, Any],
-    evaluator: Any,
+    evaluator: Any | None,
+    depths: Sequence[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Run every preregistered posterior/depth cell for one selected state."""
     checked_plan = validate_plan(plan)
-    identity = getattr(evaluator, "identity", None)
-    if not isinstance(identity, Mapping) or dict(identity) != checked_plan["evaluator"]:
-        raise MatchedPopulationRunError(
-            "loaded evaluator differs from the frozen matched-comparison plan"
-        )
+    expected_evaluator = checked_plan["evaluator"]
+    assert isinstance(expected_evaluator, Mapping)
+    material = expected_evaluator.get("schema") == "azelficoast.material-utility-evaluator"
+    if material:
+        if evaluator is not None:
+            raise MatchedPopulationRunError(
+                "material population execution must not load a learned evaluator"
+            )
+    else:
+        identity = getattr(evaluator, "identity", None)
+        if not isinstance(identity, Mapping) or dict(identity) != expected_evaluator:
+            raise MatchedPopulationRunError(
+                "loaded evaluator differs from the frozen matched-comparison plan"
+            )
+
+    selected_depths = tuple(
+        int(depth) for depth in (checked_plan["depths"] if depths is None else depths)
+    )
+    if not selected_depths or any(depth not in checked_plan["depths"] for depth in selected_depths):
+        raise MatchedPopulationRunError("requested depths differ from the frozen plan")
 
     selection = _selection(manifest, population_index=population_index)
     state = _state_from_source(source=source, selection=selection, plan=checked_plan)
@@ -107,7 +123,7 @@ def run_state(
     results: list[dict[str, Any]] = []
     for treatment in checked_plan["posterior_treatments"]:
         posterior = build_posterior(oracle, treatment=str(treatment))
-        for depth in checked_plan["depths"]:
+        for depth in selected_depths:
             packet = freeze_packet(
                 plan=checked_plan,
                 state=state,
