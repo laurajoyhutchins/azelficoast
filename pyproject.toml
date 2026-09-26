@@ -75,6 +75,7 @@ files = [
   "src/azelficoast/belief/battle_promotion.py",
   "src/azelficoast/belief/competence.py",
   "src/azelficoast/belief/coverage.py",
+  "src/azelficoast/belief/evaluator.py",
   "src/azelficoast/belief/joint_posterior.py",
   "src/azelficoast/belief/statistics.py",
   "src/azelficoast/belief/status_move_prior.py",
