@@ -228,6 +228,3 @@ def run_experiment() -> dict[str, object]:
         ],
     }
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
