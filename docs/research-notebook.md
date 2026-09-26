@@ -189,7 +189,7 @@ semantics. JAX is an opt-in dependency so the ordinary battle/evidence harness s
 
 ```bash
 uv sync --extra simulator
-uv run python -m azelficoast.research.experiments.jax_simulator_experiment
+uv run python -m azelficoast.research.ci run jax-simulator
 ```
 
 The hosted experiment checks the JAX batch kernels against the scalar reference, then measures
@@ -393,8 +393,7 @@ subset, and emits standalone C99 with 64-bit intermediates and Python-compatible
 
 ```bash
 uv sync --extra simulator
-uv run python -m azelficoast.research.experiments.native_damage_experiment \
-  /tmp/showdown-gen9-damage-fixtures.json
+uv run python -m azelficoast.research.ci run native-damage
 ```
 
 Hosted correctness requires the interpreted numeric function, generated native code, JAX lowering,

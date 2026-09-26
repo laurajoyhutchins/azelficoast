@@ -1,6 +1,17 @@
 from __future__ import annotations
 
-from azelficoast.research.ci import EXPERIMENTS, experiments_for_paths, matrix_for
+import json
+from pathlib import Path
+import sys
+import types
+
+from azelficoast.research.ci import (
+    EXPERIMENTS,
+    ModuleRun,
+    _execute_module,
+    experiments_for_paths,
+    matrix_for,
+)
 
 
 def _names(paths: tuple[str, ...]) -> set[str]:
@@ -90,3 +101,46 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
     ]
     assert selected[0].simulator is True
     assert selected[0].showdown is False
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_candidate_experiments_delegate_execution_to_registry() -> None:
+    modules = [
+        module
+        for experiment in EXPERIMENTS
+        for module in experiment.modules
+    ]
+    assert modules
+    assert all(module.entrypoint for module in modules)
+    for module in modules:
+        source = (
+            ROOT / "src" / Path(*module.module.split(".")).with_suffix(".py")
+        ).read_text(encoding="utf-8")
+        assert 'if __name__ == "__main__":' not in source
+
+
+def test_callable_module_contract_executes_and_serializes(tmp_path, monkeypatch) -> None:
+    path_module = types.ModuleType("azelficoast_test_path_experiment")
+    document_module = types.ModuleType("azelficoast_test_document_experiment")
+    fixture = tmp_path / "fixture.json"
+    fixture.write_text('{"fixture": 7}\n', encoding="utf-8")
+    path_module.run_experiment = lambda path: {"path": path.name, "passed": True}
+    document_module.analyze_document = lambda document: {
+        "fixture": document["fixture"],
+        "passed": False,
+    }
+    monkeypatch.setitem(sys.modules, path_module.__name__, path_module)
+    monkeypatch.setitem(sys.modules, document_module.__name__, document_module)
+
+    assert _execute_module(
+        ModuleRun(path_module.__name__, "path.json", fixture.name, "run_experiment"),
+        tmp_path,
+    ) == 0
+    assert _execute_module(
+        ModuleRun(document_module.__name__, "document.json", fixture.name, "analyze_document"),
+        tmp_path,
+    ) == 1
+    assert json.loads((tmp_path / "path.json").read_text())["path"] == fixture.name
+    assert json.loads((tmp_path / "document.json").read_text())["fixture"] == 7

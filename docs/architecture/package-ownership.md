@@ -11,8 +11,9 @@ initializer; every implementation file belongs to one of these areas.
 | `live` | Battle integration, operator harness, and live trace/corpus capture. |
 | `research` | Independent verification and retained experiments that produce evidence. |
 
-Within `research`, `experiments` contains executable experiment entry points,
-`mechanics` contains bounded reference mechanics and simulator models, and
+Within `research`, `experiments` contains experiment-specific scientific semantics
+invoked through shared research execution contracts, `mechanics` contains bounded reference
+mechanics and simulator models, and
 `verification` contains Showdown comparisons, replay reconstruction, and
 counterexamples that independently check those models. Research package-root
 modules are reusable contracts, orchestration, evidence acquisition, or
