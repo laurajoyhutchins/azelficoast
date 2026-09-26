@@ -49,6 +49,49 @@ equivalent ordinal ordering stay ordinary SQL rather than becoming Azelficoast s
 Program equivalence is explicitly SQLite-version-bound. The explain receipt records the
 SQLite version and executable-program hash.
 
+## EXPLAIN AZELFICOAST
+
+The packed decision path exposes a read-only optimizer receipt through
+`explain_sql_packed_transition_program(...)`. It is the programmatic equivalent of
+`EXPLAIN AZELFICOAST`: the SQL is parsed and semantically recognized, the verified
+transition topology is compiled, and the planner reports the complete logical-to-physical
+mapping without invoking the learned evaluator or choosing an action.
+
+The receipt includes:
+
+- the normal SQL admission and SQLite planner evidence;
+- the nine semantic operators from scan through aggregate;
+- fused physical groups for posterior packing, authorized topology construction, belief
+  transport, packed evaluation, and root reduction;
+- the costed outcome-aggregation/world-join order selected by compiled search;
+- cheap lower-bound and realized topology cardinalities;
+- advisory FILTER/PARTITION forecasts and posterior extended statistics when a planner
+  statistics catalog is supplied;
+- transition-program and compiled-topology identities; and
+- an explicit authority record showing that mechanics and information-set grouping stay
+  outside SQL.
+
+Calling explain does not add observations to `PlannerStatistics`, run JAX, call the
+learned evaluator, or select a battle action. This keeps introspection from changing the
+plan it is trying to inspect.
+
+```text
+SQL source
+   |
+   v
+semantic operators
+   |
+   +--> posterior-pack
+   +--> authorized-topology
+   |       `--> costed outcome/world join order
+   +--> belief-transport
+   +--> packed-evaluator
+   +--> root-reduction
+   |
+   v
+read-only optimizer receipt
+```
+
 ## Fail-closed rule
 
 Syntactically valid SQL does not automatically become executable decision semantics.
