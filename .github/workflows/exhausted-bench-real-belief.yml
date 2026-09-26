@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - "experiments/opponent-policy-semantics.json"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
 
-from azelficoast.research.verification.real_belief_trace import BeliefTraceError, analyze_oracle
+from azelficoast.research.verification.real_belief_trace import (
+    BeliefTraceError,
+    _load_oracle_document,
+    analyze_oracle,
+)
 
 
 def _oracle() -> dict[str, object]:
@@ -591,3 +596,11 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert "function generatorPopulationMaterial" not in source
     assert "function moveDamageHeuristic(" not in source
     assert "function compileLazyWholeTurnPrograms(" not in source
+
+
+def test_oracle_document_loader_streams_large_top_level_arrays(tmp_path: Path) -> None:
+    expected = _oracle()
+    path = tmp_path / "oracle.json"
+    path.write_text(json.dumps(expected, separators=(",", ":")), encoding="utf-8")
+
+    assert _load_oracle_document(path, chunk_size=13) == expected

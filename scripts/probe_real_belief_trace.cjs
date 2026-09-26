@@ -5,6 +5,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const {execFileSync} = require("node:child_process");
+const {writeJsonStream} = require("./json_stream_writer.cjs");
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -497,6 +498,21 @@ function normalizedOpponentPolicy() {
     voluntary_switches: true,
   };
 }
+
+const opponentPolicySemantics = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, "../experiments/opponent-policy-semantics.json"),
+    "utf8"
+  )
+);
+if (
+  opponentPolicySemantics.schema !== "azelficoast.opponent-policy-semantics" ||
+  typeof opponentPolicySemantics.semantics_version !== "string"
+) {
+  fail("invalid versioned opponent policy semantics contract");
+}
+const OPPONENT_POLICY_SEMANTICS_VERSION =
+  opponentPolicySemantics.semantics_version;
 
 const OPPONENT_POLICY = normalizedOpponentPolicy();
 
@@ -1485,6 +1501,7 @@ if (posteriorOnly) {
       observed_opponent_moves: observedOpponentMoves(),
       known_opponent_item: source.known_opponent_item || null,
       opponent_policy: OPPONENT_POLICY,
+      opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
       opponent_bench_species: OPPONENT_BENCH_SPECIES,
@@ -1593,7 +1610,7 @@ const factoredHidden = benchFactor
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-process.stdout.write(JSON.stringify({
+void writeJsonStream({
   schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
@@ -1612,6 +1629,7 @@ process.stdout.write(JSON.stringify({
         : "uniform legal moves"
     ),
     opponent_policy: OPPONENT_POLICY,
+    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
     continuation_scope:
       CONTINUATION_DECISION_HORIZONS === 1
         ? "all non-Tera player choices at the next decision"
@@ -1631,6 +1649,7 @@ process.stdout.write(JSON.stringify({
       "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
     observed_opponent_moves: observedOpponentMoves(),
     opponent_policy: OPPONENT_POLICY,
+    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
     opponent_bench_species: OPPONENT_BENCH_SPECIES,
@@ -1649,4 +1668,7 @@ process.stdout.write(JSON.stringify({
   worlds: outputWorlds,
   legal_actions: legalActions,
   transitions,
-}, null, 2) + "\n");
+}).catch(error => {
+  process.stderr.write(String(error.stack || error) + "\n");
+  process.exitCode = 1;
+});
