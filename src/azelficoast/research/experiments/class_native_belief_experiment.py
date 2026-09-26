@@ -376,6 +376,3 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
         ],
     }
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
