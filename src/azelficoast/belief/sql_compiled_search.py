@@ -30,6 +30,7 @@ from azelficoast.core.compiled_search import (
 )
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
 from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
+from azelficoast.core.sql_transport import describe_information_set_transport
 from azelficoast.core.sql import (
     DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
@@ -336,6 +337,7 @@ def explain_sql_packed_transition_program(
         "optimizer": {
             "groups": _optimizer_groups(plan),
             "outcome_world_join": topology.outcome_world_join_plan.as_record(),
+            "relational_transport_reference": describe_information_set_transport(),
             "cardinality": {
                 "lower_bound": lower_bound.as_record(),
                 "realized": {
