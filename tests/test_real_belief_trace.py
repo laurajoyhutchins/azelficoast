@@ -609,7 +609,8 @@ def test_oracle_document_loader_streams_large_top_level_arrays(tmp_path: Path) -
 
 
 def test_declared_reads_receives_transition_evidence_explicitly() -> None:
-    source = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "scripts" / "probe_real_belief_trace.cjs").read_text(
         encoding="utf-8"
     )
 
