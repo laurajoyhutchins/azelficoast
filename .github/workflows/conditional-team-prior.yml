@@ -4,6 +4,8 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".python-version"
       - ".github/actions/setup-showdown/action.yml"
       - "showdown/revision.json"
       - "showdown/research/belief/evaluate_conditional_team_prior.cjs"
@@ -22,6 +24,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
 
       - name: Setup pinned Pokémon Showdown
         uses: ./.github/actions/setup-showdown
