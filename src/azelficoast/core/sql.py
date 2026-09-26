@@ -479,23 +479,110 @@ def bound_semantic_identity(
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
-def _sqlite_parameter_names(rows: list[tuple[Any, ...]]) -> tuple[str, ...]:
-    names: set[str] = set()
-    for row in rows:
-        if len(row) < 6 or row[1] != "Variable":
+def _sql_parameter_tokens(sql: str) -> tuple[str, ...]:
+    """Recover the restricted named-parameter surface from SQL source.
+
+    SQLite's VDBE EXPLAIN output is not a stable source for parameter token text:
+    some supported builds expose the Variable opcode while leaving its p4 token
+    empty.  Keep SQLite authoritative for parsing/execution, but recover the
+    deliberately narrow writer-facing parameter syntax from source so exact
+    binding validation does not depend on diagnostic bytecode formatting.
+    """
+
+    tokens: set[str] = set()
+    quote: str | None = None
+    index = 0
+    while index < len(sql):
+        character = sql[index]
+
+        if quote is not None:
+            if quote == "]":
+                if character == "]":
+                    quote = None
+                index += 1
+                continue
+            if character == quote:
+                if index + 1 < len(sql) and sql[index + 1] == quote:
+                    index += 2
+                    continue
+                quote = None
+            index += 1
             continue
-        token = row[5]
-        if not isinstance(token, str) or not token:
+
+        if sql.startswith("--", index):
+            index += 2
+            while index < len(sql) and sql[index] not in "\r\n":
+                index += 1
+            continue
+
+        if sql.startswith("/*", index):
+            end = sql.find("*/", index + 2)
+            index = len(sql) if end < 0 else end + 2
+            continue
+
+        if character in {"'", '"', "`"}:
+            quote = character
+            index += 1
+            continue
+        if character == "[":
+            quote = "]"
+            index += 1
+            continue
+
+        if character == "?":
             raise SQLQueryError("only named SQL parameters are supported")
-        if token[0] not in {":", "@", "$"}:
-            raise SQLQueryError("only named SQL parameters are supported")
-        name = token[1:]
-        if not name or not name.isascii() or not name.isidentifier():
+
+        if character not in {":", "@", "$"}:
+            index += 1
+            continue
+
+        start = index
+        index += 1
+        name_start = index
+        while index < len(sql):
+            candidate = sql[index]
+            if candidate.isalnum() or candidate == "_" or ord(candidate) >= 128:
+                index += 1
+                continue
+            break
+
+        token = sql[start:index]
+        name = sql[name_start:index]
+        if (
+            not name
+            or not name.isascii()
+            or not name.isidentifier()
+            or (
+                character == "$"
+                and (
+                    sql.startswith("::", index)
+                    or (index < len(sql) and sql[index] == "(")
+                )
+            )
+        ):
             raise SQLQueryError(
                 f"SQL parameter name must be an ASCII identifier: {token!r}"
             )
-        names.add(name)
-    return tuple(sorted(names))
+        tokens.add(token)
+
+    return tuple(sorted(tokens))
+
+
+def _sqlite_parameter_names(
+    rows: list[tuple[Any, ...]],
+    sql: str,
+) -> tuple[str, ...]:
+    tokens = _sql_parameter_tokens(sql)
+    variable_indices = {
+        row[2]
+        for row in rows
+        if len(row) >= 3 and row[1] == "Variable"
+    }
+    if len(variable_indices) != len(tokens):
+        raise SQLQueryError(
+            "SQLite parameter program does not match SQL source"
+        )
+    return tuple(sorted({token[1:] for token in tokens}))
 
 
 def _prepare_connection() -> sqlite3.Connection:
@@ -905,7 +992,7 @@ def prepare_sql_query(
         finally:
             connection.set_authorizer(None)
 
-        parameter_names = _sqlite_parameter_names(program_rows)
+        parameter_names = _sqlite_parameter_names(program_rows, execution_sql)
         provided_parameter_names = tuple(
             binding.name for binding in parameter_bindings
         )
