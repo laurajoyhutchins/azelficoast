@@ -214,3 +214,21 @@ Accordingly search reports both semantic work and physical reuse:
 `transition_evaluations` remains the scientific work unit, while
 `frontier_memo_hit` and `frontier_builds` expose whether the physical frontier was
 materialized during this call. Memo groups are bounded LRU state, not durable authority.
+
+
+### Advisory selectivity statistics
+
+The SQL physical layer now has an `ANALYZE`-style in-memory statistics catalog for
+logical row-reduction operators. Each histogram is keyed by logical operator plus a
+semantic signature and records only observed input/output cardinalities.
+
+The first consumers are `FILTER` and `PARTITION` in the reviewed decision SQL path.
+Before execution, the planner emits smoothed forecasts for active posterior rows and
+verified transition classes. After execution, exact packed/topology cardinalities are
+fed back into the catalog and forecast error is recorded.
+
+These statistics are deliberately **not authority**. A bad histogram may make a forecast
+bad, but it cannot change the admitted SQL, transition program, information-set
+partition, evaluator, or result. Exact validation and the cardinality envelope remain
+the hard fences. The catalog is currently process-local; durable statistics should only
+be added once invalidation identity and replay semantics are explicit.
