@@ -295,3 +295,13 @@ ef test_showdown_revision_is_declared_once_in_repository_contract() -> None:
     assert "default: a5df8274e85b0889bf2a9b3422a08b39732374fc" not in action
     assert "steps.revision.outputs.sha" in action
     assert "revision_path = REPOSITORY_ROOT / \"experiments\" / \"showdown-revision.txt\"" in runner
+
+
+def test_showdown_consumers_observe_revision_contract_changes() -> None:
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        if "uses: ./.github/actions/setup-showdown" not in source:
+            continue
+        assert '- "experiments/showdown-revision.txt"' in source, (
+            f"{path.name} must rerun when pinned Showdown revision changes"
+        )
