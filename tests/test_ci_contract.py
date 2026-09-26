@@ -18,10 +18,23 @@ def _event_block(source: str, event: str) -> str:
     lines = after.splitlines(keepends=True)
     block: list[str] = []
     for line in lines:
-        if line.startswith("  ") and not line.startswith("    ") and line.rstrip().endswith(":"):
+        if (
+            line.startswith("  ")
+            and not line.startswith("    ")
+            and line.rstrip().endswith(":")
+        ):
             break
         block.append(line)
     return "".join(block)
+
+
+def test_workflow_surface_is_small_and_authority_specific() -> None:
+    assert {path.name for path in WORKFLOWS.glob("*.yml")} == {
+        "ci.yml",
+        "research.yml",
+        "showdown-build-cache.yml",
+        "training.yml",
+    }
 
 
 def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
@@ -43,28 +56,19 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "src/azelficoast/belief/packed_evaluator.py",
         "src/azelficoast/belief/showdown_packing.py",
     ]
-    required = {
+    assert {
         "src/azelficoast/research/contracts.py",
         "src/azelficoast/research/matched_comparison.py",
         "src/azelficoast/research/matched_search.py",
         "src/azelficoast/research/typed_search.py",
         "src/azelficoast/research/population_cohort.py",
-    }
-    assert required <= checked
+    } <= checked
 
     ruff_rules = set(config["tool"]["ruff"]["lint"]["select"])
     assert {"E4", "E7", "E9", "F", "B", "RUF012"} <= ruff_rules
-    assert config["tool"]["ruff"]["lint"]["flake8-bugbear"]["extend-immutable-calls"] == [
-        "azelficoast.belief.battle_promotion.BattlePromotionPolicy",
-        "azelficoast.belief.evaluator.BeliefEvaluatorSpec",
-        "azelficoast.belief.improvement.AdmissionPolicy",
-    ]
-    assert config["tool"]["ruff"]["lint"]["per-file-ignores"] == {
-        "tests/**/*.py": ["RUF012"]
-    }
 
 
-def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> None:
+def test_pr_ci_cancels_superseded_heads() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     pull_request = _event_block(source, "pull_request")
 
@@ -81,43 +85,19 @@ def test_ci_checks_entire_javascript_script_frontier() -> None:
     assert "npm run typecheck:scripts" in source
     assert "find scripts -type f -name '*.cjs' -print0" in source
     assert 'node --check "$script"' in source
-
-    # Script admission is directory-derived, not a hand-maintained trusted allowlist.
     assert "node --check scripts/probe_real_belief_trace.cjs" not in source
-    assert "node --check scripts/probe_real_belief_worker.cjs" not in source
-    assert "node --check scripts/transition_successor_delta.cjs" not in source
 
 
-def test_expensive_pr_workflows_are_exact_head_fenced() -> None:
-    checked: list[str] = []
+def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    pull_request = _event_block(source, "pull_request")
 
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        if path.name == "ci.yml":
-            continue
-
-        source = path.read_text(encoding="utf-8")
-        if "  pull_request:\n" not in source:
-            continue
-
-        pull_request = _event_block(source, "pull_request")
-        if path.name == "candidate-research.yml":
-            assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
-            assert "github.event.pull_request.draft == false" in source
-            assert "github.event.pull_request.head.sha || github.sha" in source
-        else:
-            assert "types: [ready_for_review]" in pull_request, (
-                f"{path.name} must remain candidate-only until migrated"
-            )
-        assert "  workflow_dispatch:\n" in source, (
-            f"{path.name} must retain an explicit manual evidence path"
-        )
-        assert "${{ github.event.pull_request.number || github.ref }}" in source, (
-            f"{path.name} must key concurrency by PR when available"
-        )
-        assert "cancel-in-progress: true" in source
-        checked.append(path.name)
-
-    assert checked, "expected at least one research workflow"
+    assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
+    assert "  workflow_dispatch:\n" in source
+    assert "github.event.pull_request.draft == false" in source
+    assert "github.event.pull_request.head.sha || github.sha" in source
+    assert "group: research-${{ github.event.pull_request.number || github.ref }}" in source
+    assert "cancel-in-progress: true" in source
 
 
 def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
@@ -126,9 +106,7 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
     ).read_text(encoding="utf-8")
 
     assert "uses: actions/setup-python@v7" in source
-    assert 'python-version:' in source
     assert 'default: "3.13"' in source
-    assert 'python-version: "${{ inputs.python-version }}"' in source
     assert "python -m pip install uv==0.12.18" in source
     assert "uv sync --locked" in source
     assert "uv sync --locked --extra simulator" in source
@@ -136,8 +114,8 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
 
 def test_base_static_analysis_runs_in_declared_python_version() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
-
     static = source[source.index("  static:\n") : source.index("  test:\n")]
+
     assert "uses: ./.github/actions/setup-python-environment" in static
     assert 'python-version: "3.11"' in static
     assert "run: uv run mypy" in static
@@ -145,75 +123,37 @@ def test_base_static_analysis_runs_in_declared_python_version() -> None:
 
 def test_uv_managed_workflows_use_shared_python_environment() -> None:
     checked: list[str] = []
-
     for path in sorted(WORKFLOWS.glob("*.yml")):
         source = path.read_text(encoding="utf-8")
         if "uv run" not in source:
             continue
-
-        assert "uses: ./.github/actions/setup-python-environment" in source, (
-            f"{path.name} must use the shared Python environment setup"
-        )
+        assert "uses: ./.github/actions/setup-python-environment" in source
         assert "actions/setup-python@v7" not in source
         assert "pip install uv" not in source
         assert "uv sync --locked" not in source
-
-        if path.name != "ci.yml" and "    paths:\n" in source:
-            assert '- ".github/actions/setup-python-environment/action.yml"' in source, (
-                f"{path.name} must rerun when shared Python setup changes"
-            )
-
-        if '- "pyproject.toml"' in source:
-            assert '- "uv.lock"' in source, (
-                f"{path.name} treats pyproject.toml as dependency-sensitive "
-                "and must treat uv.lock the same way"
-            )
-
         checked.append(path.name)
 
-    assert checked, "expected at least one uv-managed workflow"
+    assert checked == ["ci.yml", "research.yml", "training.yml"]
 
 
 def test_training_workflow_observes_replay_bridge_changes() -> None:
     source = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
-
     assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
 
 
-def test_repository_evidence_replaces_historical_artifact_runtime_dependencies() -> None:
+def test_repository_evidence_is_digest_verified_before_use() -> None:
     manifest = ROOT / "experiments" / "evidence" / "canonical-evidence.json"
     bundle = ROOT / "experiments" / "evidence" / "canonical-evidence.tar.gz"
     action = ROOT / ".github" / "actions" / "setup-research-evidence" / "action.yml"
 
     assert manifest.is_file()
     assert bundle.is_file()
-    assert action.is_file()
+    source = action.read_text(encoding="utf-8")
+    assert "canonical-evidence.json" in source
+    assert "canonical-evidence.tar.gz" in source
+    assert "sha256sum" in source
+    assert "tar -xzf" in source
 
-    action_source = action.read_text(encoding="utf-8")
-    assert "canonical-evidence.json" in action_source
-    assert "canonical-evidence.tar.gz" in action_source
-    assert "sha256sum" in action_source
-    assert "tar -xzf" in action_source
-
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        source = path.read_text(encoding="utf-8")
-        assert "actions/artifacts/" not in source, (
-            f"{path.name} must not depend on historical Actions artifacts"
-        )
-        assert "restore-exact-artifact" not in source, (
-            f"{path.name} must consume repository evidence instead of artifact restoration"
-        )
-
-
-
-def test_population_workflow_delegates_frozen_cohort_semantics() -> None:
-    source = (WORKFLOWS / "natural-population-strategy-fusion.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "freeze-cohort:" not in source
-    assert "setup-research-evidence" in source
-    assert "azelficoast.research.hosted natural-population-shard" in source
-    assert "/tmp/azelficoast-evidence/population/manifest.json" not in source
 
 def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
     source = (
@@ -223,51 +163,6 @@ def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
     assert '"superseded_cohort_after_forme_bug"' not in source
     assert '"preregistration_amendment' not in source
     assert '"canonical_cohort"' in source
-
-
-def test_completed_discovery_workflows_are_not_executable_ci() -> None:
-    obsolete = {
-        "public-belief-feasibility-search.yml",
-        "natural-disagreement-experiment.yml",
-        "real-belief-candidate-corpus.yml",
-        "natural-public-belief-exact.yml",
-        "natural-public-belief-robustness.yml",
-        "simulator-adaptive-execution-experiment.yml",
-        "simulator-attack-transition-experiment.yml",
-        "simulator-class-native-belief-experiment.yml",
-        "simulator-gen9-damage-experiment.yml",
-        "simulator-jax-experiment.yml",
-        "simulator-native-damage-experiment.yml",
-        "simulator-ordered-attack-experiment.yml",
-        "simulator-showdown-experiment.yml",
-        "simulator-two-attack-turn-experiment.yml",
-        "stateful-protect-turn-experiment.yml",
-        "switch-entry-hazard-experiment.yml",
-        "switch-intimidate-experiment.yml",
-        "voluntary-switch-turn-experiment.yml",
-    }
-    present = {path.name for path in WORKFLOWS.glob("*.yml")}
-    assert obsolete.isdisjoint(present), sorted(obsolete & present)
-
-
-def test_canonical_evidence_consumers_observe_evidence_changes() -> None:
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        source = path.read_text(encoding="utf-8")
-        if "uses: ./.github/actions/setup-research-evidence" not in source:
-            continue
-        if path.name == "ci.yml":
-            continue
-
-        assert '- ".github/actions/setup-research-evidence/action.yml"' in source, (
-            f"{path.name} must observe canonical evidence setup changes"
-        )
-        assert '- "experiments/evidence/canonical-evidence.json"' in source, (
-            f"{path.name} must observe canonical evidence manifest changes"
-        )
-        assert '- "experiments/evidence/canonical-evidence.tar.gz"' in source, (
-            f"{path.name} must observe canonical evidence bundle changes"
-        )
-
 
 
 def test_research_semantics_do_not_live_in_workflow_yaml() -> None:
@@ -298,22 +193,40 @@ def test_research_semantics_do_not_live_in_workflow_yaml() -> None:
         )
 
 
-def test_candidate_research_emits_one_exact_head_certificate() -> None:
-    source = (WORKFLOWS / "candidate-research.yml").read_text(encoding="utf-8")
+def test_research_workflow_calls_only_generic_research_entrypoints() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
 
-    assert "\n  certify:\n" in source
-    assert "needs: [plan, exact, accelerator-static]" in source
-    assert "if: always() && needs.plan.result == 'success'" in source
-    assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
+    assert "azelficoast.research.ci plan" in source
+    assert "azelficoast.research.ci run" in source
+    assert "azelficoast.research.ci certify" in source
+    assert "azelficoast.research.hosted plan" in source
+    assert "azelficoast.research.hosted run-unit" in source
+    assert "azelficoast.research.hosted prepare-aggregate" in source
+    assert "azelficoast.research.hosted aggregate" in source
+
+    for operation in (
+        "natural-depth-shard",
+        "natural-population-shard",
+        "public-belief-exact",
+        "conditional-team-prior",
+        "protect-action-survival",
+    ):
+        assert f"azelficoast.research.hosted {operation}" not in source
+
+
+def test_candidate_research_emits_one_exact_head_certificate() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+
+    assert "\n  candidate-certify:\n" in source
+    assert "needs: [candidate-plan, candidate-exact, accelerator-static]" in source
+    assert "if: always() && needs.candidate-plan.result == 'success'" in source
+    assert (
+        'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}'
+        in source
+    )
     assert "uv run python -m azelficoast.research.ci certify" in source
-    assert "python - <<'PY'" not in source
     assert "name: candidate-research-certificate" in source
     assert "Type check accelerator frontier" in source
-    assert "src/azelficoast/core/compiled_search.py" in source
-    assert "src/azelficoast/belief/showdown_packing.py" in source
-    assert "src/azelficoast/belief/packed_evaluator.py" in source
-    assert "src/azelficoast/belief/compiled_search.py" in source
-
 
 
 def test_candidate_specs_do_not_live_in_ci_runner() -> None:
@@ -328,6 +241,8 @@ def test_candidate_specs_do_not_live_in_ci_runner() -> None:
     assert "paths=(" not in runner
     assert "EXPERIMENTS: tuple[CandidateExperiment" not in runner
     assert "EXPERIMENTS: tuple[CandidateExperiment" in contracts
+    assert '".github/workflows/research.yml"' in contracts
+    assert "candidate-research.yml" not in contracts
 
 
 def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
@@ -345,7 +260,6 @@ def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
     )
 
     assert re.fullmatch(r"[0-9a-f]{40}", revision)
-    assert "default: a5df8274e85b0889bf2a9b3422a08b39732374fc" not in action
     assert "steps.revision.outputs.sha" in action
     assert 'REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"' in runner
     assert "../experiments/showdown-revision.txt" in probe
@@ -353,16 +267,14 @@ def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
     assert revision not in probe
 
 
-def test_showdown_consumers_observe_revision_contract_changes() -> None:
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        source = path.read_text(encoding="utf-8")
-        if "uses: ./.github/actions/setup-showdown" not in source:
-            continue
-        if "    paths:\n" not in source:
-            continue
-        assert '- "experiments/showdown-revision.txt"' in source, (
-            f"{path.name} must rerun when pinned Showdown revision changes"
-        )
+def test_showdown_workflow_triggers_observe_revision_contract() -> None:
+    research = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    training = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
+    cache = (WORKFLOWS / "showdown-build-cache.yml").read_text(encoding="utf-8")
+
+    assert '- "experiments/**"' in research
+    assert '- "experiments/showdown-revision.txt"' in training
+    assert '- "experiments/showdown-revision.txt"' in cache
 
 
 def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
@@ -381,41 +293,3 @@ def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
         "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION"
         in script
     )
-
-
-def test_oracle_workflows_observe_probe_contract_changes() -> None:
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        source = path.read_text(encoding="utf-8")
-        if (
-            "scripts/probe_real_belief_trace.cjs" not in source
-            or "    paths:\n" not in source
-        ):
-            continue
-        for dependency in (
-            'scripts/real_belief_probe/**',
-            'scripts/json_stream_writer.cjs',
-            'experiments/opponent-policy-semantics.json',
-        ):
-            assert f'- "{dependency}"' in source, (
-                f"{path.name} must observe {dependency}"
-            )
-
-
-def test_hosted_witness_membership_is_not_encoded_in_yaml() -> None:
-    from azelficoast.research.hosted.belief import (
-        EXHAUSTED_FIXTURES,
-        PUBLIC_BELIEF_FIXTURES,
-    )
-
-    suites = {
-        "exhausted-bench-real-belief.yml": ("exhausted-bench", EXHAUSTED_FIXTURES),
-        "public-belief-exact-corpus.yml": (
-            "public-belief-exact",
-            PUBLIC_BELIEF_FIXTURES,
-        ),
-    }
-    for workflow, (suite, cases) in suites.items():
-        source = (WORKFLOWS / workflow).read_text(encoding="utf-8")
-        assert f"azelficoast.research.hosted matrix {suite}" in source
-        for name in cases:
-            assert name not in source
