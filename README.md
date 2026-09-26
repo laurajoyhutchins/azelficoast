@@ -1,3 +1,5 @@
+`SELECT best_move FROM battle;`
+
 # Azelficoast
 
 Azelficoast is an evidence-first research system for competitive Pokémon battle AI under partial observability.
