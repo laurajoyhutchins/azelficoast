@@ -9,6 +9,7 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "experiments/showdown-revision.txt"
       - ".github/workflows/training.yml"
       - "src/azelficoast/belief/**"
       - "src/azelficoast/live/**"
