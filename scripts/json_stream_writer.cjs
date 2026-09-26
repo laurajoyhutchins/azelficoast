@@ -10,7 +10,14 @@ function normalizeToJSON(value) {
   return value;
 }
 
-function* jsonTokens(rawValue, depth, arraySlot, ancestors, normalized = false) {
+function* jsonTokens(
+  rawValue,
+  depth,
+  arraySlot,
+  ancestors,
+  pretty,
+  normalized = false,
+) {
   const value = normalized ? rawValue : normalizeToJSON(rawValue);
 
   if (value === null || typeof value === "string" ||
@@ -27,9 +34,7 @@ function* jsonTokens(rawValue, depth, arraySlot, ancestors, normalized = false) 
   if (typeof value === "bigint") {
     throw new TypeError("Do not know how to serialize a BigInt");
   }
-  if (typeof value !== "object") {
-    return;
-  }
+  if (typeof value !== "object") return;
   if (ancestors.has(value)) {
     throw new TypeError("Converting circular structure to JSON");
   }
@@ -41,14 +46,16 @@ function* jsonTokens(rawValue, depth, arraySlot, ancestors, normalized = false) 
         yield "[]";
         return;
       }
-      yield "[\n";
+      yield pretty ? "[\\n" : "[";
       for (let index = 0; index < value.length; index += 1) {
-        if (index > 0) yield ",\n";
-        yield "  ".repeat(depth + 1);
-        yield* jsonTokens(value[index], depth + 1, true, ancestors);
+        if (index > 0) yield pretty ? ",\\n" : ",";
+        if (pretty) yield "  ".repeat(depth + 1);
+        yield* jsonTokens(value[index], depth + 1, true, ancestors, pretty);
       }
-      yield "\n";
-      yield "  ".repeat(depth);
+      if (pretty) {
+        yield "\\n";
+        yield "  ".repeat(depth);
+      }
       yield "]";
       return;
     }
@@ -66,17 +73,19 @@ function* jsonTokens(rawValue, depth, arraySlot, ancestors, normalized = false) 
       yield "{}";
       return;
     }
-    yield "{\n";
+    yield pretty ? "{\\n" : "{";
     for (let index = 0; index < entries.length; index += 1) {
-      if (index > 0) yield ",\n";
+      if (index > 0) yield pretty ? ",\\n" : ",";
       const [key, entryValue] = entries[index];
-      yield "  ".repeat(depth + 1);
+      if (pretty) yield "  ".repeat(depth + 1);
       yield JSON.stringify(key);
-      yield ": ";
-      yield* jsonTokens(entryValue, depth + 1, false, ancestors, true);
+      yield pretty ? ": " : ":";
+      yield* jsonTokens(entryValue, depth + 1, false, ancestors, pretty, true);
     }
-    yield "\n";
-    yield "  ".repeat(depth);
+    if (pretty) {
+      yield "\\n";
+      yield "  ".repeat(depth);
+    }
     yield "}";
   } finally {
     ancestors.delete(value);
@@ -86,7 +95,7 @@ function* jsonTokens(rawValue, depth, arraySlot, ancestors, normalized = false) 
 async function writeJsonStream(
   value,
   writable = process.stdout,
-  {chunkBytes = 64 * 1024} = {},
+  {chunkBytes = 64 * 1024, pretty = false} = {},
 ) {
   if (!Number.isInteger(chunkBytes) || chunkBytes < 1) {
     throw new RangeError("chunkBytes must be a positive integer");
@@ -102,7 +111,7 @@ async function writeJsonStream(
     if (!writable.write(output)) await once(writable, "drain");
   };
 
-  for (const token of jsonTokens(value, 0, false, new WeakSet())) {
+  for (const token of jsonTokens(value, 0, false, new WeakSet(), pretty)) {
     const tokenBytes = Buffer.byteLength(token, "utf8");
     if (chunks.length > 0 && bufferedBytes + tokenBytes > chunkBytes) {
       await flush();
@@ -111,7 +120,7 @@ async function writeJsonStream(
     bufferedBytes += tokenBytes;
     if (bufferedBytes >= chunkBytes) await flush();
   }
-  chunks.push("\n");
+  chunks.push("\\n");
   await flush();
 }
 
