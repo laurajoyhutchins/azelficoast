@@ -9,6 +9,7 @@
     "practical"
   ],
   "default_enabled_treatments": [
+    "oracle",
     "generator_faithful",
     "practical"
   ],
@@ -17,7 +18,8 @@
     "information_set"
   ],
   "execution_depths": [
-    1
+    1,
+    2
   ],
   "required_depth_curve": [
     1,
@@ -25,16 +27,49 @@
   ],
   "compute": {
     "unit": "transition_evaluations",
-    "same_authorized_limit_per_method": true
+    "same_authorized_limit_per_method": true,
+    "per_method_limit": 65536,
+    "definition": "one transition_evaluation per verified horizon-complete execution class consumed"
+  },
+  "chance_treatment": {
+    "root_chance_samples": 8,
+    "continuation_chance_samples": 2,
+    "chance_seed_family": 0
   },
   "opponent_model": "fixed_observed_response",
+  "evaluator": {
+    "schema": "azelficoast.material-utility-evaluator",
+    "schema_version": 1,
+    "checkpoint_digest": "sha256:29a4b5aeeff0ece0b3f12f93c58a484bcf8667f7e1289506e6f41673053625f5",
+    "observability": "public_belief_only",
+    "architecture": "exact-material-utility",
+    "spec": {
+      "utility": "sum own team HP fractions minus opposing active HP fraction"
+    }
+  },
   "confirmatory_predictors": [
     "legal_action_count",
     "incoming_ko_roll_probability_gap",
     "opponent_public_hp_fraction"
   ],
   "population": {
+    "source_artifact": {
+      "workflow_run_id": 36140228005,
+      "artifact_id": 10866900218,
+      "artifact_name": "natural-depth-regret-selection",
+      "artifact_digest": "sha256:9a57c16c183b5d32e7cc32d330e42697509eb6575d227623670bccfdda3bb5b1",
+      "workflow_head_sha": "9e08d30d79a6a0747add36ddbbe6d67e26867a03",
+      "generation_head_sha": "3fee5062fe35e5989cfc131586a572be53120220",
+      "battle_count": 1024,
+      "decision_state_count": 25445,
+      "decisions_sha256": "6de55a45943002fa81d042f21be70b48305584f9b9d74bb6de0d06695c8ff8e4",
+      "corpus_sha256": "573bea8edc45c92a65dc9964101bff6c545bc9a70ebb293d9053b469d334526d"
+    },
     "minimum_selected_states": 100,
+    "max_selected_states": 128,
+    "persistent_only": false,
+    "generator_rounds": 2048,
+    "mechanics_screen_rounds": 512,
     "source_corpus_frozen_before_treatments": true,
     "inclusion_ledger_frozen_before_treatments": true,
     "forbidden_selection_fields": [
@@ -43,7 +78,8 @@
       "regret",
       "chosen_action",
       "battle_outcome"
-    ]
+    ],
+    "overflow_selection": "ascending sha256('population-v1:' + fixture_id)"
   },
   "inference": {
     "cluster_unit": "battle_tag",
@@ -51,9 +87,16 @@
     "bootstrap_seed": 1729
   },
   "oracle_authority": {
-    "kind": "exact_conditional",
+    "kind": "best_available_conditional",
+    "exact": false,
     "evidence_required": true,
-    "realized_hidden_state_used": false
+    "oracle_generator_rounds": 65536,
+    "generator_faithful_rounds": 2048,
+    "generator_seed_schedule": "diagonal-counter-[i,i,i,i]",
+    "generator_seed_start": 0,
+    "support_must_match_generator_faithful": true,
+    "realized_hidden_state_used": false,
+    "caveat": "finite deterministic generator seed sweep; not exhaustive over the full Showdown PRNG state space"
   },
   "completion_requirements": {
     "all_posterior_treatments_required": true,
