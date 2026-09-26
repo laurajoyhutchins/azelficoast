@@ -56,7 +56,9 @@ from azelficoast.core.planning import (
 from azelficoast.core.statistics import (
     CardinalityEstimate,
     CardinalityHistogram,
+    CategoricalDependency,
     PlannerStatistics,
+    analyze_categorical_dependency,
 )
 from azelficoast.core.search import (
     SEARCH_METHODS,
@@ -91,6 +93,7 @@ __all__ = [
     "CacheTierCost",
     "CardinalityEstimate",
     "CardinalityHistogram",
+    "CategoricalDependency",
     "DECISION_QUERY_SEMANTIC_ID",
     "DECISION_QUERY_SEMANTIC_SCHEMA",
     "DECISION_QUERY_SEMANTIC_VERSION",
@@ -137,6 +140,7 @@ __all__ = [
     "TransitionProgramError",
     "VERIFICATION_SCHEMA",
     "VERIFICATION_SCHEMA_VERSION",
+    "analyze_categorical_dependency",
     "canonical_json",
     "choose_execution_path",
     "choose_operator_implementation",
