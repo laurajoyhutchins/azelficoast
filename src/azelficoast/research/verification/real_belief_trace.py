@@ -12,7 +12,7 @@ import hashlib
 import json
 import math
 from collections import defaultdict
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, TextIO
 
 from azelficoast.core.decision_relevance import decision_relevance_quotient
 from azelficoast.core.program import program_for_action
@@ -607,6 +607,127 @@ def analyze_quotiented_oracle(
     return trace, certificate
 
 
+class _JsonStreamReader:
+    """Incremental JSON reader that materializes selected top-level arrays only."""
+
+    def __init__(self, source: TextIO, chunk_size: int) -> None:
+        if chunk_size < 1:
+            raise ValueError("chunk_size must be positive")
+        self._source = source
+        self._chunk_size = chunk_size
+        self._decoder = json.JSONDecoder()
+        self._buffer = ""
+        self._position = 0
+
+    def _fill(self) -> bool:
+        remaining = self._buffer[self._position :]
+        chunk = self._source.read(self._chunk_size)
+        self._buffer = remaining + chunk
+        self._position = 0
+        return bool(chunk)
+
+    def _skip_whitespace(self) -> None:
+        while True:
+            while (
+                self._position < len(self._buffer)
+                and self._buffer[self._position] in " \\t\\r\\n"
+            ):
+                self._position += 1
+            if self._position < len(self._buffer) or not self._fill():
+                return
+
+    def _peek(self) -> str | None:
+        self._skip_whitespace()
+        if self._position >= len(self._buffer):
+            return None
+        return self._buffer[self._position]
+
+    def _consume(self, expected: str) -> None:
+        actual = self._peek()
+        if actual != expected:
+            raise BeliefTraceError(
+                f"malformed oracle JSON: expected {expected!r}, got {actual!r}"
+            )
+        self._position += 1
+
+    def _read_value(self) -> Any:
+        self._skip_whitespace()
+        while True:
+            try:
+                value, end = self._decoder.raw_decode(self._buffer, self._position)
+            except json.JSONDecodeError as error:
+                if self._fill():
+                    continue
+                raise BeliefTraceError("malformed or truncated oracle JSON") from error
+
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                extension_characters = "0123456789.eE+-"
+                if end == len(self._buffer):
+                    if self._fill():
+                        continue
+                elif self._buffer[end] in extension_characters:
+                    if self._fill():
+                        continue
+
+            self._position = end
+            self._buffer = self._buffer[self._position :]
+            self._position = 0
+            return value
+
+    def _read_array(self) -> list[Any]:
+        self._consume("[")
+        values: list[Any] = []
+        if self._peek() == "]":
+            self._consume("]")
+            return values
+        while True:
+            values.append(self._read_value())
+            separator = self._peek()
+            if separator == "]":
+                self._consume("]")
+                return values
+            if separator != ",":
+                raise BeliefTraceError("malformed oracle JSON array separator")
+            self._consume(",")
+
+    def read_document(self) -> dict[str, Any]:
+        self._consume("{")
+        document: dict[str, Any] = {}
+        if self._peek() == "}":
+            self._consume("}")
+            return document
+        while True:
+            key = self._read_value()
+            if not isinstance(key, str):
+                raise BeliefTraceError("oracle JSON object keys must be strings")
+            self._consume(":")
+            if key in {"worlds", "transitions"} and self._peek() == "[":
+                document[key] = self._read_array()
+            else:
+                document[key] = self._read_value()
+
+            separator = self._peek()
+            if separator == "}":
+                self._consume("}")
+                break
+            if separator != ",":
+                raise BeliefTraceError("malformed oracle JSON object separator")
+            self._consume(",")
+
+        if self._peek() is not None:
+            raise BeliefTraceError("unexpected data after oracle JSON document")
+        return document
+
+
+def _load_oracle_document(
+    path: str | Path,
+    *,
+    chunk_size: int = 64 * 1024,
+) -> dict[str, Any]:
+    with Path(path).open("r", encoding="utf-8") as source:
+        return _JsonStreamReader(source, chunk_size).read_document()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     import argparse
     from pathlib import Path
@@ -619,7 +740,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="analyze the exact decision-relevance quotient before tracing",
     )
     args = parser.parse_args(argv)
-    document = json.loads(args.oracle.read_text(encoding="utf-8"))
+    document = _load_oracle_document(args.oracle)
     if args.quotient:
         trace, certificate = analyze_quotiented_oracle(document)
         result = {
