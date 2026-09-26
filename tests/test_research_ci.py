@@ -69,6 +69,21 @@ def test_candidate_experiment_names_and_artifacts_are_unique() -> None:
 
 
 def test_contract_checks_own_scientific_admission() -> None:
+    implicit_pass_exceptions = {"attack-transition", "two-attack-turn"}
+
+    for experiment in EXPERIMENTS:
+        for module in experiment.modules:
+            has_explicit_pass_check = any(
+                check.output == module.output
+                and check.path == ("passed",)
+                and check.operator == "eq"
+                and check.expected is True
+                for check in experiment.checks
+            )
+            assert has_explicit_pass_check is (
+                experiment.name not in implicit_pass_exceptions
+            ), experiment.name
+
     attack = next(
         experiment for experiment in EXPERIMENTS
         if experiment.name == "attack-transition"

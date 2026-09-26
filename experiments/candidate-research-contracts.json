@@ -33,6 +33,14 @@
         {
           "output": "adaptive-execution-experiment.json",
           "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "adaptive-execution-experiment.json",
+          "path": [
             "profile",
             "calibrated_max_logical_world_count"
           ],
@@ -144,6 +152,14 @@
         {
           "output": "class-native-belief-experiment.json",
           "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "class-native-belief-experiment.json",
+          "path": [
             "benchmarks",
             -1,
             "logical_world_count"
@@ -193,6 +209,22 @@
         }
       ],
       "checks": [
+        {
+          "output": "showdown-gen9-damage-analysis.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "gen9-damage-jax-experiment.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
         {
           "output": "showdown-gen9-damage-analysis.json",
           "path": [
@@ -267,6 +299,22 @@
       ],
       "checks": [
         {
+          "output": "showdown-gen9-damage-analysis.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "native-damage-experiment.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
           "output": "native-damage-experiment.json",
           "path": [
             "correctness",
@@ -300,6 +348,14 @@
         }
       ],
       "checks": [
+        {
+          "output": "jax-simulator-experiment.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
         {
           "output": "jax-simulator-experiment.json",
           "path": [
@@ -397,6 +453,14 @@
         {
           "output": "showdown-transition-analysis.json",
           "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "showdown-transition-analysis.json",
+          "path": [
             "fixture_count"
           ],
           "operator": "eq",
@@ -452,7 +516,16 @@
           "entrypoint": "run_experiment"
         }
       ],
-      "checks": []
+      "checks": [
+        {
+          "output": "ordered-attack-experiment.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        }
+      ]
     },
     "two-attack-turn": {
       "paths": [
@@ -513,7 +586,16 @@
           "entrypoint": "analyze_document"
         }
       ],
-      "checks": []
+      "checks": [
+        {
+          "output": "stateful-protect-result.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        }
+      ]
     },
     "switch-entry-hazard": {
       "paths": [
@@ -542,7 +624,16 @@
           "entrypoint": "analyze_document"
         }
       ],
-      "checks": []
+      "checks": [
+        {
+          "output": "switch-hazard-result.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        }
+      ]
     },
     "switch-intimidate": {
       "paths": [
@@ -576,7 +667,16 @@
           "entrypoint": "analyze_document"
         }
       ],
-      "checks": []
+      "checks": [
+        {
+          "output": "switch-intimidate-result.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        }
+      ]
     },
     "voluntary-switch": {
       "paths": [
@@ -605,7 +705,16 @@
           "entrypoint": "analyze_document"
         }
       ],
-      "checks": []
+      "checks": [
+        {
+          "output": "voluntary-switch-result.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        }
+      ]
     },
     "candidate-research-contract": {
       "paths": [
