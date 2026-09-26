@@ -941,7 +941,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(
-            json.dumps(certificate, indent=2, sort_keys=True) + "\\n",
+            json.dumps(certificate, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
         return 0
