@@ -294,7 +294,7 @@ class PreparedSQLQuery:
     sql_sha256: str
     execution_sql: str
     execution_sql_sha256: str
-    direct_relations: tuple[str, ...]
+    writer_relations: tuple[str, ...]
     relations: tuple[str, ...]
     functions: tuple[str, ...]
     sqlite_version: str
@@ -639,8 +639,7 @@ def prepare_sql_query(
     if not canonical:
         raise SQLQueryError("SQL query must be non-empty")
 
-    direct_relations: set[str] = set()
-    relations: set[str] = set()
+     relations: set[str] = set()
     functions: set[str] = set()
 
     def authorize(
@@ -650,14 +649,12 @@ def prepare_sql_query(
         database: str | None,
         trigger: str | None,
     ) -> int:
-        del database
+        del database, trigger
         if action not in _ALLOWED_ACTIONS:
             return sqlite3.SQLITE_DENY
         if action == sqlite3.SQLITE_READ:
             if arg1 is not None:
                 relations.add(arg1)
-                if trigger is None:
-                    direct_relations.add(arg1)
             return sqlite3.SQLITE_OK
         if action == sqlite3.SQLITE_FUNCTION:
             name = (arg2 or arg1 or "").lower()
@@ -702,9 +699,11 @@ def prepare_sql_query(
                 f"SQL query must read required relations: {missing_text}"
             )
 
+        writer_relation_names = frozenset(name for name, _ in _WRITER_RELATIONS)
+        writer_relations = relations.intersection(writer_relation_names)
         if (
             query_class == DECISION_POLICY_QUERY
-            and "action_statistics" not in direct_relations
+            and "action_statistics" not in writer_relations
         ):
             raise SQLQueryError(
                 "decision.policy must read action_statistics directly"
@@ -734,7 +733,7 @@ def prepare_sql_query(
             sql_sha256=_sql_sha256(canonical),
             execution_sql=execution_sql,
             execution_sql_sha256=_sql_sha256(execution_sql),
-            direct_relations=tuple(sorted(direct_relations)),
+            writer_relations=tuple(sorted(writer_relations)),
             relations=tuple(sorted(relations)),
             functions=tuple(sorted(functions)),
             sqlite_version=sqlite3.sqlite_version,
@@ -782,7 +781,7 @@ def explain_sql_query(query: PreparedSQLQuery) -> dict[str, Any]:
         "query_class": query.query_class,
         "sql_sha256": query.sql_sha256,
         "execution_sql_sha256": query.execution_sql_sha256,
-        "direct_relations": list(query.direct_relations),
+        "writer_relations": list(query.writer_relations),
         "relations": list(query.relations),
         "functions": list(query.functions),
         "sql_surface_identity": query.sql_surface_identity,
