@@ -12,10 +12,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
-from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
+
+def _repository_showdown_revision() -> str:
+    authority = Path(__file__).resolve().parents[3] / "showdown" / "revision.json"
+    document: object = json.loads(authority.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise RuntimeError("Showdown revision authority must be a JSON object")
+    commit = document.get("commit")
+    if (
+        not isinstance(commit, str)
+        or len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+    ):
+        raise RuntimeError("Showdown revision authority lacks a 40-hex commit")
+    return commit
 
 
-SHOWDOWN_REVISION = PINNED_SHOWDOWN_COMMIT
+SHOWDOWN_REVISION = _repository_showdown_revision()
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 DEFAULT_OUTPUT_ROOT = Path("/tmp/azelficoast-research")
 
