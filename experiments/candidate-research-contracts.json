@@ -1,0 +1,691 @@
+{
+  "schema": "azelficoast.candidate-research-contracts",
+  "experiments": {
+    "adaptive-execution": {
+      "paths": [
+        "src/azelficoast/research/adaptive_execution.py",
+        "src/azelficoast/research/experiments/adaptive_execution_experiment.py",
+        "src/azelficoast/research/mechanics/class_native_belief.py",
+        "tests/test_adaptive_execution.py",
+        "README.md"
+      ],
+      "artifact_name": "adaptive-cost-model-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "output": "showdown-gen9-damage-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_adaptive_execution.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.adaptive_execution_experiment",
+          "output": "adaptive-execution-experiment.json",
+          "input": "showdown-gen9-damage-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "adaptive-execution-experiment.json",
+          "path": [
+            "profile",
+            "calibrated_max_logical_world_count"
+          ],
+          "operator": "ge",
+          "expected": 524288
+        },
+        {
+          "output": "adaptive-execution-experiment.json",
+          "path": [
+            "target_signature"
+          ],
+          "operator": "prefix",
+          "expected": "sha256:"
+        }
+      ]
+    },
+    "attack-transition": {
+      "paths": [
+        "src/azelficoast/research/mechanics/gen9_attack.py",
+        "src/azelficoast/research/mechanics/gen9_damage.py",
+        "src/azelficoast/research/mechanics/jax_gen9_attack.py",
+        "src/azelficoast/research/mechanics/class_native_belief.py",
+        "src/azelficoast/research/mechanics/native_damage_compiler.py",
+        "src/azelficoast/research/experiments/attack_transition_experiment.py",
+        "scripts/generate_showdown_attack_fixtures.cjs",
+        "tests/test_gen9_attack.py",
+        "tests/test_class_native_belief.py",
+        "tests/test_native_damage_compiler.py",
+        "README.md"
+      ],
+      "artifact_name": "attack-transition-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_attack_fixtures.cjs",
+          "output": "showdown-attack-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_gen9_attack.py",
+        "tests/test_class_native_belief.py",
+        "tests/test_native_damage_compiler.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.attack_transition_experiment",
+          "output": "attack-transition-experiment.json",
+          "input": "showdown-attack-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "attack-transition-experiment.json",
+          "path": [
+            "semantic_passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "attack-transition-experiment.json",
+          "path": [
+            "projection",
+            "execution_classes"
+          ],
+          "operator": "eq",
+          "expected": 49
+        },
+        {
+          "output": "attack-transition-experiment.json",
+          "path": [
+            "effect_signature"
+          ],
+          "operator": "prefix",
+          "expected": "sha256:"
+        }
+      ]
+    },
+    "class-native-belief": {
+      "paths": [
+        "src/azelficoast/research/mechanics/class_native_belief.py",
+        "src/azelficoast/research/experiments/class_native_belief_experiment.py",
+        "tests/test_class_native_belief.py",
+        "README.md"
+      ],
+      "artifact_name": "class-native-belief-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "output": "showdown-gen9-damage-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_class_native_belief.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.class_native_belief_experiment",
+          "output": "class-native-belief-experiment.json",
+          "input": "showdown-gen9-damage-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "class-native-belief-experiment.json",
+          "path": [
+            "benchmarks",
+            -1,
+            "logical_world_count"
+          ],
+          "operator": "eq",
+          "expected": 524288
+        }
+      ]
+    },
+    "gen9-damage": {
+      "paths": [
+        "src/azelficoast/research/mechanics/gen9_damage.py",
+        "src/azelficoast/research/verification/showdown_damage_corpus.py",
+        "src/azelficoast/research/mechanics/jax_gen9_damage.py",
+        "src/azelficoast/research/experiments/jax_gen9_damage_experiment.py",
+        "scripts/generate_showdown_damage_fixtures.cjs",
+        "tests/test_gen9_damage.py",
+        "tests/test_showdown_damage_corpus.py",
+        "tests/test_jax_gen9_damage.py"
+      ],
+      "artifact_name": "gen9-damage-kernel-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "output": "showdown-gen9-damage-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_gen9_damage.py",
+        "tests/test_showdown_damage_corpus.py",
+        "tests/test_jax_gen9_damage.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.verification.showdown_damage_corpus",
+          "output": "showdown-gen9-damage-analysis.json",
+          "input": "showdown-gen9-damage-fixtures.json",
+          "entrypoint": "analyze_file"
+        },
+        {
+          "module": "azelficoast.research.experiments.jax_gen9_damage_experiment",
+          "output": "gen9-damage-jax-experiment.json",
+          "input": "showdown-gen9-damage-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "showdown-gen9-damage-analysis.json",
+          "path": [
+            "scenario_count"
+          ],
+          "operator": "eq",
+          "expected": 12
+        },
+        {
+          "output": "showdown-gen9-damage-analysis.json",
+          "path": [
+            "roll_case_count"
+          ],
+          "operator": "eq",
+          "expected": 192
+        },
+        {
+          "output": "showdown-gen9-damage-analysis.json",
+          "path": [
+            "exact_case_count"
+          ],
+          "operator": "eq",
+          "expected": 192
+        },
+        {
+          "output": "gen9-damage-jax-experiment.json",
+          "path": [
+            "correctness",
+            "roll_case_count"
+          ],
+          "operator": "eq",
+          "expected": 192
+        }
+      ]
+    },
+    "native-damage": {
+      "paths": [
+        "src/azelficoast/research/mechanics/gen9_damage.py",
+        "src/azelficoast/research/mechanics/native_damage_compiler.py",
+        "src/azelficoast/research/experiments/native_damage_experiment.py",
+        "src/azelficoast/research/mechanics/jax_gen9_damage.py",
+        "src/azelficoast/research/verification/showdown_damage_corpus.py",
+        "scripts/generate_showdown_damage_fixtures.cjs",
+        "tests/test_native_damage_compiler.py"
+      ],
+      "artifact_name": "native-damage-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_damage_fixtures.cjs",
+          "output": "showdown-gen9-damage-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_native_damage_compiler.py",
+        "tests/test_gen9_damage.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.verification.showdown_damage_corpus",
+          "output": "showdown-gen9-damage-analysis.json",
+          "input": "showdown-gen9-damage-fixtures.json",
+          "entrypoint": "analyze_file"
+        },
+        {
+          "module": "azelficoast.research.experiments.native_damage_experiment",
+          "output": "native-damage-experiment.json",
+          "input": "showdown-gen9-damage-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "native-damage-experiment.json",
+          "path": [
+            "correctness",
+            "roll_case_count"
+          ],
+          "operator": "eq",
+          "expected": 192
+        }
+      ]
+    },
+    "jax-simulator": {
+      "paths": [
+        "src/azelficoast/research/mechanics/simulator_ir.py",
+        "src/azelficoast/research/mechanics/jax_simulator.py",
+        "src/azelficoast/research/experiments/jax_simulator_experiment.py",
+        "tests/test_jax_simulator.py"
+      ],
+      "artifact_name": "jax-simulator-evidence",
+      "simulator": true,
+      "showdown": false,
+      "generators": [],
+      "tests": [
+        "tests/test_jax_simulator.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.jax_simulator_experiment",
+          "output": "jax-simulator-experiment.json",
+          "input": null,
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "jax-simulator-experiment.json",
+          "path": [
+            "benchmarks",
+            -1,
+            "world_count"
+          ],
+          "operator": "eq",
+          "expected": 524288
+        }
+      ]
+    },
+    "compiled-search-topology": {
+      "paths": [
+        "src/azelficoast/core/compiled_search.py",
+        "src/azelficoast/belief/compiled_search.py",
+        "src/azelficoast/belief/packed_evaluator.py",
+        "src/azelficoast/research/experiments/compiled_search_experiment.py",
+        "tests/test_compiled_search.py",
+        "tests/test_compiled_packed_search.py",
+        "docs/architecture/compiled-data-plane.md",
+        "docs/search-architecture.md"
+      ],
+      "artifact_name": "compiled-search-topology-evidence",
+      "simulator": true,
+      "showdown": false,
+      "generators": [],
+      "tests": [
+        "tests/test_compiled_search.py",
+        "tests/test_compiled_packed_search.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.compiled_search_experiment",
+          "output": "compiled-search-topology-experiment.json",
+          "input": null,
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "compiled-search-topology-experiment.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "compiled-search-topology-experiment.json",
+          "path": [
+            "problem",
+            "world_count"
+          ],
+          "operator": "ge",
+          "expected": 512
+        },
+        {
+          "output": "compiled-search-topology-experiment.json",
+          "path": [
+            "compiled_shape",
+            "edge_count"
+          ],
+          "operator": "ge",
+          "expected": 4096
+        }
+      ]
+    },
+    "showdown-dependency": {
+      "paths": [
+        "src/azelficoast/research/mechanics/simulator_ir.py",
+        "src/azelficoast/research/verification/showdown_transition_corpus.py",
+        "scripts/generate_showdown_transition_fixtures.cjs",
+        "tests/test_showdown_transition_corpus.py"
+      ],
+      "artifact_name": "showdown-transition-dependency-evidence",
+      "simulator": false,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_transition_fixtures.cjs",
+          "output": "showdown-transition-fixtures.json"
+        }
+      ],
+      "tests": [],
+      "modules": [
+        {
+          "module": "azelficoast.research.verification.showdown_transition_corpus",
+          "output": "showdown-transition-analysis.json",
+          "input": "showdown-transition-fixtures.json",
+          "entrypoint": "analyze_file"
+        }
+      ],
+      "checks": [
+        {
+          "output": "showdown-transition-analysis.json",
+          "path": [
+            "fixture_count"
+          ],
+          "operator": "eq",
+          "expected": 256
+        },
+        {
+          "output": "showdown-transition-analysis.json",
+          "path": [
+            "protect",
+            "dependency_classes"
+          ],
+          "operator": "eq",
+          "expected": 8
+        },
+        {
+          "output": "showdown-transition-analysis.json",
+          "path": [
+            "damage",
+            "dependency_classes"
+          ],
+          "operator": "eq",
+          "expected": 16
+        }
+      ]
+    },
+    "ordered-attack": {
+      "paths": [
+        "src/azelficoast/research/mechanics/gen9_ordered_attack.py",
+        "src/azelficoast/research/mechanics/jax_gen9_ordered_attack.py",
+        "src/azelficoast/research/mechanics/ordered_attack_belief.py",
+        "src/azelficoast/research/mechanics/ordered_attack_compiler.py",
+        "src/azelficoast/research/experiments/ordered_attack_experiment.py",
+        "scripts/generate_showdown_ordered_attack_fixtures.cjs",
+        "tests/test_gen9_ordered_attack.py"
+      ],
+      "artifact_name": "ordered-attack-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_ordered_attack_fixtures.cjs",
+          "output": "showdown-ordered-attack-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_gen9_ordered_attack.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.ordered_attack_experiment",
+          "output": "ordered-attack-experiment.json",
+          "input": "showdown-ordered-attack-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": []
+    },
+    "two-attack-turn": {
+      "paths": [
+        "src/azelficoast/research/mechanics/gen9_two_attack_turn.py",
+        "src/azelficoast/research/mechanics/jax_gen9_two_attack_turn.py",
+        "src/azelficoast/research/mechanics/two_attack_turn_belief.py",
+        "src/azelficoast/research/mechanics/two_attack_turn_compiler.py",
+        "src/azelficoast/research/experiments/two_attack_turn_experiment.py",
+        "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
+        "tests/test_gen9_two_attack_turn.py"
+      ],
+      "artifact_name": "two-attack-turn-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
+          "output": "showdown-two-attack-turn-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_gen9_two_attack_turn.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.two_attack_turn_experiment",
+          "output": "two-attack-turn-experiment.json",
+          "input": "showdown-two-attack-turn-fixtures.json",
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": []
+    },
+    "stateful-protect": {
+      "paths": [
+        "src/azelficoast/research/mechanics/stateful_protect_turn.py",
+        "src/azelficoast/research/experiments/stateful_protect_experiment.py",
+        "scripts/generate_showdown_stateful_protect_fixtures.cjs",
+        "tests/test_stateful_protect_turn.py"
+      ],
+      "artifact_name": "stateful-protect-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_stateful_protect_fixtures.cjs",
+          "output": "stateful-protect-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_stateful_protect_turn.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.stateful_protect_experiment",
+          "output": "stateful-protect-result.json",
+          "input": "stateful-protect-fixtures.json",
+          "entrypoint": "analyze_document"
+        }
+      ],
+      "checks": []
+    },
+    "switch-entry-hazard": {
+      "paths": [
+        "src/azelficoast/research/mechanics/switch_hazard_turn.py",
+        "src/azelficoast/research/experiments/switch_hazard_experiment.py",
+        "scripts/generate_showdown_switch_hazard_fixtures.cjs",
+        "tests/test_switch_hazard_turn.py"
+      ],
+      "artifact_name": "switch-entry-hazard-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_switch_hazard_fixtures.cjs",
+          "output": "switch-hazard-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_switch_hazard_turn.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.switch_hazard_experiment",
+          "output": "switch-hazard-result.json",
+          "input": "switch-hazard-fixtures.json",
+          "entrypoint": "analyze_document"
+        }
+      ],
+      "checks": []
+    },
+    "switch-intimidate": {
+      "paths": [
+        "src/azelficoast/research/mechanics/gen9_damage.py",
+        "src/azelficoast/research/mechanics/gen9_attack.py",
+        "src/azelficoast/research/mechanics/voluntary_switch_turn.py",
+        "src/azelficoast/research/mechanics/switch_hazard_turn.py",
+        "src/azelficoast/research/mechanics/staged_attack.py",
+        "src/azelficoast/research/mechanics/switch_intimidate_turn.py",
+        "src/azelficoast/research/experiments/switch_intimidate_experiment.py",
+        "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
+        "tests/test_switch_intimidate_turn.py"
+      ],
+      "artifact_name": "switch-intimidate-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
+          "output": "switch-intimidate-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_switch_intimidate_turn.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.switch_intimidate_experiment",
+          "output": "switch-intimidate-result.json",
+          "input": "switch-intimidate-fixtures.json",
+          "entrypoint": "analyze_document"
+        }
+      ],
+      "checks": []
+    },
+    "voluntary-switch": {
+      "paths": [
+        "src/azelficoast/research/mechanics/voluntary_switch_turn.py",
+        "src/azelficoast/research/experiments/voluntary_switch_experiment.py",
+        "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
+        "tests/test_voluntary_switch_turn.py"
+      ],
+      "artifact_name": "voluntary-switch-evidence",
+      "simulator": true,
+      "showdown": true,
+      "generators": [
+        {
+          "script": "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
+          "output": "voluntary-switch-fixtures.json"
+        }
+      ],
+      "tests": [
+        "tests/test_voluntary_switch_turn.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.voluntary_switch_experiment",
+          "output": "voluntary-switch-result.json",
+          "input": "voluntary-switch-fixtures.json",
+          "entrypoint": "analyze_document"
+        }
+      ],
+      "checks": []
+    },
+    "candidate-research-contract": {
+      "paths": [
+        "src/azelficoast/research/ci.py",
+        "tests/test_research_ci.py"
+      ],
+      "artifact_name": "candidate-research-contract-evidence",
+      "simulator": false,
+      "showdown": false,
+      "generators": [],
+      "tests": [
+        "tests/test_research_ci.py"
+      ],
+      "modules": [],
+      "checks": []
+    },
+    "sql-policy-parameter-sweep": {
+      "paths": [
+        "src/azelficoast/core/sql.py",
+        "src/azelficoast/queries/risk_adjusted.sql",
+        "src/azelficoast/research/policy_sweep.py",
+        "src/azelficoast/research/plans/risk_adjusted_policy_sweep.json",
+        "src/azelficoast/research/fixtures/policy_action_statistics.json",
+        "tests/test_core_sql.py",
+        "tests/test_policy_sweep.py",
+        "docs/sql-writing.md"
+      ],
+      "artifact_name": "sql-policy-parameter-sweep-evidence",
+      "simulator": false,
+      "showdown": false,
+      "generators": [],
+      "tests": [
+        "tests/test_policy_sweep.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.policy_sweep",
+          "output": "policy-parameter-sweep.json",
+          "input": null,
+          "entrypoint": "run_default_plan"
+        }
+      ],
+      "checks": [
+        {
+          "output": "policy-parameter-sweep.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "policy-parameter-sweep.json",
+          "path": [
+            "grid",
+            "point_count"
+          ],
+          "operator": "eq",
+          "expected": 5
+        },
+        {
+          "output": "policy-parameter-sweep.json",
+          "path": [
+            "matched_evidence",
+            "result_count"
+          ],
+          "operator": "eq",
+          "expected": 20
+        },
+        {
+          "output": "policy-parameter-sweep.json",
+          "path": [
+            "fixture_summaries",
+            0,
+            "policy_changes_across_grid"
+          ],
+          "operator": "eq",
+          "expected": true
+        }
+      ]
+    }
+  }
+}
