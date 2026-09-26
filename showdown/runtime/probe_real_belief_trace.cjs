@@ -6,12 +6,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {execFileSync} = require("node:child_process");
 
+class ProbeError extends Error {}
+
 function fail(message) {
-  process.stderr.write(`${message}\n`);
-  process.exit(2);
+  throw new ProbeError(String(message));
 }
 
-const argv = process.argv.slice(2);
+function runProbe(argv, sourceDocument = null) {
 const showdownRoot = argv[0];
 const fixturePath = argv[1];
 let benchPriorPath = null;
@@ -172,7 +173,9 @@ if (actualCommit !== SHOWDOWN_COMMIT) {
   fail(`expected Showdown ${SHOWDOWN_COMMIT}, got ${actualCommit}`);
 }
 
-const source = JSON.parse(fs.readFileSync(fixturePath, "utf8"));
+const source = sourceDocument === null
+  ? JSON.parse(fs.readFileSync(fixturePath, "utf8"))
+  : JSON.parse(JSON.stringify(sourceDocument));
 if (source.schema !== "azelficoast.real-belief-source-fixture" || source.schema_version !== 1) {
   fail("unexpected source fixture schema");
 }
@@ -501,7 +504,7 @@ function normalizedOpponentPolicy() {
 const OPPONENT_POLICY = normalizedOpponentPolicy();
 
 const {createGeneratorPopulationSource} = require(
-  path.join(path.dirname(process.argv[1]), "real_belief_probe", "generator_population.cjs")
+  path.join(__dirname, "real_belief_probe", "generator_population.cjs")
 );
 const {generatorVariants, mechanicsProjectionVariantCount} =
   createGeneratorPopulationSource({
@@ -1078,7 +1081,7 @@ function legalP1Continuations(battle) {
 }
 
 const {createOpponentPolicyEngine} = require(
-  path.join(path.dirname(process.argv[1]), "real_belief_probe", "opponent_policy.cjs")
+  path.join(__dirname, "real_belief_probe", "opponent_policy.cjs")
 );
 const {opponentDistributionForSnapshot} = createOpponentPolicyEngine({
   Battle,
@@ -1462,8 +1465,9 @@ const outputWorlds = worlds.map(world => ({
   },
 }));
 
+let posteriorDocument = null;
 if (posteriorOnly) {
-  process.stdout.write(JSON.stringify({
+  posteriorDocument = {
     schema: "azelficoast.live-belief-posterior",
     schema_version: 1,
     source_fixture_id: fixture.fixture_id,
@@ -1491,11 +1495,10 @@ if (posteriorOnly) {
     },
     legal_actions: legalActions,
     worlds: outputWorlds,
-  }, null, 2) + "\n");
-  process.exit(0);
+  };
 }
 const {createTransitionProgramCompiler} = require(
-  path.join(path.dirname(process.argv[1]), "real_belief_probe", "transition_program_compiler.cjs")
+  path.join(__dirname, "real_belief_probe", "transition_program_compiler.cjs")
 );
 const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
   Battle,
@@ -1527,11 +1530,17 @@ const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
   stateSummary,
 });
 
+if (posteriorOnly) {
+  return {
+    document: posteriorDocument,
+    compileTransitionProgram(cacheMode = "projection") {
+      return compileLazyWholeTurnPrograms(cacheMode);
+    },
+  };
+}
+
 if (transitionProgramOnly) {
-  process.stdout.write(
-    JSON.stringify(compileLazyWholeTurnPrograms(), null, 2) + "\n"
-  );
-  process.exit(0);
+  return compileLazyWholeTurnPrograms();
 }
 
 
@@ -1593,7 +1602,7 @@ const factoredHidden = benchFactor
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-process.stdout.write(JSON.stringify({
+return {
   schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
@@ -1649,4 +1658,24 @@ process.stdout.write(JSON.stringify({
   worlds: outputWorlds,
   legal_actions: legalActions,
   transitions,
-}, null, 2) + "\n");
+};
+}
+
+
+if (require.main === module) {
+  try {
+    const result = runProbe(process.argv.slice(2));
+    const document =
+      result && typeof result.compileTransitionProgram === "function"
+        ? result.document
+        : result;
+    process.stdout.write(JSON.stringify(document, null, 2) + "\n");
+  } catch (error) {
+    process.stderr.write(
+      (error instanceof Error ? error.message : String(error)) + "\n"
+    );
+    process.exit(2);
+  }
+}
+
+module.exports = {ProbeError, runProbe};

@@ -5,8 +5,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
-const vm = require("node:vm");
-const childProcess = require("node:child_process");
+const {runProbe} = require("./probe_real_belief_trace.cjs");
 
 const showdownRoot = process.argv[2];
 if (!showdownRoot) {
@@ -14,21 +13,9 @@ if (!showdownRoot) {
   process.exit(2);
 }
 
-const probePath = path.join(__dirname, "probe_real_belief_trace.cjs");
-const probeSource = fs.readFileSync(probePath, "utf8");
-const probeScript = new vm.Script(probeSource, {filename: probePath});
-const transitionScript = new vm.Script(
-  "JSON.stringify(compileLazyWholeTurnPrograms(globalThis.__azelficoastTransitionCacheMode))",
-  {filename: "azelficoast-transition-program.vm.js"}
-);
 const generatorCacheDir = fs.mkdtempSync(
   path.join(os.tmpdir(), "azelficoast-showdown-probe-")
 );
-const showdownCommit = childProcess.execFileSync(
-  "git",
-  ["-C", showdownRoot, "rev-parse", "HEAD"],
-  {encoding: "utf8"}
-).trim();
 
 function environmentInteger(name, fallback, {min = 1} = {}) {
   const raw = process.env[name];
@@ -56,131 +43,45 @@ const sessions = new Map();
 const transitionExecutionCache = new Map();
 const transitionProjectionCache = new Map();
 
-class ProbeExit extends Error {
-  constructor(code) {
-    super(`probe exited with status ${code}`);
-    this.code = Number(code);
-  }
-}
+globalThis.__azelficoastTransitionExecutionCache = transitionExecutionCache;
+globalThis.__azelficoastTransitionProjectionCache = transitionProjectionCache;
+globalThis.__azelficoastTransitionExecutionCacheMaxEntries = maxTransitionExecutions;
+globalThis.__azelficoastTransitionProjectionCacheMaxEntries = maxProjectionExecutions;
 
 function emit(response) {
   process.stdout.write(JSON.stringify(response) + "\n");
 }
 
-function makeFs(source, virtualFixture) {
-  const proxy = Object.create(fs);
-  proxy.readFileSync = function readFileSync(file, options) {
-    if (String(file) === virtualFixture) {
-      const encoded = JSON.stringify(source);
-      if (typeof options === "string") return encoded;
-      if (typeof options === "object" && options && options.encoding) return encoded;
-      return Buffer.from(encoded, "utf8");
-    }
-    return fs.readFileSync(file, options);
-  };
-  return proxy;
-}
-
-function makeChildProcess() {
-  const proxy = Object.create(childProcess);
-  proxy.execFileSync = function execFileSync(command, args, options) {
-    if (
-      command === "git" &&
-      Array.isArray(args) &&
-      args.length === 4 &&
-      args[0] === "-C" &&
-      args[1] === showdownRoot &&
-      args[2] === "rev-parse" &&
-      args[3] === "HEAD"
-    ) {
-      if (options && options.encoding) return showdownCommit + "\n";
-      return Buffer.from(showdownCommit + "\n", "utf8");
-    }
-    return childProcess.execFileSync(command, args, options);
-  };
-  return proxy;
-}
-
 function createSession(sessionKey, source) {
-  let stdout = "";
-  let stderr = "";
-  const virtualFixture = `azelficoast://fixture/${sessionKey}.json`;
-  const fakeProcess = {
-    pid: process.pid,
-    argv: [
-      process.execPath,
-      probePath,
+  const result = runProbe(
+    [
       showdownRoot,
-      virtualFixture,
+      `azelficoast://fixture/${sessionKey}.json`,
       "--posterior-only",
       "--generator-cache-dir",
       generatorCacheDir,
     ],
-    env: process.env,
-    stdout: {
-      write(value) {
-        stdout += String(value);
-        return true;
-      },
-    },
-    stderr: {
-      write(value) {
-        stderr += String(value);
-        return true;
-      },
-    },
-    exit(code = 0) {
-      throw new ProbeExit(code);
-    },
-  };
-  const virtualFs = makeFs(source, virtualFixture);
-  const virtualChildProcess = makeChildProcess();
-  function sharedRequire(id) {
-    if (id === "node:fs" || id === "fs") return virtualFs;
-    if (id === "node:child_process" || id === "child_process") {
-      return virtualChildProcess;
-    }
-    return require(id);
-  }
-
-  const context = vm.createContext({
-    process: fakeProcess,
-    require: sharedRequire,
-    __azelficoastTransitionExecutionCache: transitionExecutionCache,
-    __azelficoastTransitionProjectionCache: transitionProjectionCache,
-    __azelficoastTransitionExecutionCacheMaxEntries: maxTransitionExecutions,
-    __azelficoastTransitionProjectionCacheMaxEntries: maxProjectionExecutions,
-  });
-
-  try {
-    probeScript.runInContext(context);
-    throw new Error("posterior probe returned without its expected exit boundary");
-  } catch (error) {
-    if (!(error instanceof ProbeExit) || error.code !== 0) {
-      const detail = stderr.trim();
-      throw new Error(
-        detail || (error instanceof Error ? error.message : String(error))
-      );
-    }
-  }
-
-  let document;
-  try {
-    document = JSON.parse(stdout);
-  } catch (error) {
-    throw new Error(
-      "posterior probe returned invalid JSON: " +
-      (error instanceof Error ? error.message : String(error))
-    );
+    source
+  );
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !result.document ||
+    typeof result.document !== "object" ||
+    typeof result.compileTransitionProgram !== "function"
+  ) {
+    throw new Error("posterior probe did not return a resumable session");
   }
 
   sessions.delete(sessionKey);
-  sessions.set(sessionKey, {context});
+  sessions.set(sessionKey, {
+    compileTransitionProgram: result.compileTransitionProgram,
+  });
   while (sessions.size > maxSessions) {
     const oldest = sessions.keys().next().value;
     sessions.delete(oldest);
   }
-  return document;
+  return result.document;
 }
 
 function compileTransitionProgram(sessionKey, cacheMode) {
@@ -191,17 +92,11 @@ function compileTransitionProgram(sessionKey, cacheMode) {
   if (!session) {
     throw new Error("posterior session is unavailable; reconstruct before exact search");
   }
-  let encoded;
   try {
-    session.context.__azelficoastTransitionCacheMode = cacheMode;
-    encoded = transitionScript.runInContext(session.context);
+    return session.compileTransitionProgram(cacheMode);
   } finally {
     sessions.delete(sessionKey);
   }
-  if (typeof encoded !== "string") {
-    throw new Error("transition program probe returned a non-string payload");
-  }
-  return JSON.parse(encoded);
 }
 
 function releaseSession(sessionKey) {

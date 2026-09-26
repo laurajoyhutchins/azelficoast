@@ -1,7 +1,7 @@
 """Persistent line-protocol client for live Pokémon Showdown probes.
 
 The worker keeps Node and the pinned Showdown module graph warm across decisions. A
-posterior request also leaves its reconstructed JavaScript context resident long enough
+posterior request also leaves its reconstructed JavaScript session resident long enough
 for an uncertain learned decision to compile the matching TransitionProgram without
 reconstructing the posterior or reloading Showdown.
 """
@@ -224,7 +224,7 @@ class PersistentShowdownProbe:
         timeout_seconds: float,
         cache_mode: str = "projection",
     ) -> Mapping[str, Any]:
-        """Compile the TransitionProgram from the retained posterior context."""
+        """Compile the TransitionProgram from the retained posterior session."""
 
         session = probe_session_key(source)
         response = self._request(
