@@ -7,7 +7,7 @@ on:
       - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/belief/coverage.py"
       - "src/azelficoast/live/belief.py"
-      - "src/azelficoast/live/harness.py"
+      - "src/azelficoast/live/**"
       - "src/azelficoast/live/instrumentation.py"
       - "tests/test_belief_coverage.py"
       - "tests/test_harness.py"
