@@ -143,6 +143,28 @@ def freeze_issue_69_population(
             "population ledger was not frozen before policy values"
         )
 
+    authority = checked["oracle_authority"]
+    assert isinstance(authority, Mapping)
+    authorized_rounds = sorted(
+        {
+            int(authority["generator_faithful_rounds"]),
+            int(authority["oracle_generator_rounds"]),
+        }
+    )
+    contract_digest = stable_digest(checked)
+    selected_root = Path(selected_dir)
+    for row in manifest["selected"]:
+        if not isinstance(row, Mapping):
+            raise PosteriorPopulationSelectionError("selected manifest row is malformed")
+        filename = row.get("filename")
+        if not isinstance(filename, str) or not filename:
+            raise PosteriorPopulationSelectionError("selected manifest row lacks filename")
+        path = selected_root / filename
+        source = _load_object(path)
+        source["authorized_generator_rounds"] = authorized_rounds
+        source["posterior_population_contract_digest"] = contract_digest
+        _write_json(path, source)
+
     manifest["issue"] = 69
     manifest["source_corpus_digest"] = source_binding["digest"]
     manifest["frozen_before_treatments"] = True
@@ -150,8 +172,6 @@ def freeze_issue_69_population(
     manifest["persistent_only"] = bool(population["persistent_only"])
     manifest_digest = stable_digest(manifest)
 
-    authority = checked["oracle_authority"]
-    assert isinstance(authority, Mapping)
     bindings = {
         "enabled_treatments": list(checked["completion_posterior_treatments"]),
         "source_corpus": source_binding,
