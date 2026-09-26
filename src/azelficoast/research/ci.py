@@ -482,6 +482,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "run_experiment",
             ),
         ),
+        allow_nonzero_module_results=True,
     ),
     _spec(
         "stateful-protect",
