@@ -254,9 +254,10 @@ semantic equivalence and mass conservation before any live routing change.
 
 ## SQL lowering into the packed/JAX path
 
-The read-only SQL decision DSL now has one reviewed accelerator lowering. The supported
-query is the exact default decision query; other admitted SQL remains explainable but
-does not silently acquire execution semantics.
+The read-only SQL decision DSL now has one reviewed accelerator semantic class. Multiple
+SQL spellings may enter that class only through the core's explicit relational rewrite
+rules; other admitted SQL remains explainable but does not silently acquire execution
+semantics.
 
 The logical SQL operators bind to existing machinery:
 
@@ -297,10 +298,16 @@ predict_packed_shared_world_values
 reduce_compiled_root_values
 ```
 
-The SQL-generated plan is content-addressed and compared at execution time with the
-physical-stage declaration emitted by the existing hand-built packed/JAX path. Any drift
-fails closed rather than letting the SQL compiler and executable path quietly disagree.
+The SQL-generated plan is content-addressed by semantic identity and physical bindings,
+not by source spelling. A CTE form and an equivalent inline/reordered form therefore
+produce different source hashes but the same physical-plan hash. The exact source hash
+and the rewrite evidence remain in the receipt.
 
-This is intentionally a narrow compiler, not a promise that arbitrary SQLite syntax can
-be lowered to JAX. Expanding the SQL surface requires a reviewed lowering plus exact
-equivalence evidence for each newly admitted query shape.
+At execution time the generated plan is compared with the physical-stage declaration
+emitted by the existing hand-built packed/JAX path. Any drift fails closed rather than
+letting the SQL compiler and executable path quietly disagree.
+
+This remains an intentionally narrow compiler, not a promise that arbitrary SQLite
+syntax can be lowered to JAX. New relational laws must be added to the reviewed rewrite
+system, and semantic changes receive no logical identity until they have independent
+evidence.
