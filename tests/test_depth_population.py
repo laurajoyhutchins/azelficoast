@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from azelficoast.research.depth_population import (
+from azelficoast.research.studies.depth_population import (
     aggregate_depth_results,
     select_depth_rows,
 )

@@ -6,8 +6,8 @@ on:
     types: [ready_for_review]
     paths:
       - "experiments/natural-depth-regret-plan.json"
-      - "src/azelficoast/research/depth_population.py"
-      - "src/azelficoast/research/depth.py"
+      - "src/azelficoast/research/studies/depth_population.py"
+      - "src/azelficoast/research/studies/depth.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "scripts/probe_real_belief_trace.cjs"
       - "scripts/real_belief_probe/**"
@@ -125,7 +125,7 @@ jobs:
               /tmp/deeper-oracle.json \
               > /tmp/deeper-trace.json
 
-            uv run python -m azelficoast.research.depth_population summarize \
+            uv run python -m azelficoast.research.studies.depth_population summarize \
               "$source" \
               /tmp/shallow-trace.json \
               /tmp/deeper-trace.json \
@@ -170,7 +170,7 @@ jobs:
 
       - name: Aggregate paired depth endpoints
         run: |
-          uv run python -m azelficoast.research.depth_population aggregate \
+          uv run python -m azelficoast.research.studies.depth_population aggregate \
             experiments/natural-depth-regret-plan.json \
             /tmp/selection/depth/manifest.json \
             /tmp/exact \

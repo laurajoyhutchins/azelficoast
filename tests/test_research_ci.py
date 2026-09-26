@@ -38,7 +38,7 @@ def test_damage_change_selects_every_dependent_candidate_experiment() -> None:
 
 
 def test_unrelated_population_change_spends_no_collapsed_candidate_evidence() -> None:
-    assert experiments_for_paths(("src/azelficoast/research/population.py",)) == ()
+    assert experiments_for_paths(("src/azelficoast/research/studies/population.py",)) == ()
 
 
 def test_candidate_matrix_carries_execution_requirements() -> None:

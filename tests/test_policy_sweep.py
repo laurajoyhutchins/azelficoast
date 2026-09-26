@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from azelficoast.research.policy_sweep import (
+from azelficoast.research.studies.policy_sweep import (
     DEFAULT_PLAN,
     FIXTURE_SCHEMA,
     FIXTURE_SCHEMA_VERSION,

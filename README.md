@@ -319,7 +319,7 @@ If you want the detailed scientific contract, start with [docs/search-architectu
 | [src/azelficoast/live/](src/azelficoast/live/) | Battle harness, live player, trace capture, belief routing |
 | [src/azelficoast/core/](src/azelficoast/core/) | Core transition and mechanics-facing contracts |
 | [src/azelficoast/search/](src/azelficoast/search/) | Search over public beliefs and verified transitions |
-| [src/azelficoast/research/](src/azelficoast/research/) | Experiments, teachers, training, verification, population studies |
+| [src/azelficoast/research/](src/azelficoast/research/) | Shared research contracts/orchestration; studies, experiments, mechanics, and verification live in explicit subpackages |
 | [experiments/](experiments/) | Frozen research evidence |
 | [docs/search-architecture.md](docs/search-architecture.md) | Deeper explanation of the search architecture |
 | [docs/data-provenance.md](docs/data-provenance.md) | Where evidence comes from and how it is fenced |
@@ -331,7 +331,7 @@ Useful entry points:
 - [src/azelficoast/live/belief.py](src/azelficoast/live/belief.py) — hidden-world reconstruction and routing;
 - [src/azelficoast/core/whole_turn_program.py](src/azelficoast/core/whole_turn_program.py) — whole-turn compiler and verifier;
 - [src/azelficoast/search/transition_program.py](src/azelficoast/search/transition_program.py) — search over compiled transitions;
-- [src/azelficoast/research/matched_search.py](src/azelficoast/research/matched_search.py) — matched search execution;
+- [src/azelficoast/research/studies/matched_search.py](src/azelficoast/research/studies/matched_search.py) — matched search execution;
 - [src/azelficoast/research/mechanics/](src/azelficoast/research/mechanics/) — mechanics experiments and independent checks.
 
 ## Current boundaries

@@ -6,8 +6,8 @@ on:
     types: [ready_for_review]
     paths:
       - "experiments/natural-population-strategy-fusion-plan.json"
-      - "src/azelficoast/research/population.py"
-      - "src/azelficoast/research/natural_disagreements.py"
+      - "src/azelficoast/research/studies/population.py"
+      - "src/azelficoast/research/studies/natural_disagreements.py"
       - "src/azelficoast/search/fusion.py"
       - "src/azelficoast/live/belief.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
@@ -98,7 +98,7 @@ jobs:
             uv run python -m azelficoast.research.verification.real_belief_trace \
               /tmp/oracle.json \
               > "/tmp/results/trace-$index.json"
-            uv run python -m azelficoast.research.population summarize \
+            uv run python -m azelficoast.research.studies.population summarize \
               "$source" \
               "/tmp/results/trace-$index.json" \
               --output "/tmp/results/summary-$index.json" \
@@ -146,7 +146,7 @@ jobs:
 
       - name: Aggregate preregistered population endpoints
         run: |
-          uv run python -m azelficoast.research.population aggregate \
+          uv run python -m azelficoast.research.studies.population aggregate \
             experiments/natural-population-strategy-fusion-plan.json \
             /tmp/azelficoast-evidence/population/manifest.json \
             /tmp/exact \

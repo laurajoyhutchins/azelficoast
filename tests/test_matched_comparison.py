@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     COMPUTE_BUDGET_UNIT_DEFINITION,
     EVALUATOR_CALL_UNIT_DEFINITION,
     MatchedComparisonError,

@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     MatchedComparisonError,
     freeze_packet,
     settle_packet,
 )
-from azelficoast.research.matched_population import aggregate_population
+from azelficoast.research.studies.matched_population import aggregate_population
 from hostile.fixtures import hostile_case, matched_plan, matched_posterior, matched_state
 from hostile.transforms import (
     perturb_hidden_field,
