@@ -1,7 +1,20 @@
 {
-  "current_evaluator": null,
-  "last_run_id": "36221364887",
-  "last_run_status": "bootstrap-not-ready",
+  "current_evaluator": {
+    "architecture": "weighted_deep_sets_policy_value",
+    "checkpoint_digest": "sha256:9a4b86802f676db276b5f9b988a3d3badda028b5ac6610b2fa7c424b93255a0c",
+    "observability": "public_belief_only",
+    "schema": "azelficoast.belief-policy-value-evaluator",
+    "schema_version": 1,
+    "spec": {
+      "action_width": 96,
+      "hidden_width": 256,
+      "public_width": 256,
+      "world_hidden_width": 192,
+      "world_width": 192
+    }
+  },
+  "last_run_id": "36221537030",
+  "last_run_status": "trained",
   "policy": {
     "auto_battles_per_generation": 24,
     "auto_concurrency": 4,
