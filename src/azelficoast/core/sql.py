@@ -14,17 +14,20 @@ import hashlib
 from importlib.resources import files
 import itertools
 import json
+import math
 import sqlite3
-from typing import Any
+from typing import Any, Mapping
 
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalPlan
 
 SQL_EXPLAIN_SCHEMA = "azelficoast.core.sql-query-explain"
-SQL_EXPLAIN_SCHEMA_VERSION = 6
+SQL_EXPLAIN_SCHEMA_VERSION = 7
 DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
 DECISION_QUERY_SEMANTIC_VERSION = 1
 DECISION_SQL_SURFACE_SCHEMA = "azelficoast.core.decision-sql-surface"
-DECISION_SQL_SURFACE_VERSION = 4
+DECISION_SQL_SURFACE_VERSION = 5
+SQL_PARAMETER_BINDING_SCHEMA = "azelficoast.core.sql-parameter-bindings"
+SQL_PARAMETER_BINDING_VERSION = 1
 
 DECISION_EXPECTED_VALUE_QUERY = "decision.expected_value"
 DECISION_POLICY_QUERY = "decision.policy"
@@ -204,6 +207,12 @@ _DECISION_SQL_SURFACE = {
     },
     "schema_source_sha256": _SCHEMA_SOURCE_SHA256,
     "schema_source": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+    "policy_parameters": {
+        "style": "named",
+        "value_types": ["integer", "real"],
+        "binding_schema": SQL_PARAMETER_BINDING_SCHEMA,
+        "binding_schema_version": SQL_PARAMETER_BINDING_VERSION,
+    },
     "policy_examples": {
         "maximin": f"{_SQL_RESOURCE_PACKAGE}/{_MAXIMIN_SQL_RESOURCE}",
         "risk_adjusted": f"{_SQL_RESOURCE_PACKAGE}/{_RISK_ADJUSTED_SQL_RESOURCE}",
@@ -274,6 +283,12 @@ def describe_decision_sql_surface() -> dict[str, Any]:
             }
             for name, query in _QUERY_CLASSES.items()
         },
+        "policy_parameters": {
+            "style": "named",
+            "value_types": ["integer", "real"],
+            "binding_schema": SQL_PARAMETER_BINDING_SCHEMA,
+            "binding_schema_version": SQL_PARAMETER_BINDING_VERSION,
+        },
         "policy_examples": {
             "maximin": f"{_SQL_RESOURCE_PACKAGE}/{_MAXIMIN_SQL_RESOURCE}",
             "risk_adjusted": (
@@ -288,12 +303,30 @@ class SQLQueryError(ValueError):
 
 
 @dataclass(frozen=True)
+class SQLParameterBinding:
+    name: str
+    value_type: str
+    canonical_value: str
+
+    def as_record(self) -> dict[str, str]:
+        return {
+            "name": self.name,
+            "value_type": self.value_type,
+            "canonical_value": self.canonical_value,
+        }
+
+
+@dataclass(frozen=True)
 class PreparedSQLQuery:
     query_class: str
     sql: str
     sql_sha256: str
     execution_sql: str
     execution_sql_sha256: str
+    parameter_names: tuple[str, ...]
+    parameter_bindings: tuple[SQLParameterBinding, ...]
+    parameter_bindings_identity: str
+    bound_semantic_identity: str | None
     writer_relations: tuple[str, ...]
     relations: tuple[str, ...]
     functions: tuple[str, ...]
@@ -309,6 +342,117 @@ class PreparedSQLQuery:
 
 def _sql_sha256(sql: str) -> str:
     return "sha256:" + hashlib.sha256(sql.encode("utf-8")).hexdigest()
+
+
+def _normalize_sql_parameters(
+    parameters: Mapping[str, int | float] | None,
+) -> tuple[dict[str, int | float], tuple[SQLParameterBinding, ...]]:
+    values = {} if parameters is None else dict(parameters)
+    sqlite_values: dict[str, int | float] = {}
+    bindings: list[SQLParameterBinding] = []
+
+    if any(not isinstance(name, str) for name in values):
+        raise SQLQueryError("SQL parameter names must be strings")
+
+    for name in sorted(values):
+        if not name or not name.isascii() or not name.isidentifier():
+            raise SQLQueryError(
+                f"SQL parameter name must be an ASCII identifier: {name!r}"
+            )
+        value = values[name]
+        if isinstance(value, bool):
+            raise SQLQueryError(
+                f"SQL parameter {name!r} must be integer or real, not boolean"
+            )
+        if isinstance(value, int):
+            if value < -(2**63) or value > 2**63 - 1:
+                raise SQLQueryError(
+                    f"SQL integer parameter {name!r} is outside SQLite int64"
+                )
+            binding = SQLParameterBinding(
+                name=name,
+                value_type="integer",
+                canonical_value=str(value),
+            )
+        elif isinstance(value, float):
+            if not math.isfinite(value):
+                raise SQLQueryError(
+                    f"SQL real parameter {name!r} must be finite"
+                )
+            binding = SQLParameterBinding(
+                name=name,
+                value_type="real",
+                canonical_value=value.hex(),
+            )
+        else:
+            raise SQLQueryError(
+                f"SQL parameter {name!r} must be integer or real"
+            )
+        sqlite_values[name] = value
+        bindings.append(binding)
+
+    return sqlite_values, tuple(bindings)
+
+
+def parameter_bindings_identity(
+    bindings: tuple[SQLParameterBinding, ...],
+) -> str:
+    material = {
+        "schema": SQL_PARAMETER_BINDING_SCHEMA,
+        "schema_version": SQL_PARAMETER_BINDING_VERSION,
+        "bindings": [binding.as_record() for binding in bindings],
+    }
+    payload = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def bound_semantic_identity(
+    semantic_identity: str | None,
+    bindings_identity: str,
+    *,
+    has_bindings: bool,
+) -> str | None:
+    if semantic_identity is None:
+        return None
+    if not has_bindings:
+        return semantic_identity
+    material = {
+        "schema": SQL_PARAMETER_BINDING_SCHEMA,
+        "schema_version": SQL_PARAMETER_BINDING_VERSION,
+        "semantic_identity": semantic_identity,
+        "parameter_bindings_identity": bindings_identity,
+    }
+    payload = json.dumps(
+        material,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _sqlite_parameter_names(rows: list[tuple[Any, ...]]) -> tuple[str, ...]:
+    names: set[str] = set()
+    for row in rows:
+        if len(row) < 6 or row[1] != "Variable":
+            continue
+        token = row[5]
+        if not isinstance(token, str) or not token:
+            raise SQLQueryError("only named SQL parameters are supported")
+        if token[0] not in {":", "@", "$"}:
+            raise SQLQueryError("only named SQL parameters are supported")
+        name = token[1:]
+        if not name or not name.isascii() or not name.isidentifier():
+            raise SQLQueryError(
+                f"SQL parameter name must be an ASCII identifier: {token!r}"
+            )
+        names.add(name)
+    return tuple(sorted(names))
 
 
 def _prepare_connection() -> sqlite3.Connection:
@@ -398,6 +542,19 @@ def _normalize_reviewed_sql_source(sql: str) -> str:
             quote = character
             output.append(character)
             index += 1
+            continue
+
+        if character in {":", "@", "$"}:
+            if pending_space and output and output[-1] != " ":
+                output.append(" ")
+            pending_space = False
+            end = index + 1
+            while end < len(source) and (
+                source[end].isalnum() or source[end] == "_"
+            ):
+                end += 1
+            output.append(source[index:end])
+            index = end
             continue
 
         if character.isspace():
@@ -567,16 +724,13 @@ def _reviewed_equivalence_index() -> dict[str, str]:
         _normalize_reviewed_sql_source(DEFAULT_DECISION_SQL): "writer-view"
     }
     for order in _connected_join_orders():
-        for predicate_order in (predicates, (predicates[1], predicates[0])):
+        for predicate_order in (predicates, tuple(reversed(predicates))):
             source = _inline_decision_sql(order, predicate_order)
             index.setdefault(
                 _normalize_reviewed_sql_source(source),
                 "cte-inlining+inner-join-commutativity+predicate-commutativity",
             )
-        for predicate_order in (
-            cte_predicates,
-            (cte_predicates[1], cte_predicates[0]),
-        ):
+        for predicate_order in (cte_predicates, tuple(reversed(cte_predicates))):
             source = _cte_decision_sql(order, predicate_order)
             index.setdefault(
                 _normalize_reviewed_sql_source(source),
@@ -630,6 +784,7 @@ def prepare_sql_query(
     sql: str,
     *,
     query_class: str,
+    parameters: Mapping[str, int | float] | None = None,
 ) -> PreparedSQLQuery:
     """Parse, authorize, and recognize one named writer SQL query class."""
 
@@ -642,6 +797,7 @@ def prepare_sql_query(
     if not canonical:
         raise SQLQueryError("SQL query must be non-empty")
 
+    sqlite_parameters, parameter_bindings = _normalize_sql_parameters(parameters)
     relations: set[str] = set()
     functions: set[str] = set()
 
@@ -676,7 +832,7 @@ def prepare_sql_query(
     try:
         connection.set_authorizer(authorize)
         try:
-            writer_cursor = connection.execute(canonical)
+            writer_cursor = connection.execute(canonical, sqlite_parameters)
             writer_columns = tuple(
                 description[0]
                 for description in (writer_cursor.description or ())
@@ -688,16 +844,30 @@ def prepare_sql_query(
                 )
 
             query_plan_rows = connection.execute(
-                "EXPLAIN QUERY PLAN " + execution_sql
+                "EXPLAIN QUERY PLAN " + execution_sql,
+                sqlite_parameters,
             ).fetchall()
-            program_rows = connection.execute("EXPLAIN " + execution_sql).fetchall()
-            connection.execute(execution_sql)
+            program_rows = connection.execute(
+                "EXPLAIN " + execution_sql,
+                sqlite_parameters,
+            ).fetchall()
+            connection.execute(execution_sql, sqlite_parameters)
         except SQLQueryError:
             raise
         except sqlite3.DatabaseError as exc:
             raise SQLQueryError(str(exc)) from exc
         finally:
             connection.set_authorizer(None)
+
+        parameter_names = _sqlite_parameter_names(program_rows)
+        provided_parameter_names = tuple(
+            binding.name for binding in parameter_bindings
+        )
+        if parameter_names != provided_parameter_names:
+            raise SQLQueryError(
+                "SQL parameter bindings must match query parameters exactly: "
+                f"expected {parameter_names}, got {provided_parameter_names}"
+            )
 
         missing = _REQUIRED_RELATIONS.difference(relations)
         if missing:
@@ -733,6 +903,12 @@ def prepare_sql_query(
         equivalence_rule = equivalent[1] if equivalent is not None else None
         equivalence_scope = equivalent[2] if equivalent is not None else None
         logical = contract.logical if equivalent is not None else None
+        bindings_identity = parameter_bindings_identity(parameter_bindings)
+        bound_identity = bound_semantic_identity(
+            semantic_identity,
+            bindings_identity,
+            has_bindings=bool(parameter_bindings),
+        )
 
         return PreparedSQLQuery(
             query_class=query_class,
@@ -740,6 +916,10 @@ def prepare_sql_query(
             sql_sha256=_sql_sha256(canonical),
             execution_sql=execution_sql,
             execution_sql_sha256=_sql_sha256(execution_sql),
+            parameter_names=parameter_names,
+            parameter_bindings=parameter_bindings,
+            parameter_bindings_identity=bindings_identity,
+            bound_semantic_identity=bound_identity,
             writer_relations=tuple(sorted(writer_relations)),
             relations=tuple(sorted(relations)),
             functions=tuple(sorted(functions)),
@@ -763,10 +943,15 @@ def prepare_decision_query(sql: str = DEFAULT_DECISION_SQL) -> PreparedSQLQuery:
     )
 
 
-def prepare_policy_query(sql: str) -> PreparedSQLQuery:
+def prepare_policy_query(
+    sql: str,
+    *,
+    parameters: Mapping[str, int | float] | None = None,
+) -> PreparedSQLQuery:
     return prepare_sql_query(
         sql,
         query_class=DECISION_POLICY_QUERY,
+        parameters=parameters,
     )
 
 
@@ -788,6 +973,12 @@ def explain_sql_query(query: PreparedSQLQuery) -> dict[str, Any]:
         "query_class": query.query_class,
         "sql_sha256": query.sql_sha256,
         "execution_sql_sha256": query.execution_sql_sha256,
+        "parameter_names": list(query.parameter_names),
+        "parameter_bindings": [
+            binding.as_record() for binding in query.parameter_bindings
+        ],
+        "parameter_bindings_identity": query.parameter_bindings_identity,
+        "bound_semantic_identity": query.bound_semantic_identity,
         "writer_relations": list(query.writer_relations),
         "relations": list(query.relations),
         "functions": list(query.functions),
