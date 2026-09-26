@@ -498,6 +498,15 @@ def test_sql_optimizer_explain_is_read_only_and_exposes_multi_stage_plan() -> No
         "expand-outcomes-before-world-join"
     )
     assert explanation["optimizer"]["outcome_world_join"]["saved_join_rows"] == 0
+    transport_reference = explanation["optimizer"]["relational_transport_reference"]
+    assert transport_reference["semantic_identity"].startswith("sha256:")
+    assert transport_reference["logical_operators"] == [
+        "scan",
+        "filter",
+        "project",
+        "update_belief",
+        "aggregate",
+    ]
     cardinality = explanation["optimizer"]["cardinality"]
     assert cardinality["lower_bound"]["worlds"] == 2
     assert cardinality["lower_bound"]["classes"] == 3
