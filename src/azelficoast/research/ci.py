@@ -668,7 +668,10 @@ _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
     ".github/workflows/candidate-research.yml",
 }
-_SHARED_SHOWDOWN_PATHS = {\n    ".github/actions/setup-showdown/action.yml",\n    "experiments/showdown-revision.txt",\n}
+_SHARED_SHOWDOWN_PATHS = {
+    ".github/actions/setup-showdown/action.yml",
+    "experiments/showdown-revision.txt",
+}
 
 
 def experiments_for_paths(paths: Iterable[str]) -> tuple[CandidateExperiment, ...]:
