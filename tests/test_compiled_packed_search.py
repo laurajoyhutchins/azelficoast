@@ -21,6 +21,7 @@ from azelficoast.belief.showdown_packing import ShowdownVocabulary
 from azelficoast.belief.sql_compiled_search import (
     SQLPackedLoweringError,
     compile_packed_sql_decision_query,
+    explain_sql_packed_transition_program,
     search_sql_packed_transition_program,
 )
 from azelficoast.core.compiled_search import compile_search_topology
@@ -397,6 +398,70 @@ def test_shared_world_compiled_search_reuses_topology_across_prior_weights() -> 
     assert first["compiled_topology_digest"] == second["compiled_topology_digest"]
     assert first["root_values"] != second["root_values"]
 
+
+
+def test_sql_optimizer_explain_is_read_only_and_exposes_multi_stage_plan() -> None:
+    statistics = PlannerStatistics()
+
+    explanation = explain_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert explanation["schema"] == "azelficoast.sql-optimizer-explain"
+    assert explanation["schema_version"] == 1
+    assert explanation["execution"] == {
+        "performed": False,
+        "evaluator_calls": 0,
+        "action_selected": False,
+        "planner_statistics_mutated": False,
+    }
+    assert explanation["authority"]["mechanics"] == (
+        "verified-transition-program-outside-sql"
+    )
+    assert explanation["authority"]["information_sets"] == (
+        "python-validated-compiled-topology"
+    )
+    assert explanation["semantic"]["logical_operators"] == [
+        "scan",
+        "filter",
+        "project",
+        "partition",
+        "transition",
+        "observe",
+        "update_belief",
+        "evaluate",
+        "aggregate",
+    ]
+    assert [
+        group["name"] for group in explanation["optimizer"]["groups"]
+    ] == [
+        "posterior-pack",
+        "authorized-topology",
+        "belief-transport",
+        "packed-evaluator",
+        "root-reduction",
+    ]
+    assert explanation["optimizer"]["outcome_world_join"]["selected_order"] == (
+        "expand-outcomes-before-world-join"
+    )
+    assert explanation["optimizer"]["outcome_world_join"]["saved_join_rows"] == 0
+    cardinality = explanation["optimizer"]["cardinality"]
+    assert cardinality["lower_bound"]["worlds"] == 2
+    assert cardinality["lower_bound"]["classes"] == 3
+    assert cardinality["realized"]["actions"] == 2
+    assert cardinality["realized"]["worlds"] == 2
+    assert cardinality["realized"]["classes"] == 3
+    assert cardinality["realized"]["leaves"] == 3
+    assert cardinality["forecast"]["filter"]["observations"] == 0
+    assert cardinality["forecast"]["partition"]["observations"] == 0
+    assert explanation["physical"]["numeric_backend"] == (
+        "jax-shared-packed-worlds"
+    )
 
 
 def test_sql_decision_query_lowers_to_current_packed_jax_physical_plan() -> None:
