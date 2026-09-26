@@ -58,6 +58,22 @@ jobs:
           echo "count=${count}" >> "${GITHUB_OUTPUT}"
           echo "selected=${matrix}"
 
+  accelerator-static:
+    name: strict accelerator typing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Azelficoast simulator Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: true
+
+      - name: Type check compiled JAX search
+        run: uv run mypy --python-version 3.13 src/azelficoast/core/compiled_search.py
+
   exact:
     needs: plan
     if: needs.plan.outputs.count != '0'
@@ -92,7 +108,7 @@ jobs:
           if-no-files-found: error
 
   certify:
-    needs: [plan, exact]
+    needs: [plan, exact, accelerator-static]
     if: always() && needs.plan.result == 'success'
     name: certify exact head
     runs-on: ubuntu-latest
@@ -101,12 +117,17 @@ jobs:
         env:
           SELECTED_COUNT: ${{ needs.plan.outputs.count }}
           EXACT_RESULT: ${{ needs.exact.result }}
+          ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           MATRIX: ${{ needs.plan.outputs.matrix }}
         run: |
           set -euo pipefail
           if [[ "${SELECTED_COUNT}" != "0" && "${EXACT_RESULT}" != "success" ]]; then
             echo "candidate research failed: exact jobs=${EXACT_RESULT}" >&2
+            exit 1
+          fi
+          if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]; then
+            echo "accelerator static check failed: ${ACCELERATOR_STATIC_RESULT}" >&2
             exit 1
           fi
 
