@@ -4,6 +4,8 @@ import json
 from types import SimpleNamespace
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
+from azelficoast.core.evaluation import EvaluationFrontier
+from azelficoast.core.memo import SemanticMemo
 from azelficoast.live.corpus import DecisionFixture
 from azelficoast.live.belief import (
     LiveDecisionResult,
@@ -492,6 +494,49 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.diagnostics["evaluator_calls"] == 3
     assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
 
+
+
+def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+    memo = SemanticMemo[EvaluationFrontier](max_entries=8)
+
+    first = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=_PosteriorSpreadEvaluator(),
+        frontier_memo=memo,
+    )
+    second = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=_PosteriorSpreadEvaluator(),
+        frontier_memo=memo,
+    )
+
+    assert first.action == second.action == "safe"
+    assert first.diagnostics["frontier_memo_hit"] is False
+    assert first.diagnostics["frontier_builds"] == 1
+    assert second.diagnostics["frontier_memo_hit"] is True
+    assert second.diagnostics["frontier_builds"] == 0
+    assert first.diagnostics["transition_evaluations"] == 3
+    assert second.diagnostics["transition_evaluations"] == 3
+    assert first.diagnostics["evaluator_calls"] == 3
+    assert second.diagnostics["evaluator_calls"] == 3
+    assert (
+        first.diagnostics["frontier_group_identity"]
+        == second.diagnostics["frontier_group_identity"]
+    )
 
 def test_selective_policy_uses_high_margin_learned_action_without_exact_search() -> None:
     result = selective_belief_result(

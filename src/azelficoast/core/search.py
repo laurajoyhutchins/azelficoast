@@ -15,6 +15,7 @@ from azelficoast.core.evaluation import (
     EvaluationFrontierError,
     EvaluationLeaf,
 )
+from azelficoast.core.memo import MemoKey, SemanticMemo
 from azelficoast.core.program import program_for_action
 from azelficoast.core.transition import canonical_json, sha256_json
 
@@ -463,32 +464,56 @@ def search_transition_program(
     expected_program_schema_version: int | None = None,
     result_schema: str = SEARCH_SCHEMA,
     result_schema_version: int = SEARCH_SCHEMA_VERSION,
+    frontier_memo: SemanticMemo[EvaluationFrontier] | None = None,
 ) -> dict[str, Any]:
     """Evaluate a finite transition program after materializing its leaf frontier."""
 
     if method not in SEARCH_METHODS:
         raise PartialInformationSearchError(f"unknown search method {method!r}")
-    actions, worlds_by_id, weights = _normalized_inputs(
-        program_set=program_set,
-        posterior=posterior,
-        expected_program_schema=expected_program_schema,
-        expected_program_schema_version=expected_program_schema_version,
-    )
 
-    if method == "determinization":
-        frontier = _determinization_frontier(
+    frontier_group_identity = "sha256:" + sha256_json(
+        {
+            "kind": "evaluation-frontier",
+            "search_schema": result_schema,
+            "search_schema_version": result_schema_version,
+            "program_set": program_set,
+            "posterior": posterior,
+            "method": method,
+            "expected_program_schema": expected_program_schema,
+            "expected_program_schema_version": expected_program_schema_version,
+        }
+    )
+    memo_key = MemoKey(
+        group_identity=frontier_group_identity,
+        alternative_identity="python-evaluation-frontier",
+    )
+    frontier = frontier_memo.get(memo_key) if frontier_memo is not None else None
+    frontier_memo_hit = frontier is not None
+
+    if frontier is None:
+        actions, worlds_by_id, weights = _normalized_inputs(
             program_set=program_set,
-            actions=actions,
-            worlds_by_id=worlds_by_id,
-            weights=weights,
+            posterior=posterior,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
         )
-    else:
-        frontier = _information_set_frontier(
-            program_set=program_set,
-            actions=actions,
-            worlds_by_id=worlds_by_id,
-            weights=weights,
-        )
+
+        if method == "determinization":
+            frontier = _determinization_frontier(
+                program_set=program_set,
+                actions=actions,
+                worlds_by_id=worlds_by_id,
+                weights=weights,
+            )
+        else:
+            frontier = _information_set_frontier(
+                program_set=program_set,
+                actions=actions,
+                worlds_by_id=worlds_by_id,
+                weights=weights,
+            )
+        if frontier_memo is not None:
+            frontier_memo.put(memo_key, frontier)
 
     meter = _EvaluatorMeter(evaluator)
     leaf_values = meter.values(frontier.leaves)
@@ -509,6 +534,10 @@ def search_transition_program(
         "transition_evaluations": frontier.transition_evaluations,
         "evaluator_calls": meter.calls,
         "evaluator_batches": meter.batches,
+        "frontier_group_identity": frontier_group_identity,
+        "frontier_materialization": "python-evaluation-frontier",
+        "frontier_memo_hit": frontier_memo_hit,
+        "frontier_builds": 0 if frontier_memo_hit else 1,
         "chosen_action": chosen_action,
         "root_values": root_values,
     }

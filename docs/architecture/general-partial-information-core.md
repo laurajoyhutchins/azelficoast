@@ -21,6 +21,8 @@ The current reusable surface is:
   execution paths.
 - `core.planning`: a small logical-plan / physical-plan boundary with deterministic
   EXPLAIN evidence for execution-path selection.
+- `core.memo`: bounded memo groups for exact materialized semantic results; callers
+  own equivalence identity and physical-alternative identity.
 - `core.program`: structural transition-program lookup.
 - `core.search`: determinization and information-set search over arbitrary finite
   transition programs.
@@ -139,3 +141,32 @@ representatives. It changes allocation and work, not equivalence semantics or ev
 identity. The adaptive-execution benchmark and bounded two-attack-turn runtime both use
 this active slice rather than allocating a dense weight vector for every projection
 class on each execution.
+
+
+### Materialized evaluation frontiers
+
+The first memoized semantic view is the evaluation frontier between verified mechanics
+and learned numerical evaluation:
+
+```text
+verified program + posterior + search method
+                  |
+                  v
+          memo group identity
+             /          \
+            v            v
+   Python frontier   future physical alternatives
+            |
+            v
+      learned evaluator
+```
+
+The memo key is conservative. It binds the admitted transition-program identity,
+mechanics evidence, posterior semantics, transport binding, and search method. A hit may
+skip rebuilding the successor information-set frontier, but it does not skip evaluator
+execution and it does not reduce the reported verified transition-class count.
+
+Accordingly search reports both semantic work and physical reuse:
+`transition_evaluations` remains the scientific work unit, while
+`frontier_memo_hit` and `frontier_builds` expose whether the physical frontier was
+materialized during this call. Memo groups are bounded LRU state, not durable authority.

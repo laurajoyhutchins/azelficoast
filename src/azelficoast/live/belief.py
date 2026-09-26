@@ -20,6 +20,8 @@ from azelficoast.live.showdown_probe import (
     ShowdownProbeRuntimeError,
 )
 from azelficoast.core.decision_relevance import DecisionRelevanceError
+from azelficoast.core.evaluation import EvaluationFrontier
+from azelficoast.core.memo import SemanticMemo
 from azelficoast.research.verification.real_belief_trace import BeliefTraceError, analyze_quotiented_oracle
 from azelficoast.core.mechanics import (
     MechanicsContractError,
@@ -40,6 +42,7 @@ from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERS
 PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
 DEFAULT_TIMEOUT_SECONDS = 20.0
+DEFAULT_FRONTIER_MEMO_ENTRIES = 128
 
 
 @dataclass(frozen=True)
@@ -446,6 +449,7 @@ def transition_program_belief_result(
     posterior: Mapping[str, Any],
     transition_program: Mapping[str, Any],
     evaluator: Any,
+    frontier_memo: SemanticMemo[EvaluationFrontier] | None = None,
 ) -> LiveDecisionResult:
     """Search one verified whole-turn mechanics program under the public belief."""
 
@@ -499,6 +503,7 @@ def transition_program_belief_result(
             transport_index=transport_index,
             method="information_set",
             evaluator=evaluator,
+            frontier_memo=frontier_memo,
         )
     except (
         TransitionProgramSearchError,
@@ -536,6 +541,10 @@ def transition_program_belief_result(
             "transition_evaluations": search.get("transition_evaluations"),
             "evaluator_calls": search.get("evaluator_calls"),
             "evaluator_batches": search.get("evaluator_batches"),
+            "frontier_group_identity": search.get("frontier_group_identity"),
+            "frontier_materialization": search.get("frontier_materialization"),
+            "frontier_memo_hit": search.get("frontier_memo_hit"),
+            "frontier_builds": search.get("frontier_builds"),
             "root_snapshot_builds": producer_diagnostics.get("root_snapshot_builds"),
             "saved_root_snapshot_builds": producer_diagnostics.get(
                 "saved_root_snapshot_builds"
@@ -623,15 +632,21 @@ class PinnedShowdownBeliefPolicy:
         timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
         learned_evaluator: Any | None = None,
         search_gate: Any | None = None,
+        frontier_memo_entries: int = DEFAULT_FRONTIER_MEMO_ENTRIES,
     ) -> None:
         if timeout_seconds <= 0:
             raise ValueError("belief timeout must be positive")
         if (learned_evaluator is None) != (search_gate is None):
             raise ValueError("learned_evaluator and search_gate must be provided together")
+        if frontier_memo_entries <= 0:
+            raise ValueError("frontier_memo_entries must be positive")
         self.showdown_root = Path(showdown_root)
         self.timeout_seconds = float(timeout_seconds)
         self.learned_evaluator = learned_evaluator
         self.search_gate = search_gate
+        self._frontier_memo = SemanticMemo[EvaluationFrontier](
+            max_entries=frontier_memo_entries
+        )
         self._configuration_error = self._validate_showdown_root()
         self._probe_runtime = (
             PersistentShowdownProbe(self.showdown_root)
@@ -838,6 +853,7 @@ class PinnedShowdownBeliefPolicy:
                     posterior=posterior,
                     transition_program=transition_program,
                     evaluator=self.learned_evaluator,
+                    frontier_memo=getattr(self, "_frontier_memo", None),
                 )
                 if searched.action is not None:
                     return LiveDecisionResult(
