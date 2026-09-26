@@ -31,6 +31,7 @@ jobs:
         run: |
           node --check scripts/probe_real_belief_trace.cjs
           node --check scripts/probe_real_belief_worker.cjs
+          node --check scripts/transition_successor_delta.cjs
       - name: Test
         run: uv run pytest
       - name: Fast hostile correctness gate

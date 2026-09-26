@@ -248,6 +248,12 @@ const common = require(path.join(showdownRoot, "test", "common.js"));
 const {Battle, extractChannelMessages} = require(path.join(showdownRoot, "dist", "sim", "battle.js"));
 const {State} = require(path.join(showdownRoot, "dist", "sim", "state.js"));
 const {Teams} = require(path.join(showdownRoot, "dist", "sim", "teams.js"));
+const {
+  applySuccessorDelta,
+  successorDelta,
+} = require(
+  path.join(path.dirname(process.argv[1]), "transition_successor_delta.cjs")
+);
 const randomSets = require(
   path.join(showdownRoot, "data", "random-battles", "gen9", "sets.json")
 );
@@ -2297,50 +2303,51 @@ function immediateWholeTurn(world, action, baseSnapshot = null) {
       const logStart = battle.log.length;
       const hiddenTrace = instrumentOpponentHiddenReads(battle);
       const publicTrace = instrumentPublicRootReads(battle);
-      let transitionReads;
       let outcome;
       try {
+        let transitionReads;
+        let observationRecord;
+        let legalActionRecord;
         try {
-          battle.makeChoices(rootChoice(action), response.choice);
-        } finally {
-          hiddenTrace.restore();
-        }
-        transitionReads = [
-          ...new Set([...policyReads, ...hiddenTrace.reads()]),
-        ].sort();
-        for (const field of transitionReads) reads.add(field);
-        outcome = {
-          probability: response.probability / ROOT_CHANCE_SAMPLES,
-          observation: observation(battle, logStart),
-          successor: stateSummary(battle, world),
-          legal_actions: battle.ended
+          try {
+            battle.makeChoices(rootChoice(action), response.choice);
+          } finally {
+            hiddenTrace.restore();
+          }
+          transitionReads = [
+            ...new Set([...policyReads, ...hiddenTrace.reads()]),
+          ].sort();
+          for (const field of transitionReads) reads.add(field);
+          observationRecord = observation(battle, logStart);
+          legalActionRecord = battle.ended
             ? ["<terminal>"]
             : battle.p1.activeRequest?.wait
               ? ["<wait>"]
-              : legalP1Continuations(battle),
+              : legalP1Continuations(battle);
+          for (const field of publicTrace.reads()) publicReads.add(field);
+          if (!publicTrace.complete()) publicTraceState.complete = false;
+        } finally {
+          publicTrace.restore();
+        }
+
+        // Successor rendering is intentionally outside the mechanics read trace.
+        // A projected cache entry stores this as a delta against the current root
+        // and rehydrates unchanged public leaves from the next root.
+        outcome = {
+          probability: response.probability / ROOT_CHANCE_SAMPLES,
+          observation: observationRecord,
+          successor: stateSummary(battle, world),
+          legal_actions: legalActionRecord,
           transition_reads: transitionReads,
           opponent_action: response.choice,
           opponent_policy_mode: response.mode,
         };
-        for (const field of publicTrace.reads()) publicReads.add(field);
-        if (!publicTrace.complete()) publicTraceState.complete = false;
       } finally {
-        publicTrace.restore();
         battle.destroy();
       }
       outcomes.push(outcome);
     }
   }
-  const semantics = outcomes
-    .map(outcome => ({
-      probability: outcome.probability,
-      observation: outcome.observation,
-      successor: outcome.successor,
-      legal_actions: outcome.legal_actions,
-    }))
-    .sort((left, right) =>
-      JSON.stringify(stable(left)).localeCompare(JSON.stringify(stable(right)))
-    );
   return {
     outcomes,
     opponent_action_branch_count: responses.length,
@@ -2348,7 +2355,7 @@ function immediateWholeTurn(world, action, baseSnapshot = null) {
     read_fields: [...reads].sort(),
     public_read_fields: [...publicReads].sort(),
     public_trace_complete: publicTraceState.complete,
-    semantic_hash: sha256PythonCanonical(semantics),
+    semantic_hash: semanticHashForOutcomes(outcomes),
   };
 }
 
@@ -2360,15 +2367,31 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function publicRootMaterial(snapshot) {
+function semanticHashForOutcomes(outcomes) {
+  const semantics = outcomes
+    .map(outcome => ({
+      probability: outcome.probability,
+      observation: outcome.observation,
+      successor: outcome.successor,
+      legal_actions: outcome.legal_actions,
+    }))
+    .sort((left, right) =>
+      JSON.stringify(stable(left)).localeCompare(JSON.stringify(stable(right)))
+    );
+  return sha256PythonCanonical(semantics);
+}
+
+function publicRootMaterial(snapshot, world) {
   const prepared = Battle.fromJSON(snapshot);
   prepared.restart(() => {});
   let state;
+  let successor;
   try {
     state = JSON.parse(JSON.stringify(prepared));
     state.__azelficoast_active_requests = prepared.sides.map(side =>
       side.activeRequest == null ? side.activeRequest : cloneJson(side.activeRequest)
     );
+    successor = stateSummary(prepared, world);
   } finally {
     prepared.destroy();
   }
@@ -2430,6 +2453,7 @@ function publicRootMaterial(snapshot) {
       state: masked,
     }),
     values,
+    successor,
   };
 }
 
@@ -2504,6 +2528,38 @@ function executionWorldMaterial(world) {
   };
 }
 
+function projectionWorldStaticMaterial(world) {
+  return {
+    hidden: Object.fromEntries(
+      Object.entries(world.hidden).filter(
+        ([field]) => field !== "opponent.active.exact_hp"
+      )
+    ),
+    variant: {
+      species: world.variant.species,
+      ability: world.variant.ability,
+      item: world.variant.item,
+      level: world.variant.level,
+      moves: world.variant.moves,
+      evs: world.variant.evs,
+      ivs: world.variant.ivs,
+      teraType: world.variant.teraType,
+    },
+    opponent_max_hp: world.opponent_max_hp,
+  };
+}
+
+function hiddenReadProjection(world, fields) {
+  const projection = [];
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(world.hidden, field)) {
+      return null;
+    }
+    projection.push([field, world.hidden[field]]);
+  }
+  return projection;
+}
+
 function executionWorldKey(world, action, rootMaterial) {
   return action + "\u0000" + sha256({
     showdown_commit: actualCommit,
@@ -2521,7 +2577,7 @@ function executionProjectionBaseKey(world, action, rootMaterial) {
     showdown_commit: actualCommit,
     public_dependency_schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
     static_root_sha256: rootMaterial.static_hash,
-    world: executionWorldMaterial(world),
+    world_static: projectionWorldStaticMaterial(world),
     opponent_policy: OPPONENT_POLICY,
     root_chance_samples: ROOT_CHANCE_SAMPLES,
     chance_seed_family: CHANCE_SEED_FAMILY,
@@ -2586,20 +2642,72 @@ function sharedCacheSet(cache, key, value) {
   }
 }
 
-function sharedProjectionCacheGet(cache, baseKey, material) {
+function deltaEncodeExecution(rootSuccessor, execution) {
+  return {
+    ...cloneJson(execution),
+    semantic_hash: undefined,
+    outcomes: execution.outcomes.map(outcome => {
+      const encoded = cloneJson(outcome);
+      encoded.successor_delta = successorDelta(rootSuccessor, outcome.successor);
+      delete encoded.successor;
+      return encoded;
+    }),
+    successor_delta_schema: 1,
+  };
+}
+
+function deltaRehydrateExecution(rootSuccessor, encoded) {
+  if (
+    !encoded ||
+    encoded.successor_delta_schema !== 1 ||
+    !Array.isArray(encoded.outcomes)
+  ) {
+    return undefined;
+  }
+  const execution = cloneJson(encoded);
+  execution.outcomes = encoded.outcomes.map(outcome => {
+    if (!Array.isArray(outcome.successor_delta)) {
+      throw new Error("projected execution is missing successor delta");
+    }
+    const hydrated = cloneJson(outcome);
+    hydrated.successor = applySuccessorDelta(
+      rootSuccessor,
+      hydrated.successor_delta
+    );
+    delete hydrated.successor_delta;
+    return hydrated;
+  });
+  delete execution.successor_delta_schema;
+  delete execution.semantic_hash;
+  execution.semantic_hash = semanticHashForOutcomes(execution.outcomes);
+  return execution;
+}
+
+function sharedProjectionCacheGet(cache, baseKey, material, world) {
   for (const [key, entry] of [...cache.entries()].reverse()) {
     if (!entry || entry.base_key !== baseKey) continue;
     const projection = publicReadProjection(material, entry.read_fields || []);
     if (projection === null) continue;
     if (sha256(projection) !== entry.projection_sha256) continue;
+    const hiddenProjection = hiddenReadProjection(
+      world,
+      entry.hidden_read_fields || []
+    );
+    if (hiddenProjection === null) continue;
+    if (sha256(hiddenProjection) !== entry.hidden_projection_sha256) continue;
+    const execution = deltaRehydrateExecution(
+      material.successor,
+      entry.delta_execution
+    );
+    if (execution === undefined) continue;
     cache.delete(key);
     cache.set(key, entry);
-    return cloneJson(entry.execution);
+    return execution;
   }
   return undefined;
 }
 
-function sharedProjectionCacheSet(cache, baseKey, material, execution) {
+function sharedProjectionCacheSet(cache, baseKey, material, world, execution) {
   if (
     !execution ||
     execution.public_trace_complete !== true ||
@@ -2609,16 +2717,22 @@ function sharedProjectionCacheSet(cache, baseKey, material, execution) {
   }
   const projection = publicReadProjection(material, execution.public_read_fields);
   if (projection === null) return false;
+  const hiddenProjection = hiddenReadProjection(world, execution.read_fields || []);
+  if (hiddenProjection === null) return false;
   const entry = {
     base_key: baseKey,
     read_fields: [...execution.public_read_fields],
     projection_sha256: sha256(projection),
-    execution: cloneJson(execution),
+    hidden_read_fields: [...(execution.read_fields || [])],
+    hidden_projection_sha256: sha256(hiddenProjection),
+    delta_execution: deltaEncodeExecution(material.successor, execution),
   };
   const key = sha256({
     base_key: baseKey,
     read_fields: entry.read_fields,
     projection_sha256: entry.projection_sha256,
+    hidden_read_fields: entry.hidden_read_fields,
+    hidden_projection_sha256: entry.hidden_projection_sha256,
   });
   cache.delete(key);
   cache.set(key, entry);
@@ -2651,7 +2765,7 @@ function compileLazyWholeTurnPrograms() {
     let record = rootSnapshotCache.get(key);
     if (record === undefined) {
       const snapshot = rootSnapshotForWorld(world);
-      const material = publicRootMaterial(snapshot);
+      const material = publicRootMaterial(snapshot, world);
       record = {snapshot, material};
       rootSnapshotCache.set(key, record);
       rootSnapshotBuilds++;
@@ -2690,7 +2804,8 @@ function compileLazyWholeTurnPrograms() {
         execution = sharedProjectionCacheGet(
           sharedProjectionCache,
           projectionBaseKey,
-          root.material
+          root.material,
+          world
         );
         if (execution !== undefined) {
           reused = true;
@@ -2719,6 +2834,7 @@ function compileLazyWholeTurnPrograms() {
             sharedProjectionCache,
             projectionBaseKey,
             root.material,
+            world,
             execution
           );
         }
@@ -2920,11 +3036,13 @@ function compileLazyWholeTurnPrograms() {
       root_snapshot_builds: rootSnapshotBuilds,
       saved_root_snapshot_builds: uniqueExecutions - rootSnapshotBuilds,
       public_root_dependency_schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
+      public_successor_delta_schema: 1,
       public_root_material_builds: publicRootMaterialBuilds,
       public_read_fields: publicReadFields,
       public_trace_incomplete_executions: publicTraceIncompleteExecutions,
       exact_transition_execution_cache_hits: exactExecutionCacheHits,
       public_projection_cache_hits: projectedExecutionCacheHits,
+      transition_delta_rehydrations: projectedExecutionCacheHits,
       transition_execution_cache_hits:
         exactExecutionCacheHits + projectedExecutionCacheHits,
       transition_execution_cache_misses: sharedExecutionCacheMisses,

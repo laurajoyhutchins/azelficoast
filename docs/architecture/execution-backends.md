@@ -86,6 +86,26 @@ instrumented, the execution is ineligible for projection reuse. Showdown's wall-
 `|t:|` log metadata is normalized before exact-root hashing because it is explicitly
 excluded from battle semantics and from emitted observations.
 
+Projection reuse stores mechanics output as a successor delta rather than freezing the
+old public successor. Observation construction and legal-action generation remain inside
+the public read trace because they can expose semantically relevant simulator state.
+Successor rendering runs after that trace. The worker diffs the fresh successor against
+the root public state and stores only changed leaves. On a later projection hit it applies
+those changes to the current root public state, carries unrelated current leaves through,
+and recomputes the semantic hash from the rehydrated outcomes.
+
+This is deliberately not a generic patch of serialized Showdown internals. Structural
+simulator state still participates in the static identity. The delta crosses only the
+already-public successor contract, and the ordinary direct oracle remains the independent
+authority capable of rejecting an invalid reuse proposal.
+
+The projection cache also separates hidden exact HP from its base identity because active
+HP is already one of the masked mutable root fields. This does not make HP irrelevant:
+each entry records the hidden fields actually read by the execution, and a later root must
+match that hidden read projection. A move that reads exact HP therefore still invalidates
+on an HP change; an execution that never reads it can reuse its mechanics delta while the
+current HP simply flows through successor rehydration.
+
 The two caches have separate limits:
 `AZELFICOAST_SHOWDOWN_TRANSITION_CACHE_ENTRIES` controls exact normalized-root reuse,
 while `AZELFICOAST_SHOWDOWN_PUBLIC_PROJECTION_CACHE_ENTRIES` controls traced projection
