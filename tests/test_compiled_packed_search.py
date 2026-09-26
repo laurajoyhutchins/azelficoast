@@ -23,7 +23,9 @@ from azelficoast.belief.showdown_packing import ShowdownVocabulary
 from azelficoast.belief.sql_compiled_search import (
     SQLPackedLoweringError,
     compile_packed_sql_decision_query,
+    explain_sql_packed_best_action,
     explain_sql_packed_transition_program,
+    search_sql_packed_best_action,
     search_sql_packed_transition_program,
 )
 from azelficoast.core.compiled_search import compile_search_topology
