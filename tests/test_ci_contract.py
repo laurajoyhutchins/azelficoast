@@ -306,3 +306,13 @@ def test_showdown_consumers_observe_revision_contract_changes() -> None:
         assert '- "experiments/showdown-revision.txt"' in source, (
             f"{path.name} must rerun when pinned Showdown revision changes"
         )
+
+
+def test_showdown_consumers_observe_revision_contract_changes() -> None:
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        if "uses: ./.github/actions/setup-showdown" not in source:
+            continue
+        assert '- "experiments/showdown-revision.txt"' in source, (
+            f"{path.name} must rerun when pinned Showdown revision changes"
+        )
