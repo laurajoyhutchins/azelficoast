@@ -2,6 +2,7 @@
 "use strict";
 
 const crypto = require("node:crypto");
+const {performance} = require("node:perf_hooks");
 const fs = require("node:fs");
 const path = require("node:path");
 const {execFileSync} = require("node:child_process");
@@ -2744,7 +2745,12 @@ function sharedProjectionCacheSet(cache, baseKey, material, world, execution) {
   return true;
 }
 
-function compileLazyWholeTurnPrograms() {
+function compileLazyWholeTurnPrograms(
+  cacheMode = globalThis.__azelficoastTransitionCacheMode || "projection"
+) {
+  if (!["fresh", "exact", "projection"].includes(cacheMode)) {
+    throw new Error("unknown transition cache mode: " + cacheMode);
+  }
   const orderedWorlds = [...worlds].sort((left, right) =>
     left.world_id.localeCompare(right.world_id)
   );
@@ -2755,6 +2761,11 @@ function compileLazyWholeTurnPrograms() {
   let exactExecutionCacheHits = 0;
   let projectedExecutionCacheHits = 0;
   let sharedExecutionCacheMisses = 0;
+  let exactCacheHitMs = 0;
+  let exactCacheMissMs = 0;
+  let projectionCacheHitMs = 0;
+  let projectionCacheMissMs = 0;
+  let freshExecutionMs = 0;
   let publicTraceIncompleteExecutions = 0;
   let rootSnapshotBuilds = 0;
   let publicRootMaterialBuilds = 0;
@@ -2788,38 +2799,51 @@ function compileLazyWholeTurnPrograms() {
       let reused = false;
       let reuseKind = null;
 
-      if (sharedExecutionCache !== null) {
+      if (cacheMode !== "fresh" && sharedExecutionCache !== null) {
+        const started = performance.now();
         execution = sharedCacheGet(sharedExecutionCache, key);
+        const elapsed = performance.now() - started;
         if (execution !== undefined) {
           reused = true;
           reuseKind = "exact";
           exactExecutionCacheHits++;
+          exactCacheHitMs += elapsed;
+        } else {
+          exactCacheMissMs += elapsed;
         }
       }
       if (
         execution === undefined &&
+        cacheMode === "projection" &&
         root.material.complete &&
         sharedProjectionCache !== null
       ) {
+        const started = performance.now();
         execution = sharedProjectionCacheGet(
           sharedProjectionCache,
           projectionBaseKey,
           root.material,
           world
         );
+        const elapsed = performance.now() - started;
         if (execution !== undefined) {
           reused = true;
           reuseKind = "public-projection";
           projectedExecutionCacheHits++;
+          projectionCacheHitMs += elapsed;
           if (sharedExecutionCache !== null) {
             sharedCacheSet(sharedExecutionCache, key, execution);
           }
+        } else {
+          projectionCacheMissMs += elapsed;
         }
       }
 
       if (execution === undefined) {
         sharedExecutionCacheMisses++;
+        const started = performance.now();
         execution = immediateWholeTurn(world, action, root.snapshot);
+        freshExecutionMs += performance.now() - started;
         if (execution.public_trace_complete !== true) {
           publicTraceIncompleteExecutions++;
         }
@@ -3037,6 +3061,23 @@ function compileLazyWholeTurnPrograms() {
       saved_root_snapshot_builds: uniqueExecutions - rootSnapshotBuilds,
       public_root_dependency_schema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
       public_successor_delta_schema: 1,
+      transition_cache_mode: cacheMode,
+      physical_cost_observations: {
+        exact_cache_hit_count: exactExecutionCacheHits,
+        exact_cache_hit_total_ms: exactCacheHitMs,
+        exact_cache_miss_count:
+          cacheMode === "fresh"
+            ? 0
+            : projectedExecutionCacheHits + sharedExecutionCacheMisses,
+        exact_cache_miss_total_ms: exactCacheMissMs,
+        projection_cache_hit_count: projectedExecutionCacheHits,
+        projection_cache_hit_total_ms: projectionCacheHitMs,
+        projection_cache_miss_count:
+          cacheMode === "projection" ? sharedExecutionCacheMisses : 0,
+        projection_cache_miss_total_ms: projectionCacheMissMs,
+        fresh_execution_count: sharedExecutionCacheMisses,
+        fresh_execution_total_ms: freshExecutionMs,
+      },
       public_root_material_builds: publicRootMaterialBuilds,
       public_read_fields: publicReadFields,
       public_trace_incomplete_executions: publicTraceIncompleteExecutions,

@@ -54,8 +54,11 @@ def test_live_policy_routes_posterior_and_program_through_one_runtime() -> None:
             received: Mapping[str, Any],
             *,
             timeout_seconds: float,
+            cache_mode: str = "projection",
         ) -> Mapping[str, Any]:
-            self.calls.append(("transition_program", received, timeout_seconds))
+            self.calls.append(
+                (f"transition_program:{cache_mode}", received, timeout_seconds)
+            )
             return program
 
         def release(
@@ -80,7 +83,7 @@ def test_live_policy_routes_posterior_and_program_through_one_runtime() -> None:
 
     assert [name for name, _, _ in runtime.calls] == [
         "posterior",
-        "transition_program",
+        "transition_program:projection",
         "release",
     ]
     assert runtime.calls[0][1] is source
