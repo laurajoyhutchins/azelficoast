@@ -9,6 +9,7 @@ on:
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/real_belief_probe/**"
       - ".github/workflows/exhausted-bench-real-belief.yml"
   workflow_dispatch:
 

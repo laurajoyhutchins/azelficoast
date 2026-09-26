@@ -11,6 +11,7 @@ on:
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"
       - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/real_belief_probe/**"
       - "src/azelficoast/core/decision_relevance.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/live/belief.py"
