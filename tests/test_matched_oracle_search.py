@@ -5,7 +5,7 @@ import copy
 import pytest
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.research.matched_comparison import freeze_packet, settle_packet
+from azelficoast.research.matched_comparison import (\n    MatchedComparisonError,\n    freeze_packet,\n    settle_packet,\n)
 from azelficoast.research.matched_search import (
     MatchedSearchExecutionError,
     execute_method,
@@ -592,3 +592,160 @@ def test_depth_one_executor_rejects_deeper_evidence() -> None:
             method="determinization",
             evaluator=_FakeEvaluator(),
         )
+
+
+def _material_plan(depth: int) -> dict[str, object]:
+    return {
+        "schema": "azelficoast.matched-search-comparison-plan",
+        "schema_version": 2,
+        "posterior_treatments": ["generator_faithful"],
+        "compute_budget": {
+            "unit": "transition_evaluations",
+            "per_method_limit": 32,
+        },
+        "opponent_model": "fixed_observed_response",
+        "depths": [depth],
+        "confirmatory_predictors": [
+            "hidden_item_entropy_bits",
+            "persistent_branch_count",
+        ],
+        "cluster_unit": "battle_tag",
+        "showdown_commit": "pinned",
+        "chance_treatment": "shared_frozen_horizon_complete_oracle",
+        "evaluator": {
+            "schema": "azelficoast.material-utility-evaluator",
+            "schema_version": 1,
+            "checkpoint_digest": "sha256:" + "d" * 64,
+            "observability": "public_belief_only",
+            "architecture": "exact-material-utility",
+            "spec": {
+                "utility": (
+                    "sum own team HP fractions minus opposing active HP fraction"
+                )
+            },
+        },
+        "inference": {
+            "bootstrap_replicates": 20,
+            "bootstrap_seed": 1729,
+        },
+    }
+
+
+def _material_oracle(depth: int) -> dict[str, object]:
+    oracle = copy.deepcopy(_oracle())
+    oracle["mechanics"] = {"continuation_decision_horizons": depth}
+    if depth == 1:
+        return oracle
+
+    transitions = oracle["transitions"]
+    assert isinstance(transitions, list)
+    for transition in transitions:
+        assert isinstance(transition, dict)
+        outcomes = transition["outcomes"]
+        assert isinstance(outcomes, list)
+        for outcome in outcomes:
+            assert isinstance(outcome, dict)
+            continuations = outcome.pop("continuations")
+            assert isinstance(continuations, dict)
+            outcome["continuation_transitions"] = {
+                action: [
+                    {
+                        "probability": 1.0,
+                        "observation": {"next": action},
+                        "terminal_utility": value,
+                    }
+                ]
+                for action, value in continuations.items()
+            }
+    return oracle
+
+
+def _material_packet(
+    oracle: dict[str, object],
+    posterior: dict[str, object],
+    *,
+    depth: int,
+) -> dict[str, object]:
+    return freeze_packet(
+        plan=_material_plan(depth),
+        state={
+            "fixture_id": "fixture",
+            "battle_tag": "battle",
+            "public_state": {"turn": 8},
+            "legal_actions": ["wait", "reveal"],
+            "predictors": {
+                "hidden_item_entropy_bits": 1.0,
+                "persistent_branch_count": 1,
+            },
+        },
+        posterior=posterior,
+        posterior_treatment="generator_faithful",
+        depth=depth,
+    )
+
+
+@pytest.mark.parametrize("depth", [1, 2])
+def test_material_oracle_executor_settles_matched_depth_receipts(depth: int) -> None:
+    oracle = _material_oracle(depth)
+    posterior = _posterior(oracle)
+    packet = _material_packet(oracle, posterior, depth=depth)
+
+    receipts = [
+        execute_method(
+            packet=packet,
+            posterior=posterior,
+            oracle=oracle,
+            method=method,
+            evaluator=None,
+        )
+        for method in ("determinization", "information_set")
+    ]
+
+    assert receipts[0]["consumed"] == receipts[1]["consumed"] > 0
+    assert receipts[0]["evaluator_calls"] == receipts[1]["evaluator_calls"] == 0
+    assert receipts[0]["transition_program_source"] == "verified-material-oracle"
+    assert (
+        receipts[0]["transition_program_digest"]
+        == receipts[1]["transition_program_digest"]
+    )
+    settled = settle_packet(packet=packet, receipts=receipts)
+    assert settled["depth"] == depth
+    assert settled["matched_authorized_compute"] is True
+    assert settled["matched_transition_program"] is True
+
+
+def test_depth_two_material_identity_includes_nested_continuations() -> None:
+    oracle = _material_oracle(2)
+    posterior = _posterior(oracle)
+    packet = _material_packet(oracle, posterior, depth=2)
+
+    det = execute_method(
+        packet=packet,
+        posterior=posterior,
+        oracle=oracle,
+        method="determinization",
+        evaluator=None,
+    )
+
+    drifted = copy.deepcopy(oracle)
+    transitions = drifted["transitions"]
+    assert isinstance(transitions, list)
+    outcomes = transitions[0]["outcomes"]
+    assert isinstance(outcomes, list)
+    nested = outcomes[0]["continuation_transitions"]
+    assert isinstance(nested, dict)
+    first_action = sorted(nested)[0]
+    branch_rows = nested[first_action]
+    assert isinstance(branch_rows, list)
+    branch_rows[0]["terminal_utility"] = 999999.0
+
+    info = execute_method(
+        packet=packet,
+        posterior=posterior,
+        oracle=drifted,
+        method="information_set",
+        evaluator=None,
+    )
+    assert det["transition_program_digest"] != info["transition_program_digest"]
+    with pytest.raises(MatchedComparisonError):
+        settle_packet(packet=packet, receipts=[det, info])
