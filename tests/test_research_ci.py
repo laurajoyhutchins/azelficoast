@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from azelficoast.research.ci import EXPERIMENTS, experiments_for_paths, matrix_for
+from azelficoast.research.ci import (
+    EXPERIMENTS,
+    candidate_certificate,
+    experiments_for_paths,
+    matrix_for,
+)
 
 
 def _names(paths: tuple[str, ...]) -> set[str]:
@@ -90,3 +95,40 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
     ]
     assert selected[0].simulator is True
     assert selected[0].showdown is False
+
+
+def test_candidate_certificate_is_owned_by_python_and_fails_closed() -> None:
+    matrix = {"include": [{"experiment": "contract", "artifact_name": "contract-evidence"}]}
+    certificate = candidate_certificate(
+        head_sha="a" * 40,
+        matrix=matrix,
+        selected_count=1,
+        exact_result="success",
+        accelerator_static_result="success",
+    )
+    assert certificate == {
+        "schema": "azelficoast.candidate-research-certificate",
+        "git_sha": "a" * 40,
+        "selected_experiments": ["contract"],
+        "passed": True,
+    }
+
+    for statuses in (("failure", "success"), ("success", "failure"), ("success", "skipped")):
+        try:
+            candidate_certificate(
+                head_sha="a" * 40,
+                matrix=matrix,
+                selected_count=1,
+                exact_result=statuses[0],
+                accelerator_static_result=statuses[1],
+            )
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"accepted failed certificate statuses: {statuses}")
+
+
+def test_repository_showdown_revision_selects_showdown_consumers() -> None:
+    selected = experiments_for_paths(("experiments/showdown-revision.txt",))
+    assert selected
+    assert all(experiment.showdown for experiment in selected)
