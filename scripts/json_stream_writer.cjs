@@ -103,8 +103,12 @@ async function writeJsonStream(
   };
 
   for (const token of jsonTokens(value, 0, false, new WeakSet())) {
+    const tokenBytes = Buffer.byteLength(token, "utf8");
+    if (chunks.length > 0 && bufferedBytes + tokenBytes > chunkBytes) {
+      await flush();
+    }
     chunks.push(token);
-    bufferedBytes += Buffer.byteLength(token, "utf8");
+    bufferedBytes += tokenBytes;
     if (bufferedBytes >= chunkBytes) await flush();
   }
   chunks.push("\n");
