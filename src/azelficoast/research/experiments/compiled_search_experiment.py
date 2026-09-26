@@ -8,7 +8,6 @@ compiled topology. Host timing is reported but does not decide correctness.
 
 from __future__ import annotations
 
-import json
 import math
 import time
 from typing import Any, Sequence
@@ -140,7 +139,7 @@ def _milliseconds(start_ns: int, end_ns: int) -> float:
     return (end_ns - start_ns) / 1_000_000.0
 
 
-def main() -> int:
+def run_experiment() -> dict[str, object]:
     program, posterior = _problem()
     evaluator = SyntheticEvaluator()
 
@@ -318,10 +317,4 @@ def main() -> int:
             "generality, or permission to replace the live search path."
         ),
     }
-    print(json.dumps(result, sort_keys=True))
-    return 0 if passed else 1
-
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return result
