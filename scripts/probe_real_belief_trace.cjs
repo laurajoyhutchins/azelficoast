@@ -502,6 +502,21 @@ function normalizedOpponentPolicy() {
   };
 }
 
+const opponentPolicySemantics = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, "../experiments/opponent-policy-semantics.json"),
+    "utf8"
+  )
+);
+if (
+  opponentPolicySemantics.schema !== "azelficoast.opponent-policy-semantics" ||
+  typeof opponentPolicySemantics.semantics_version !== "string"
+) {
+  fail("invalid versioned opponent policy semantics contract");
+}
+const OPPONENT_POLICY_SEMANTICS_VERSION =
+  opponentPolicySemantics.semantics_version;
+
 const OPPONENT_POLICY = normalizedOpponentPolicy();
 
 function resolveGeneratorSpecies(requested) {
@@ -3215,6 +3230,7 @@ process.stdout.write(JSON.stringify({
         : "uniform legal moves"
     ),
     opponent_policy: OPPONENT_POLICY,
+    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
     continuation_scope:
       CONTINUATION_DECISION_HORIZONS === 1
         ? "all non-Tera player choices at the next decision"
@@ -3234,6 +3250,7 @@ process.stdout.write(JSON.stringify({
       "projection is used only to estimate mechanics-equivalent execution shapes; semantic posterior worlds retain moves and Tera type",
     observed_opponent_moves: observedOpponentMoves(),
     opponent_policy: OPPONENT_POLICY,
+    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
     hidden_world_count: outputWorlds.length,
     own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
     opponent_bench_species: OPPONENT_BENCH_SPECIES,
