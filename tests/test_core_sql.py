@@ -5,8 +5,10 @@ import pytest
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN
 from azelficoast.core.sql import (
     DECISION_QUERY_SEMANTIC_ID,
+    DECISION_SQL_SURFACE_ID,
     DEFAULT_DECISION_SQL,
     SQLDecisionQueryError,
+    describe_decision_sql_surface,
     explain_decision_query,
     prepare_decision_query,
 )
@@ -17,6 +19,8 @@ def test_default_decision_sql_is_admitted_by_real_sqlite_parser() -> None:
 
     assert prepared.sql == DEFAULT_DECISION_SQL
     assert prepared.relations == (
+        "action_value_terms",
+        "active_worlds",
         "evaluations",
         "hidden_worlds",
         "legal_actions",
@@ -24,7 +28,8 @@ def test_default_decision_sql_is_admitted_by_real_sqlite_parser() -> None:
     )
     assert prepared.functions == ("sum",)
     assert prepared.semantic_identity == DECISION_QUERY_SEMANTIC_ID
-    assert prepared.equivalence_rule == "canonical-cte"
+    assert prepared.equivalence_rule == "writer-view"
+    assert prepared.sql_surface_identity == DECISION_SQL_SURFACE_ID
     assert prepared.logical == DEFAULT_DECISION_PLAN
     assert prepared.sqlite_version
     assert any(
@@ -40,12 +45,13 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
     assert prepared.sql_sha256 == repeated.sql_sha256
     assert explanation["schema"] == "azelficoast.core.sql-query-explain"
-    assert explanation["schema_version"] == 2
+    assert explanation["schema_version"] == 3
     assert explanation["sql_sha256"] == prepared.sql_sha256
     assert explanation["relations"] == list(prepared.relations)
     assert explanation["functions"] == ["sum"]
     assert explanation["semantic_identity"] == DECISION_QUERY_SEMANTIC_ID
-    assert explanation["equivalence_rule"] == "canonical-cte"
+    assert explanation["equivalence_rule"] == "writer-view"
+    assert explanation["sql_surface_identity"] == DECISION_SQL_SURFACE_ID
     assert explanation["logical_operators"] == [
         operator.value for operator in DEFAULT_DECISION_PLAN.operators
     ]
@@ -161,3 +167,47 @@ def test_admitted_sql_without_reviewed_equivalence_gets_no_logical_authority() -
     assert explanation["semantic_identity"] is None
     assert explanation["equivalence_rule"] is None
     assert explanation["logical_operators"] == []
+
+
+
+def test_writer_surface_exposes_small_stable_relations() -> None:
+    surface = describe_decision_sql_surface()
+
+    assert surface["surface_identity"] == DECISION_SQL_SURFACE_ID
+    assert surface["relations"] == {
+        "active_worlds": {"columns": ["world_id", "weight"]},
+        "action_value_terms": {
+            "columns": ["action_id", "weight", "value"]
+        },
+    }
+    assert surface["required_result_columns"] == [
+        "action_id",
+        "expected_value",
+    ]
+    assert surface["canonical_query"] == DEFAULT_DECISION_SQL
+
+
+def test_default_sql_is_writer_facing_instead_of_physical_join_ceremony() -> None:
+    assert "FROM action_value_terms" in DEFAULT_DECISION_SQL
+    assert "hidden_worlds" not in DEFAULT_DECISION_SQL
+    assert "transitions" not in DEFAULT_DECISION_SQL
+    assert "JOIN" not in DEFAULT_DECISION_SQL
+
+
+
+def test_writer_comments_do_not_change_decision_semantics() -> None:
+    commented = DEFAULT_DECISION_SQL.replace(
+        "SELECT",
+        "-- rank legal actions by expected value\nSELECT",
+        1,
+    ).replace(
+        "FROM action_value_terms",
+        "FROM /* admitted decision terms */ action_value_terms",
+    )
+
+    canonical = prepare_decision_query(DEFAULT_DECISION_SQL)
+    prepared = prepare_decision_query(commented)
+
+    assert prepared.sql_sha256 != canonical.sql_sha256
+    assert prepared.semantic_identity == DECISION_QUERY_SEMANTIC_ID
+    assert prepared.equivalence_rule == "writer-view"
