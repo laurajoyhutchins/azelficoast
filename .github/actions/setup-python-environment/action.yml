@@ -2,10 +2,6 @@ name: Setup Azelficoast Python
 description: Install the repository's pinned Python toolchain and locked dependencies.
 
 inputs:
-  python-version:
-    description: Python version used to materialize the locked environment.
-    required: false
-    default: "3.13"
   simulator:
     description: Install the simulator dependency extra.
     required: false
@@ -16,7 +12,7 @@ runs:
   steps:
     - uses: actions/setup-python@v7
       with:
-        python-version: "${{ inputs.python-version }}"
+        python-version-file: ".python-version"
 
     - name: Install pinned uv
       shell: bash

@@ -10,7 +10,7 @@ runs:
         set -euo pipefail
         bundle="experiments/evidence/canonical-evidence.tar.gz"
         manifest="experiments/evidence/canonical-evidence.json"
-        expected="$(python3 -c 'import json; print(json.load(open("experiments/evidence/canonical-evidence.json"))["bundle"]["sha256"])')"
+        expected="$(jq -r '.bundle.sha256' "${manifest}")"
         actual="$(sha256sum "${bundle}" | cut -d ' ' -f1)"
         if [[ "${actual}" != "${expected}" ]]; then
           echo "canonical research evidence digest mismatch: expected ${expected}, got ${actual}" >&2
