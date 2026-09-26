@@ -216,7 +216,9 @@ def decision_relevance_quotient(
             }
         )
         for action in actions:
-            transition = copy.deepcopy(transitions[(representative_id, action)])
+            transition = copy.deepcopy(
+                dict(transitions[(representative_id, action)])
+            )
             transition["world_id"] = class_id
             for outcome in transition.get("outcomes", []):
                 if isinstance(outcome, dict):
