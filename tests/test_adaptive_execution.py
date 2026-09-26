@@ -392,3 +392,4 @@ def test_fixed_class_crossover_bracket_requires_monotone_one_dimensional_labels(
         },
     ]
     assert _fixed_class_crossover_bracket(non_monotone) == (0, 0, 0, 0)
+# Verification-only candidate trigger for main 238388e: no runtime semantics changed.
