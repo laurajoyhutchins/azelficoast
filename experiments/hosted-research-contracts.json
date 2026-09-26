@@ -1,0 +1,590 @@
+{
+  "schema": "azelficoast.hosted-research-contracts",
+  "studies": {
+    "conditional-team-prior": {
+      "paths": [
+        "scripts/evaluate_conditional_team_prior.cjs"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "conditional-team-prior",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "conditional-team-prior",
+          "paths": [
+            "/tmp/conditional-team-prior.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "decision-relevance-quotient": {
+      "paths": [
+        "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "src/azelficoast/core/decision_relevance.py",
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "src/azelficoast/live/belief.py",
+        "tests/test_decision_relevance.py",
+        "tests/test_live_belief.py"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "decision-relevance-quotient",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "decision-relevance-quotient",
+          "paths": [
+            "/tmp/status-quotient.json",
+            "/tmp/fusion-quotient.json",
+            "/tmp/status-full.json",
+            "/tmp/fusion-full.json",
+            "/tmp/decision-relevance-summary.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "exhausted-bench-real-belief": {
+      "paths": [
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "exhausted-bench",
+        "operation": "exhausted-bench",
+        "units": [
+          "regigigas-bruxish-turn17",
+          "regigigas-bruxish-turn18"
+        ],
+        "artifact": {
+          "name": "exhausted-bench-{unit}",
+          "paths": [
+            "/tmp/source.json",
+            "/tmp/oracle.json",
+            "/tmp/trace.json",
+            "/tmp/mining.json",
+            "/tmp/result.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "factored-hidden-bench-prior": {
+      "paths": [
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "scripts/evaluate_conditional_team_prior.cjs",
+        "tests/test_real_belief_trace.py"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "factored-hidden-bench-prior",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "factored-hidden-bench-prior",
+          "paths": [
+            "/tmp/source.json",
+            "/tmp/conditional-team-prior.json",
+            "/tmp/factored-bench-oracle.json",
+            "/tmp/factored-bench-trace.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "joint-random-battle-posterior": {
+      "paths": [
+        "scripts/sample_joint_random_battle_posterior.cjs",
+        "src/azelficoast/belief/joint_posterior.py",
+        "src/azelficoast/belief/validity.py",
+        "src/azelficoast/belief/evaluator.py",
+        "src/azelficoast/live/belief.py",
+        "tests/test_joint_posterior.py",
+        "tests/test_joint_posterior_sampler.py",
+        "tests/test_belief_evaluator.py",
+        "tests/test_live_belief.py"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "joint-random-battle-posterior",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "joint-random-battle-posterior",
+          "paths": [
+            "/tmp/joint-posterior.json",
+            "/tmp/joint-posterior-validity.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "live-belief-coverage": {
+      "paths": [
+        "src/azelficoast/belief/coverage.py",
+        "src/azelficoast/live/belief.py",
+        "src/azelficoast/live/harness.py",
+        "src/azelficoast/live/instrumentation.py",
+        "tests/test_belief_coverage.py",
+        "tests/test_harness.py"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "live-belief-coverage",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "live-belief-coverage",
+          "paths": [
+            "/tmp/belief-coverage.json",
+            "/tmp/decisions.jsonl",
+            "/tmp/results.jsonl"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "natural-depth-regret": {
+      "paths": [
+        "experiments/natural-depth-regret-plan.json",
+        "src/azelficoast/research/depth_population.py",
+        "src/azelficoast/research/depth.py",
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "tests/test_depth_population.py",
+        "tests/test_depth_study.py",
+        "tests/test_real_belief_trace.py"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "natural-depth-shard",
+        "operation": "natural-depth-shard",
+        "units": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "artifact": {
+          "name": "natural-depth-regret-exact-{unit}",
+          "paths": [
+            "/tmp/results"
+          ],
+          "if_no_files": "error"
+        }
+      },
+      "aggregate": {
+        "prepare": "natural-depth-restore",
+        "operation": "natural-depth-aggregate",
+        "evidence": false,
+        "showdown": false,
+        "download_pattern": "natural-depth-regret-exact-*",
+        "artifact": {
+          "name": "natural-depth-regret-results",
+          "paths": [
+            "/tmp/natural-depth-regret-aggregate.json",
+            "/tmp/aggregate-output.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "natural-population-strategy-fusion": {
+      "paths": [
+        "experiments/natural-population-strategy-fusion-plan.json",
+        "src/azelficoast/research/population.py",
+        "src/azelficoast/research/natural_disagreements.py",
+        "src/azelficoast/search/fusion.py",
+        "src/azelficoast/live/belief.py",
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "scripts/sample_showdown_worlds.cjs",
+        "scripts/screen_public_belief_speed_forks.cjs",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "tests/test_population_study.py",
+        "tests/test_natural_disagreements.py"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "natural-population-shard",
+        "operation": "natural-population-shard",
+        "units": [
+          "0",
+          "1",
+          "2",
+          "3",
+          "4",
+          "5",
+          "6",
+          "7"
+        ],
+        "artifact": {
+          "name": "natural-population-exact-{unit}",
+          "paths": [
+            "/tmp/results"
+          ],
+          "if_no_files": "warn"
+        }
+      },
+      "aggregate": {
+        "operation": "natural-population-aggregate",
+        "evidence": true,
+        "showdown": false,
+        "download_pattern": "natural-population-exact-*",
+        "artifact": {
+          "name": "natural-population-strategy-fusion-results",
+          "paths": [
+            "/tmp/natural-population-aggregate.json",
+            "/tmp/aggregate-output.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "natural-status-move-public-belief": {
+      "paths": [
+        "experiments/natural-status-move-treatment.json",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "src/azelficoast/research/verification/real_belief_trace.py"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "natural-status-move",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "natural-status-move-public-belief",
+          "paths": [
+            "/tmp/azelficoast-evidence/status-source.json",
+            "/tmp/status-oracle.json",
+            "/tmp/status-trace.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "opponent-team-completion-support": {
+      "paths": [
+        "scripts/enumerate_team_completion_support.cjs"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "opponent-team-completion-support",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "opponent-team-completion-support",
+          "paths": [
+            "/tmp/turn12-support.json",
+            "/tmp/turn13-support.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "policy-boundary-refinement-experiment": {
+      "paths": [
+        "scripts/policy_boundary_refinement_experiment.py",
+        "experiments/policy-boundary-refinement-results.json"
+      ],
+      "showdown": false,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "policy-boundary-refinement",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "policy-boundary-refinement-results",
+          "paths": [
+            "/tmp/policy-boundary-refinement-results.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "protect-action-survival-experiment": {
+      "paths": [
+        "experiments/protect-action-survival.json",
+        "src/azelficoast/research/action_survival.py",
+        "src/azelficoast/research/mechanics/gen9_damage.py",
+        "tests/test_action_survival.py"
+      ],
+      "showdown": false,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "protect-action-survival",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "protect-action-survival-evidence",
+          "paths": [
+            "/tmp/protect-action-survival.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "protect-continuation-experiment": {
+      "paths": [
+        "src/azelficoast/live/harness.py",
+        "src/azelficoast/research/protect_continuations.py",
+        "src/azelficoast/research/natural_disagreements.py",
+        "tests/test_harness.py",
+        "tests/test_protect_continuations.py",
+        "tests/test_natural_disagreements.py"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "protect-continuation",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "protect-continuation-evidence",
+          "paths": [
+            "/tmp/results.jsonl",
+            "/tmp/decisions.jsonl",
+            "/tmp/corpus.jsonl",
+            "/tmp/corpus-summary.json",
+            "/tmp/protect-candidates.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "protect-speed-fork-mechanics": {
+      "paths": [
+        "experiments/protect-speed-forks.json",
+        "scripts/probe_protect_speed_forks.cjs"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "protect-speed-fork",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "protect-speed-fork-mechanics",
+          "paths": [
+            "/tmp/protect-speed-fork-mechanics.json"
+          ],
+          "if_no_files": "error"
+        }
+      }
+    },
+    "public-belief-exact-corpus": {
+      "paths": [
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "src/azelficoast/research/verification/real_belief_miner.py",
+        "src/azelficoast/core/decision_relevance.py",
+        "src/azelficoast/core/program.py",
+        "src/azelficoast/core/transition.py",
+        "src/azelficoast/core/whole_turn_program.py",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "tests/hostile/test_transition_program_hostile.py"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "public-belief-exact",
+        "operation": "public-belief-exact",
+        "units": [
+          "jirachi-staraptor",
+          "regigigas-staraptor-turn12",
+          "regigigas-bruxish-turn17",
+          "tinkaton-gardevoir",
+          "regigigas-staraptor-turn13",
+          "regigigas-bruxish-turn18"
+        ],
+        "artifact": {
+          "name": "exact-public-belief-{unit}",
+          "paths": [
+            "/tmp/candidate-status.json",
+            "/tmp/candidate-source.json",
+            "/tmp/candidate-oracle.json",
+            "/tmp/candidate-lazy-program.json",
+            "/tmp/candidate-trace.json",
+            "/tmp/candidate-mining.json",
+            "/tmp/candidate-result.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "real-belief-decision-trace": {
+      "paths": [
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "src/azelficoast/core/whole_turn_program.py",
+        "src/azelficoast/research/verification/real_belief_miner.py",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json",
+        "experiments/real-belief-source-fixture.json",
+        "experiments/real-belief-source-gliscor-urshifu.json",
+        "experiments/real-belief-negative-corpus.json",
+        "tests/test_real_belief_trace.py",
+        "tests/test_whole_turn_program.py",
+        "tests/test_real_belief_miner.py",
+        "README.md"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "real-belief-decision-trace",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "real-belief-decision-trace",
+          "paths": [
+            "/tmp/real-belief-transition-oracle.json",
+            "/tmp/whole-turn-transition-program.json",
+            "/tmp/whole-turn-transition-verification.json",
+            "/tmp/real-belief-decision-trace.json",
+            "/tmp/real-belief-analysis-status",
+            "/tmp/real-belief-trace-mining.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "real-belief-survival-witness": {
+      "paths": [
+        "src/azelficoast/research/verification/real_belief_trace.py",
+        "src/azelficoast/research/verification/real_belief_miner.py",
+        "scripts/probe_real_belief_trace.cjs",
+        "scripts/real_belief_probe/**",
+        "scripts/json_stream_writer.cjs",
+        "experiments/opponent-policy-semantics.json"
+      ],
+      "showdown": true,
+      "evidence": true,
+      "run": {
+        "kind": "command",
+        "operation": "real-belief-survival-witness",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "real-belief-survival-witness",
+          "paths": [
+            "/tmp/azelficoast-evidence/survival-source.json",
+            "/tmp/tropius-chiyu-oracle.json",
+            "/tmp/tropius-chiyu-trace.json",
+            "/tmp/tropius-chiyu-mining.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "replay-world-experiment": {
+      "paths": [
+        "src/azelficoast/research/verification/replay_worlds.py",
+        "scripts/sample_showdown_worlds.cjs",
+        "tests/test_replay_worlds.py"
+      ],
+      "showdown": false,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "replay-world",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "replay-world-evidence",
+          "paths": [
+            "/tmp/infernape-closecombat.json",
+            "/tmp/infernape-belief.json",
+            "/tmp/infernape-closecombat-flareblitz.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    },
+    "status-move-hidden-world-prior": {
+      "paths": [
+        "experiments/status-move-prior-selection.json",
+        "scripts/sample_showdown_worlds.cjs",
+        "src/azelficoast/belief/status_move_prior.py",
+        "tests/test_status_move_prior.py"
+      ],
+      "showdown": true,
+      "evidence": false,
+      "run": {
+        "kind": "command",
+        "operation": "status-move-hidden-world-prior",
+        "units": [
+          "default"
+        ],
+        "artifact": {
+          "name": "status-move-hidden-world-prior",
+          "paths": [
+            "/tmp/status-move-prior-results.json"
+          ],
+          "if_no_files": "warn"
+        }
+      }
+    }
+  }
+}
