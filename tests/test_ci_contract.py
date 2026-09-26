@@ -229,20 +229,28 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "Type check accelerator frontier" in source
 
 
-def test_candidate_specs_do_not_live_in_ci_runner() -> None:
+def test_candidate_specs_are_repository_data_not_runner_code() -> None:
     runner = (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(
         encoding="utf-8"
     )
-    contracts = (
+    loader = (
         ROOT / "src" / "azelficoast" / "research" / "experiment_contracts.py"
     ).read_text(encoding="utf-8")
+    contract = json.loads(
+        (ROOT / "experiments" / "candidate-research-contracts.json").read_text(
+            encoding="utf-8"
+        )
+    )
 
     assert "Check(" not in runner
     assert "paths=(" not in runner
-    assert "EXPERIMENTS: tuple[CandidateExperiment" not in runner
-    assert "EXPERIMENTS: tuple[CandidateExperiment" in contracts
-    assert '".github/workflows/research.yml"' in contracts
-    assert "candidate-research.yml" not in contracts
+    assert "_spec(" not in loader
+    assert "adaptive-execution-experiment.json" not in loader
+    assert contract["schema"] == "azelficoast.candidate-research-contracts"
+    assert len(contract["experiments"]) == 16
+    assert '"experiments/candidate-research-contracts.json"' in loader
+    assert '".github/workflows/research.yml"' in loader
+    assert "candidate-research.yml" not in loader
 
 
 def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
