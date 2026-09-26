@@ -332,6 +332,52 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         showdown=False,
     ),
     _spec(
+        "compiled-search-topology",
+        paths=(
+            "src/azelficoast/core/compiled_search.py",
+            "src/azelficoast/belief/compiled_search.py",
+            "src/azelficoast/belief/packed_evaluator.py",
+            "src/azelficoast/research/compiled_search_experiment.py",
+            "tests/test_compiled_search.py",
+            "tests/test_compiled_packed_search.py",
+            "docs/architecture/compiled-data-plane.md",
+            "docs/search-architecture.md",
+        ),
+        artifact="compiled-search-topology-evidence",
+        tests=(
+            "tests/test_compiled_search.py",
+            "tests/test_compiled_packed_search.py",
+        ),
+        modules=(
+            (
+                "azelficoast.research.compiled_search_experiment",
+                "compiled-search-topology-experiment.json",
+                None,
+            ),
+        ),
+        checks=(
+            Check(
+                "compiled-search-topology-experiment.json",
+                ("passed",),
+                "eq",
+                True,
+            ),
+            Check(
+                "compiled-search-topology-experiment.json",
+                ("problem", "world_count"),
+                "ge",
+                512,
+            ),
+            Check(
+                "compiled-search-topology-experiment.json",
+                ("compiled_shape", "edge_count"),
+                "ge",
+                4096,
+            ),
+        ),
+        showdown=False,
+    ),
+    _spec(
         "showdown-dependency",
         paths=(
             "src/azelficoast/research/mechanics/simulator_ir.py",

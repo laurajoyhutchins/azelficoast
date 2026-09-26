@@ -202,3 +202,50 @@ The receipt reports separately:
 The experiment is descriptive. It does not promote either model and does not infer battle
 strength from validation loss. A later battle panel can test playing strength after a
 representation treatment has earned further attention.
+
+
+## Search topology joins the compiled data plane
+
+The packed posterior is now paired with a separate compiled search-topology artifact.
+The two objects have different authority and reuse properties:
+
+```text
+Showdown-bound hidden worlds        verified TransitionProgram
+            |                                |
+            v                                v
+   PackedJointPosterior              CompiledSearchTopology
+            |                                |
+            +--------------+-----------------+
+                           v
+                    JAX search batch
+```
+
+`PackedJointPosterior` owns dense hidden-world coordinates and prior weights.
+`CompiledSearchTopology` owns only the already-authorized incidence between worlds,
+execution classes, chance outcomes, public observations, public successors, legal
+successor actions, and evaluation leaves.
+
+Because posterior weights are not part of topology identity, prior stress treatments can
+reuse the same compiled search object. Because hidden-world arrays are not duplicated per
+leaf, a successor frontier can be represented by one shared packed tensor plus a
+`[leaf, world]` conditional-weight matrix.
+
+That gives the accelerator a much better unit of work:
+
+```text
+shared worlds           [W, T, ...]
+leaf public features    [L, P]
+leaf/world weights      [L, W]
+leaf legal mask         [L, A]
+root incidence          [L]
+              |
+              v
+         one JAX frontier
+```
+
+The legal mask is carried even though the current depth-one value head does not consume
+it. It belongs in the compiled representation because deeper policy/value evaluation can
+use it without reconstructing successor action sets from Python strings.
+
+The current implementation remains a research path. Candidate evidence must establish
+semantic equivalence and mass conservation before any live routing change.

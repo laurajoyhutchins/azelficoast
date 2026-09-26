@@ -239,3 +239,70 @@ That keeps the optimization target where the scientific question lives:
 
 > same public decision state, same posterior, same compute budget, same mechanics
 > authority, different information-set discipline.
+
+
+## Compiled search topology
+
+The research-only compiled search path lowers an already-validated transition program
+into a dense incidence object before numerical evaluation. This does not change which
+worlds are equivalent or which observations form one information set.
+
+Python still establishes:
+
+- the verified execution class for every root-action / hidden-world pair;
+- the public observation partition for every chance outcome;
+- the unique public successor state associated with each information set;
+- the common legal successor-action surface;
+- whether continuation coupling follows determinization or information-set semantics.
+
+The resulting `CompiledSearchTopology` records those decisions as arrays:
+
+```text
+world_to_class          [root_action, world]
+edge_world              [chance_edge]
+edge_class              [chance_edge]
+edge_observation        [chance_edge]
+edge_successor          [chance_edge]
+edge_leaf               [chance_edge]
+edge_probability        [chance_edge]
+leaf_root_action        [leaf]
+leaf_successor          [leaf]
+leaf_legal_mask         [leaf, successor_action]
+```
+
+Posterior weights are intentionally absent from the topology identity. If two posterior
+treatments have the same finite support and mechanics program, they reuse the exact same
+compiled topology and only supply a different `[world]` weight vector.
+
+JAX is then allowed to perform two purely numerical operations:
+
+```text
+prior weights + fixed chance edges
+        -> leaf mass
+        -> [leaf, world] conditional posterior weights
+
+leaf values + leaf mass + fixed leaf/root incidence
+        -> root action values
+```
+
+Mass transport cannot create or merge information sets because the edge-to-leaf mapping
+is already fixed by Python.
+
+### Shared-world packed evaluation
+
+For Showdown-native packed posteriors, successor leaves do not duplicate hidden-team
+tensors. All leaves share one immutable `[world, team, ...]` packed posterior and differ
+only by:
+
+- public successor features; and
+- the transported `[leaf, world]` conditional weight matrix.
+
+The packed evaluator vmaps over those two changing surfaces while reading the same hidden
+world arrays for every leaf. This removes the old pattern of constructing one Python
+posterior object per successor leaf before batched evaluation.
+
+The candidate experiment compares this machinery against the existing Python frontier
+search at the same exact transition program and posterior. Semantic equality and mass
+conservation are hard gates. Host timing is descriptive. Live exact search remains on
+the existing path until this evidence is strong enough to justify a separate promotion
+step.
