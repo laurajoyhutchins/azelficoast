@@ -29,7 +29,7 @@ from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql import (
     DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
-    PreparedDecisionQuery,
+    PreparedSQLQuery,
     prepare_decision_query,
 )
 
@@ -168,7 +168,7 @@ def _plan_digest(material: Mapping[str, Any]) -> str:
 
 
 def compile_packed_sql_decision_query(
-    query: PreparedDecisionQuery,
+    query: PreparedSQLQuery,
 ) -> SQLPackedDecisionPlan:
     """Lower the reviewed SQL decision query into the packed/JAX physical path."""
 
