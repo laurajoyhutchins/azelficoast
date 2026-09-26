@@ -150,15 +150,6 @@ def main() -> int:
         posterior=posterior,
         method="information_set",
         evaluator=evaluator,
-        envelope=CardinalityEnvelope(
-            max_world_count=WORLD_COUNT,
-            max_class_count=ACTION_COUNT * CLASSES_PER_ACTION,
-            max_chance_edge_count=ACTION_COUNT * WORLD_COUNT * 2,
-            max_leaf_count=ACTION_COUNT * OBSERVATIONS_PER_ACTION * 2,
-            max_dense_leaf_world_cells=(
-                ACTION_COUNT * OBSERVATIONS_PER_ACTION * 2 * WORLD_COUNT
-            ),
-        ),
         expected_program_schema="azelficoast.synthetic-transition-program-set",
         expected_program_schema_version=1,
     )
@@ -180,6 +171,15 @@ def main() -> int:
         posterior=posterior,
         method="information_set",
         evaluator=evaluator,
+        envelope=CardinalityEnvelope(
+            max_world_count=WORLD_COUNT,
+            max_class_count=ACTION_COUNT * CLASSES_PER_ACTION,
+            max_chance_edge_count=ACTION_COUNT * WORLD_COUNT * 2,
+            max_leaf_count=ACTION_COUNT * OBSERVATIONS_PER_ACTION * 2,
+            max_dense_leaf_world_cells=(
+                ACTION_COUNT * OBSERVATIONS_PER_ACTION * 2 * WORLD_COUNT
+            ),
+        ),
         expected_program_schema="azelficoast.synthetic-transition-program-set",
         expected_program_schema_version=1,
     )
