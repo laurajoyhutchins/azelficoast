@@ -20,6 +20,7 @@ from azelficoast.belief.compiled_search import (
 from azelficoast.belief.packed_evaluator import PackedBeliefEvaluatorSpec
 from azelficoast.belief.showdown_packing import ShowdownVocabulary
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
+from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql import (
     DEFAULT_DECISION_SQL,
     PreparedDecisionQuery,
@@ -215,11 +216,45 @@ def search_sql_packed_transition_program(
     sql: str = DEFAULT_DECISION_SQL,
     expected_program_schema: str | None = None,
     expected_program_schema_version: int | None = None,
+    planner_statistics: PlannerStatistics | None = None,
 ) -> dict[str, Any]:
     """Execute reviewed decision SQL through the existing packed/JAX machinery."""
 
     prepared = prepare_decision_query(sql)
     plan = compile_packed_sql_decision_query(prepared)
+
+    raw_worlds = posterior.get("worlds")
+    raw_actions = program_set.get("legal_actions")
+    if not isinstance(raw_worlds, list) or not isinstance(raw_actions, list):
+        raise SQLPackedLoweringError(
+            "SQL planning requires explicit posterior worlds and legal actions"
+        )
+    scan_rows = len(raw_worlds)
+    action_rows = len(raw_actions)
+
+    filter_signature = (
+        f"{prepared.sql_sha256}:filter:hidden_worlds:active-positive:"
+        f"{posterior.get('schema', 'unknown')}"
+    )
+    partition_signature = (
+        f"{prepared.sql_sha256}:partition:{method}:"
+        f"{program_set.get('schema', 'unknown')}"
+    )
+
+    filter_estimate: CardinalityEstimate | None = None
+    partition_estimate: CardinalityEstimate | None = None
+    if planner_statistics is not None:
+        filter_estimate = planner_statistics.estimate(
+            operator=LogicalOperator.FILTER,
+            signature=filter_signature,
+            input_rows=scan_rows,
+        )
+        partition_estimate = planner_statistics.estimate(
+            operator=LogicalOperator.PARTITION,
+            signature=partition_signature,
+            input_rows=filter_estimate.estimated_output_rows * action_rows,
+        )
+
     result = search_packed_compiled_transition_program(
         program_set=program_set,
         posterior=posterior,
@@ -241,6 +276,72 @@ def search_sql_packed_transition_program(
             "SQL-generated numeric backend drifted from packed/JAX execution"
         )
 
+    compiled_shape = result.get("compiled_shape")
+    if not isinstance(compiled_shape, Mapping):
+        raise SQLPackedLoweringError("packed search did not report compiled cardinalities")
+    actual_filter_rows = compiled_shape.get("worlds")
+    actual_partition_groups = compiled_shape.get("classes")
+    actual_action_rows = compiled_shape.get("actions")
+    if (
+        not isinstance(actual_filter_rows, int)
+        or isinstance(actual_filter_rows, bool)
+        or actual_filter_rows < 0
+        or not isinstance(actual_partition_groups, int)
+        or isinstance(actual_partition_groups, bool)
+        or actual_partition_groups < 0
+        or not isinstance(actual_action_rows, int)
+        or isinstance(actual_action_rows, bool)
+        or actual_action_rows < 0
+    ):
+        raise SQLPackedLoweringError("packed search reported invalid cardinalities")
+
+    if planner_statistics is not None:
+        planner_statistics.observe(
+            operator=LogicalOperator.FILTER,
+            signature=filter_signature,
+            input_rows=scan_rows,
+            output_rows=actual_filter_rows,
+        )
+        planner_statistics.observe(
+            operator=LogicalOperator.PARTITION,
+            signature=partition_signature,
+            input_rows=actual_filter_rows * actual_action_rows,
+            output_rows=actual_partition_groups,
+        )
+
+    forecast = {
+        "filter": (
+            filter_estimate.as_record() if filter_estimate is not None else None
+        ),
+        "partition": (
+            partition_estimate.as_record()
+            if partition_estimate is not None
+            else None
+        ),
+    }
+    observed = {
+        "filter": {
+            "input_rows": scan_rows,
+            "output_rows": actual_filter_rows,
+        },
+        "partition": {
+            "input_rows": actual_filter_rows * actual_action_rows,
+            "output_rows": actual_partition_groups,
+        },
+    }
+    error = {
+        "filter_rows": (
+            actual_filter_rows - filter_estimate.estimated_output_rows
+            if filter_estimate is not None
+            else None
+        ),
+        "partition_groups": (
+            actual_partition_groups - partition_estimate.estimated_output_rows
+            if partition_estimate is not None
+            else None
+        ),
+    }
+
     return {
         **result,
         "schema": SQL_PACKED_SEARCH_SCHEMA,
@@ -249,6 +350,9 @@ def search_sql_packed_transition_program(
         "packed_search_schema_version": result["schema_version"],
         "sql_query_sha256": prepared.sql_sha256,
         "sql_physical_plan": plan.as_record(),
+        "sql_cardinality_forecast": forecast,
+        "sql_cardinality_observed": observed,
+        "sql_cardinality_error": error,
         "sql_execution_matches_hand_built_plan": (
             hand_built_stages == PACKED_COMPILED_EXECUTION_STAGES
         ),

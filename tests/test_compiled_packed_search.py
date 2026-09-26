@@ -24,7 +24,9 @@ from azelficoast.belief.sql_compiled_search import (
     search_sql_packed_transition_program,
 )
 from azelficoast.core.compiled_search import compile_search_topology
+from azelficoast.core.planning import LogicalOperator
 from azelficoast.core.search import search_transition_program
+from azelficoast.core.statistics import PlannerStatistics
 from azelficoast.core.sql import DEFAULT_DECISION_SQL, prepare_decision_query
 
 
@@ -455,3 +457,115 @@ def test_sql_generated_plan_executes_same_packed_jax_path_as_hand_built_search()
         PACKED_COMPILED_EXECUTION_STAGES
     )
     assert generated["sql_execution_matches_hand_built_plan"] is True
+
+
+
+def test_sql_planner_statistics_forecast_filter_and_partition_cardinality() -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=16,
+        action_width=8,
+        embedding_width=6,
+        member_hidden_width=9,
+        world_hidden_width=10,
+        hidden_width=12,
+    )
+    params = init_packed_params(spec, seed=59)
+    statistics = PlannerStatistics()
+
+    first = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    second = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert first["sql_cardinality_forecast"]["filter"]["observations"] == 0
+    assert first["sql_cardinality_forecast"]["partition"]["observations"] == 0
+    assert first["sql_cardinality_observed"] == {
+        "filter": {"input_rows": 2, "output_rows": 2},
+        "partition": {"input_rows": 4, "output_rows": 3},
+    }
+    assert second["sql_cardinality_forecast"]["filter"]["observations"] == 1
+    assert second["sql_cardinality_forecast"]["partition"]["observations"] == 1
+    assert second["sql_cardinality_forecast"]["filter"]["estimated_output_rows"] == 2
+    assert second["sql_cardinality_forecast"]["partition"]["estimated_output_rows"] == 3
+    assert second["sql_cardinality_error"] == {
+        "filter_rows": 0,
+        "partition_groups": 0,
+    }
+
+
+def test_sql_planner_statistics_do_not_change_query_semantics() -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=16,
+        action_width=8,
+        embedding_width=6,
+        member_hidden_width=9,
+        world_hidden_width=10,
+        hidden_width=12,
+    )
+    params = init_packed_params(spec, seed=61)
+    statistics = PlannerStatistics()
+    for _ in range(25):
+        statistics.observe(
+            operator=LogicalOperator.FILTER,
+            signature=(
+                "sha256:"
+                + hashlib.sha256(DEFAULT_DECISION_SQL.encode("utf-8")).hexdigest()
+                + ":filter:hidden_worlds:active-positive:"
+                + "azelficoast.joint-random-battle-posterior"
+            ),
+            input_rows=1000,
+            output_rows=1,
+        )
+
+    baseline = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    forecasted = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert forecasted["chosen_action"] == baseline["chosen_action"]
+    assert forecasted["root_values"] == pytest.approx(
+        baseline["root_values"],
+        abs=1e-6,
+    )
+    assert forecasted["compiled_topology_digest"] == baseline["compiled_topology_digest"]
