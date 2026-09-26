@@ -39,6 +39,10 @@ writeJsonStream(expected, sink, {chunkBytes: 512})
       const actual = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       assert.deepEqual(actual, normalized);
       assert.ok(chunks.length > 10, "writer should flush multiple bounded chunks");
+      assert.ok(
+        chunks.every(chunk => chunk.length <= 512),
+        "writer should keep output chunks within the requested bound",
+      );
       process.stdout.write("ok");
     });
   })
