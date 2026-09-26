@@ -654,3 +654,53 @@ def test_equivalent_sql_executes_through_same_packed_jax_plan_and_statistics() -
     assert rewritten["root_values"] == pytest.approx(canonical["root_values"], abs=1e-6)
     assert rewritten["sql_cardinality_forecast"]["filter"]["observations"] == 1
     assert rewritten["sql_cardinality_forecast"]["partition"]["observations"] == 1
+
+
+
+def test_sql_partition_statistics_are_conditioned_on_correlation_regime() -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=16,
+        action_width=8,
+        embedding_width=6,
+        member_hidden_width=9,
+        world_hidden_width=10,
+        hidden_width=12,
+    )
+    params = init_packed_params(spec, seed=71)
+    statistics = PlannerStatistics()
+
+    first = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    repeated = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert first["sql_extended_statistics"]["signature"].startswith("sha256:")
+    assert first["sql_cardinality_forecast"]["partition"]["observations"] == 0
+    assert repeated["sql_cardinality_forecast"]["partition"]["observations"] == 1
+    assert (
+        first["sql_cardinality_forecast"]["partition"]["signature"]
+        == repeated["sql_cardinality_forecast"]["partition"]["signature"]
+    )
+    assert first["chosen_action"] == repeated["chosen_action"]
+    assert first["root_values"] == pytest.approx(repeated["root_values"], abs=1e-6)
