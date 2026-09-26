@@ -19,33 +19,17 @@ from typing import Any
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalPlan
 
 SQL_EXPLAIN_SCHEMA = "azelficoast.core.sql-query-explain"
-SQL_EXPLAIN_SCHEMA_VERSION = 2
+SQL_EXPLAIN_SCHEMA_VERSION = 3
 DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
 DECISION_QUERY_SEMANTIC_VERSION = 1
+DECISION_SQL_SURFACE_SCHEMA = "azelficoast.core.decision-sql-surface"
+DECISION_SQL_SURFACE_VERSION = 1
 
 DEFAULT_DECISION_SQL = """
-WITH active_worlds AS (
-    SELECT world_id, weight
-    FROM hidden_worlds
-    WHERE active = 1 AND weight > 0
-),
-weighted_successors AS (
-    SELECT
-        t.action_id,
-        w.weight,
-        e.value
-    FROM active_worlds AS w
-    JOIN transitions AS t
-      ON t.world_id = w.world_id
-    JOIN legal_actions AS a
-      ON a.action_id = t.action_id
-    JOIN evaluations AS e
-      ON e.successor_id = t.successor_id
-)
 SELECT
     action_id,
     SUM(weight * value) AS expected_value
-FROM weighted_successors
+FROM action_value_terms
 GROUP BY action_id
 ORDER BY expected_value DESC, action_id ASC
 """.strip()
@@ -53,8 +37,8 @@ ORDER BY expected_value DESC, action_id ASC
 _SCHEMA = """
 CREATE TABLE hidden_worlds (
     world_id INTEGER PRIMARY KEY,
-    weight INTEGER NOT NULL,
-    active INTEGER NOT NULL
+    weight REAL NOT NULL,
+    active INTEGER NOT NULL CHECK (active IN (0, 1))
 );
 CREATE TABLE legal_actions (
     action_id INTEGER PRIMARY KEY
@@ -68,10 +52,35 @@ CREATE TABLE evaluations (
     successor_id INTEGER PRIMARY KEY,
     value REAL NOT NULL
 );
+
+CREATE VIEW active_worlds AS
+SELECT world_id, weight
+FROM hidden_worlds
+WHERE active = 1 AND weight > 0;
+
+CREATE VIEW action_value_terms AS
+SELECT
+    t.action_id AS action_id,
+    w.weight AS weight,
+    e.value AS value
+FROM active_worlds AS w
+JOIN transitions AS t
+  ON t.world_id = w.world_id
+JOIN legal_actions AS a
+  ON a.action_id = t.action_id
+JOIN evaluations AS e
+  ON e.successor_id = t.successor_id;
 """
 
 _REQUIRED_RELATIONS = frozenset(
     {"hidden_worlds", "legal_actions", "transitions", "evaluations"}
+)
+_WRITER_RELATIONS = (
+    ("active_worlds", ("world_id", "weight")),
+    ("action_value_terms", ("action_id", "weight", "value")),
+)
+_ALLOWED_RELATIONS = _REQUIRED_RELATIONS | frozenset(
+    name for name, _ in _WRITER_RELATIONS
 )
 _ALLOWED_FUNCTIONS = frozenset({"sum"})
 _ALLOWED_ACTIONS = frozenset(
@@ -121,6 +130,41 @@ DECISION_QUERY_SEMANTIC_ID = "sha256:" + hashlib.sha256(
     ).encode("utf-8")
 ).hexdigest()
 
+_DECISION_SQL_SURFACE = {
+    "schema": DECISION_SQL_SURFACE_SCHEMA,
+    "schema_version": DECISION_SQL_SURFACE_VERSION,
+    "relations": {
+        name: {"columns": list(columns)}
+        for name, columns in _WRITER_RELATIONS
+    },
+    "required_result_columns": ["action_id", "expected_value"],
+    "canonical_query": DEFAULT_DECISION_SQL,
+}
+DECISION_SQL_SURFACE_ID = "sha256:" + hashlib.sha256(
+    json.dumps(
+        _DECISION_SQL_SURFACE,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+).hexdigest()
+
+
+def describe_decision_sql_surface() -> dict[str, Any]:
+    """Return the stable writer-facing SQL relations and canonical query."""
+
+    return {
+        "schema": DECISION_SQL_SURFACE_SCHEMA,
+        "schema_version": DECISION_SQL_SURFACE_VERSION,
+        "surface_identity": DECISION_SQL_SURFACE_ID,
+        "relations": {
+            name: {"columns": list(columns)}
+            for name, columns in _WRITER_RELATIONS
+        },
+        "required_result_columns": ["action_id", "expected_value"],
+        "canonical_query": DEFAULT_DECISION_SQL,
+    }
+
 
 class SQLDecisionQueryError(ValueError):
     """Raised when SQL cannot be admitted as a read-only decision query."""
@@ -134,6 +178,7 @@ class PreparedDecisionQuery:
     functions: tuple[str, ...]
     sqlite_version: str
     sqlite_query_plan: tuple[str, ...]
+    sql_surface_identity: str
     semantic_identity: str | None
     equivalence_rule: str | None
     logical: LogicalPlan | None
@@ -150,12 +195,11 @@ def _prepare_connection() -> sqlite3.Connection:
 
 
 def _normalize_reviewed_sql_source(sql: str) -> str:
-    """Normalize only incidental case/whitespace outside quoted SQL tokens.
+    """Normalize incidental presentation outside quoted SQL tokens.
 
-    This is intentionally not an SQL parser. SQLite remains the parser. The normalizer
-    exists only so reviewed rewrite products are not sensitive to capitalization or
-    line wrapping. Quoted material is preserved byte-for-byte and therefore cannot
-    acquire equivalence through this helper.
+    SQLite remains the parser. This helper only removes writer-level differences already
+    known to be semantically inert for a parsed query: case, whitespace, a trailing
+    semicolon, and SQL comments. Quoted material is preserved byte-for-byte.
     """
 
     source = sql.strip()
@@ -177,6 +221,19 @@ def _normalize_reviewed_sql_source(sql: str) -> str:
                 else:
                     quote = None
             index += 1
+            continue
+
+        if source.startswith("--", index):
+            pending_space = True
+            index += 2
+            while index < len(source) and source[index] not in "\r\n":
+                index += 1
+            continue
+
+        if source.startswith("/*", index):
+            pending_space = True
+            end = source.find("*/", index + 2)
+            index = len(source) if end < 0 else end + 2
             continue
 
         if character in {"'", '"', "`"}:
@@ -317,7 +374,7 @@ def _reviewed_equivalence_index() -> dict[str, str]:
         "weight > 0",
     )
     index: dict[str, str] = {
-        _normalize_reviewed_sql_source(DEFAULT_DECISION_SQL): "canonical-cte"
+        _normalize_reviewed_sql_source(DEFAULT_DECISION_SQL): "writer-view"
     }
     for order in _connected_join_orders():
         for predicate_order in (predicates, tuple(reversed(predicates))):
@@ -411,7 +468,7 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
                 f"decision SQL must read required relations: {missing_text}"
             )
 
-        extra = relations.difference(_REQUIRED_RELATIONS)
+        extra = relations.difference(_ALLOWED_RELATIONS)
         if extra:
             extra_text = ", ".join(sorted(extra))
             raise SQLDecisionQueryError(
@@ -430,6 +487,7 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
             functions=tuple(sorted(functions)),
             sqlite_version=sqlite3.sqlite_version,
             sqlite_query_plan=tuple(str(row[3]) for row in query_plan_rows),
+            sql_surface_identity=DECISION_SQL_SURFACE_ID,
             semantic_identity=semantic_identity,
             equivalence_rule=equivalence_rule,
             logical=logical,
@@ -447,6 +505,7 @@ def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
         "sql_sha256": query.sql_sha256,
         "relations": list(query.relations),
         "functions": list(query.functions),
+        "sql_surface_identity": query.sql_surface_identity,
         "semantic_identity": query.semantic_identity,
         "equivalence_rule": query.equivalence_rule,
         "logical_operators": (
