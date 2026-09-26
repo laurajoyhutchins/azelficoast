@@ -142,6 +142,14 @@ The exposed writer relations are:
 active_worlds(world_id, weight)
 
 action_value_terms(action_id, weight, value)
+
+action_statistics(
+    action_id,
+    posterior_mass,
+    expected_value,
+    worst_value,
+    best_value
+)
 ```
 
 They are real SQLite views over the authoritative base relations:
@@ -220,31 +228,39 @@ The VDBE path is deliberately environment-bound rather than treated as a portabl
 EXPLAIN evidence records both the SQLite version and executable-program hash. The
 portable reviewed relational rules remain separate evidence.
 
-The writer surface now has named semantic query classes rather than one privileged result
-shape. `decision.expected_value` retains the reviewed packed/JAX lowering.
-`analysis.action_summary` exposes reusable aggregate policy inputs through
-`action_statistics`, and `decision.maximin` is the first deliberately different
-policy semantics. Maximin is admitted and identifiable as SQL, but it has no packed/JAX
-execution authority yet.
+The writer surface now separates fixed query classes from source-derived policy SQL.
+`decision.expected_value` retains the reviewed packed/JAX lowering, while
+`analysis.action_summary` exposes reusable aggregate inputs through
+`action_statistics`.
+
+Policies use one generic `decision.policy` contract instead of registering one Python
+query class per strategy. A writer supplies ordinary SQL over `action_statistics` that
+returns `(action_id, score)`. Azelficoast derives the policy semantic identity from the
+normalized SQL source plus the writer-surface and result contracts, then owns the final
+deterministic ranking by `score DESC, action_id ASC`.
 
 ```text
 action_value_terms
        |
        v
 action_statistics
-   /          \
-  v            v
-expected      maximin
-value         policy
-  |            |
-  v            x  no physical lowering yet
-packed/JAX
+   /       |        \
+  v        v         v
+expected  maximin   risk-adjusted
+value     SQL       SQL
+  |        |         |
+  v        x         x
+packed/JAX   no physical lowering yet
 ```
 
+Maximin and risk-adjusted policies are therefore examples of the same source-derived
+policy language, not separate Python-side semantic classes. Editing a coefficient or
+expression creates a new policy identity automatically; comments, whitespace, case, and
+a trailing semicolon do not.
+
 The semantic identity, rather than exact SQL spelling, keys any reviewed physical
-lowering and planner statistics. Equivalent SQL therefore shares one content-addressed
-physical plan and one advisory selectivity history. A query whose semantics differ can
-be admitted as its own class without silently inheriting execution authority.
+lowering and planner statistics. A policy may be parsed, authorized, identified, and
+explained without silently inheriting live execution authority.
 
 
 ### Active-support pushdown
