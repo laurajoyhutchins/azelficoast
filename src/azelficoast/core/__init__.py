@@ -66,6 +66,9 @@ from azelficoast.core.search import (
     search_transition_program,
 )
 from azelficoast.core.sql import (
+    DECISION_QUERY_SEMANTIC_ID,
+    DECISION_QUERY_SEMANTIC_SCHEMA,
+    DECISION_QUERY_SEMANTIC_VERSION,
     DEFAULT_DECISION_SQL,
     SQL_EXPLAIN_SCHEMA,
     SQL_EXPLAIN_SCHEMA_VERSION,
@@ -88,6 +91,9 @@ __all__ = [
     "CacheTierCost",
     "CardinalityEstimate",
     "CardinalityHistogram",
+    "DECISION_QUERY_SEMANTIC_ID",
+    "DECISION_QUERY_SEMANTIC_SCHEMA",
+    "DECISION_QUERY_SEMANTIC_VERSION",
     "DEFAULT_DECISION_PLAN",
     "DEFAULT_DECISION_SQL",
     "ExecutionCostProfile",
