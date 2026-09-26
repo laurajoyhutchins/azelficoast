@@ -256,3 +256,32 @@ bad, but it cannot change the admitted SQL, transition program, information-set
 partition, evaluator, or result. Exact validation and the cardinality envelope remain
 the hard fences. The catalog is currently process-local; durable statistics should only
 be added once invalidation identity and replay semantics are explicit.
+
+
+### Extended statistics for correlated posterior fields
+
+Single-column selectivity is not enough for Random Battle posteriors. Species, item,
+ability, role, and move set are generated jointly, so multiplying independent marginal
+estimates can be badly wrong.
+
+The planner now measures weighted two-column dependency evidence for the admitted finite
+posterior. The initial Pokémon profile records:
+
+- species × item;
+- species × ability;
+- species × role;
+- species × move-set.
+
+For each pair it records distinct counts, total variation distance from the independent
+product distribution, and weighted functional-prediction accuracy in both directions.
+Those exact diagnostics are then reduced to a coarse correlation-regime signature.
+
+Partition-cardinality history is keyed by that regime in addition to the semantic SQL
+identity, search method, and transition-program schema. Equivalent SQL still shares one
+statistics history, but materially different joint posterior structure no longer trains
+the same partition estimator bucket.
+
+This remains advisory. Extended statistics do not factorize the posterior, merge worlds,
+change information sets, or authorize a physical path. Exact posterior validation,
+verified transition classes, and the post-materialization cardinality fence remain the
+authority.
