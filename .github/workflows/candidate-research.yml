@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "experiments/showdown-revision.txt"
       - ".github/workflows/candidate-research.yml"
       - "pyproject.toml"
       - "uv.lock"
