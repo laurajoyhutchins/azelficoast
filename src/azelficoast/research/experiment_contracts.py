@@ -37,7 +37,6 @@ class CandidateExperiment:
     artifact_name: str
     simulator: bool = True
     showdown: bool = True
-    allow_nonzero_module_results: bool = False
     generators: tuple[Generator, ...] = ()
     tests: tuple[str, ...] = ()
     modules: tuple[ModuleRun, ...] = ()
@@ -55,7 +54,6 @@ def _spec(
     checks: tuple[Check, ...] = (),
     simulator: bool = True,
     showdown: bool = True,
-    allow_nonzero_module_results: bool = False,
 ) -> CandidateExperiment:
     return CandidateExperiment(
         name=name,
@@ -63,7 +61,6 @@ def _spec(
         artifact_name=artifact,
         simulator=simulator,
         showdown=showdown,
-        allow_nonzero_module_results=allow_nonzero_module_results,
         generators=() if generator is None else (Generator(*generator),),
         tests=tests,
         modules=tuple(ModuleRun(*module) for module in modules),
@@ -126,7 +123,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "README.md",
         ),
         artifact="attack-transition-evidence",
-        allow_nonzero_module_results=True,
         generator=(
             "scripts/generate_showdown_attack_fixtures.cjs",
             "showdown-attack-fixtures.json",

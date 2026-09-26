@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -203,14 +205,15 @@ def test_repository_evidence_replaces_historical_artifact_runtime_dependencies()
         )
 
 
-def test_population_workflow_starts_from_canonical_frozen_cohort() -> None:
+
+def test_population_workflow_delegates_frozen_cohort_semantics() -> None:
     source = (WORKFLOWS / "natural-population-strategy-fusion.yml").read_text(
         encoding="utf-8"
     )
     assert "freeze-cohort:" not in source
     assert "setup-research-evidence" in source
-    assert "/tmp/azelficoast-evidence/population/manifest.json" in source
-
+    assert "azelficoast.research.hosted natural-population-shard" in source
+    assert "/tmp/azelficoast-evidence/population/manifest.json" not in source
 
 def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
     source = (
@@ -266,13 +269,33 @@ def test_canonical_evidence_consumers_observe_evidence_changes() -> None:
         )
 
 
-def test_status_move_workflow_uses_only_canonical_source() -> None:
-    source = (WORKFLOWS / "natural-status-move-public-belief.yml").read_text(
-        encoding="utf-8"
+
+def test_research_semantics_do_not_live_in_workflow_yaml() -> None:
+    forbidden_fragments = (
+        "python - <<",
+        "node - <<",
+        "assert ",
+        "--target-particles",
+        "--minimum-particles",
+        "--max-rounds",
+        "--battles ",
+        "--rounds ",
+        "AZELFICOAST_ROOT_CHANCE_SAMPLES",
+        "AZELFICOAST_CONTINUATION_CHANCE_SAMPLES",
+        "AZELFICOAST_CHANCE_SEED_FAMILY",
+        "AZELFICOAST_CONTINUATION_DECISION_HORIZONS",
     )
-    assert "/tmp/azelficoast-evidence/status-source.json" in source
-    assert "/tmp/status-source.json" not in source
-    assert "/tmp/status-source-summary.json" not in source
+    digest = re.compile(r"(?<![0-9a-f])[0-9a-f]{40,64}(?![0-9a-f])")
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        for fragment in forbidden_fragments:
+            assert fragment not in source, (
+                f"{path.name} encodes research semantics via {fragment!r}"
+            )
+        assert digest.search(source) is None, (
+            f"{path.name} must not own fixture, evidence, or revision digests"
+        )
 
 
 def test_candidate_research_emits_one_exact_head_certificate() -> None:
@@ -282,12 +305,117 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "needs: [plan, exact, accelerator-static]" in source
     assert "if: always() && needs.plan.result == 'success'" in source
     assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
-    assert 'if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]' in source
-    assert '"schema": "azelficoast.candidate-research-certificate"' in source
-    assert '"git_sha": os.environ["HEAD_SHA"]' in source
+    assert "uv run python -m azelficoast.research.ci certify" in source
+    assert "python - <<'PY'" not in source
     assert "name: candidate-research-certificate" in source
     assert "Type check accelerator frontier" in source
     assert "src/azelficoast/core/compiled_search.py" in source
     assert "src/azelficoast/belief/showdown_packing.py" in source
     assert "src/azelficoast/belief/packed_evaluator.py" in source
     assert "src/azelficoast/belief/compiled_search.py" in source
+
+
+
+def test_candidate_specs_do_not_live_in_ci_runner() -> None:
+    runner = (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(
+        encoding="utf-8"
+    )
+    contracts = (
+        ROOT / "src" / "azelficoast" / "research" / "experiment_contracts.py"
+    ).read_text(encoding="utf-8")
+
+    assert "Check(" not in runner
+    assert "paths=(" not in runner
+    assert "EXPERIMENTS: tuple[CandidateExperiment" not in runner
+    assert "EXPERIMENTS: tuple[CandidateExperiment" in contracts
+
+
+def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
+    action = (
+        ROOT / ".github" / "actions" / "setup-showdown" / "action.yml"
+    ).read_text(encoding="utf-8")
+    revision = (
+        ROOT / "experiments" / "showdown-revision.txt"
+    ).read_text(encoding="utf-8").strip()
+    runner = (
+        ROOT / "src" / "azelficoast" / "research" / "ci.py"
+    ).read_text(encoding="utf-8")
+    probe = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+
+    assert re.fullmatch(r"[0-9a-f]{40}", revision)
+    assert "default: a5df8274e85b0889bf2a9b3422a08b39732374fc" not in action
+    assert "steps.revision.outputs.sha" in action
+    assert 'REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"' in runner
+    assert "../experiments/showdown-revision.txt" in probe
+    assert revision not in runner
+    assert revision not in probe
+
+
+def test_showdown_consumers_observe_revision_contract_changes() -> None:
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        if "uses: ./.github/actions/setup-showdown" not in source:
+            continue
+        if "    paths:\n" not in source:
+            continue
+        assert '- "experiments/showdown-revision.txt"' in source, (
+            f"{path.name} must rerun when pinned Showdown revision changes"
+        )
+
+
+def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
+    contract = json.loads(
+        (ROOT / "experiments" / "opponent-policy-semantics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    script = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+
+    assert contract["schema"] == "azelficoast.opponent-policy-semantics"
+    assert contract["semantics_version"]
+    assert (
+        "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION"
+        in script
+    )
+
+
+def test_oracle_workflows_observe_probe_contract_changes() -> None:
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        if (
+            "scripts/probe_real_belief_trace.cjs" not in source
+            or "    paths:\n" not in source
+        ):
+            continue
+        for dependency in (
+            'scripts/real_belief_probe/**',
+            'scripts/json_stream_writer.cjs',
+            'experiments/opponent-policy-semantics.json',
+        ):
+            assert f'- "{dependency}"' in source, (
+                f"{path.name} must observe {dependency}"
+            )
+
+
+def test_hosted_witness_membership_is_not_encoded_in_yaml() -> None:
+    from azelficoast.research.hosted.belief import (
+        EXHAUSTED_FIXTURES,
+        PUBLIC_BELIEF_FIXTURES,
+    )
+
+    suites = {
+        "exhausted-bench-real-belief.yml": ("exhausted-bench", EXHAUSTED_FIXTURES),
+        "public-belief-exact-corpus.yml": (
+            "public-belief-exact",
+            PUBLIC_BELIEF_FIXTURES,
+        ),
+    }
+    for workflow, (suite, cases) in suites.items():
+        source = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+        assert f"azelficoast.research.hosted matrix {suite}" in source
+        for name in cases:
+            assert name not in source
