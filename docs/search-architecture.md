@@ -190,6 +190,15 @@ set, this policy may legitimately depend on hidden moves; the TransitionProgram 
 that dependency and Azelficoast integrates over the posterior rather than observing the
 realized set.
 
+This search-time policy is separate from the opponent model used by the exact
+transition-oracle probe. Oracle documents carry
+`mechanics.opponent_policy_semantics_version` and the normalized policy settings;
+the versioned contract lives in
+`experiments/opponent-policy-semantics.json`. The current oracle semantics define
+uniform legal-move response and equal-active-strategy mixtures (including the
+explicit repeat-observed-move strategy). Results should be interpreted using that
+version and the emitted `opponent_policy` object.
+
 The bounded policy does **not** currently assign probability to voluntary switches or
 opponent Terastallization. When Showdown requires a replacement, the policy distributes
 mass uniformly across the reconstructed legal switch targets. These omissions are
