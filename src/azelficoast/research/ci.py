@@ -88,7 +88,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "adaptive-execution",
         paths=(
             "src/azelficoast/research/adaptive_execution.py",
-            "src/azelficoast/research/adaptive_execution_experiment.py",
+            "src/azelficoast/research/experiments/adaptive_execution_experiment.py",
             "src/azelficoast/research/mechanics/class_native_belief.py",
             "tests/test_adaptive_execution.py",
             "README.md",
@@ -101,7 +101,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_adaptive_execution.py",),
         modules=(
             (
-                "azelficoast.research.adaptive_execution_experiment",
+                "azelficoast.research.experiments.adaptive_execution_experiment",
                 "adaptive-execution-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
             ),
@@ -129,7 +129,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/jax_gen9_attack.py",
             "src/azelficoast/research/mechanics/class_native_belief.py",
             "src/azelficoast/research/mechanics/native_damage_compiler.py",
-            "src/azelficoast/research/attack_transition_experiment.py",
+            "src/azelficoast/research/experiments/attack_transition_experiment.py",
             "scripts/generate_showdown_attack_fixtures.cjs",
             "tests/test_gen9_attack.py",
             "tests/test_class_native_belief.py",
@@ -149,7 +149,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
         modules=(
             (
-                "azelficoast.research.attack_transition_experiment",
+                "azelficoast.research.experiments.attack_transition_experiment",
                 "attack-transition-experiment.json",
                 "showdown-attack-fixtures.json",
             ),
@@ -179,7 +179,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "class-native-belief",
         paths=(
             "src/azelficoast/research/mechanics/class_native_belief.py",
-            "src/azelficoast/research/class_native_belief_experiment.py",
+            "src/azelficoast/research/experiments/class_native_belief_experiment.py",
             "tests/test_class_native_belief.py",
             "README.md",
         ),
@@ -191,7 +191,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_class_native_belief.py",),
         modules=(
             (
-                "azelficoast.research.class_native_belief_experiment",
+                "azelficoast.research.experiments.class_native_belief_experiment",
                 "class-native-belief-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
             ),
@@ -211,7 +211,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/gen9_damage.py",
             "src/azelficoast/research/verification/showdown_damage_corpus.py",
             "src/azelficoast/research/mechanics/jax_gen9_damage.py",
-            "src/azelficoast/research/jax_gen9_damage_experiment.py",
+            "src/azelficoast/research/experiments/jax_gen9_damage_experiment.py",
             "scripts/generate_showdown_damage_fixtures.cjs",
             "tests/test_gen9_damage.py",
             "tests/test_showdown_damage_corpus.py",
@@ -234,7 +234,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "showdown-gen9-damage-fixtures.json",
             ),
             (
-                "azelficoast.research.jax_gen9_damage_experiment",
+                "azelficoast.research.experiments.jax_gen9_damage_experiment",
                 "gen9-damage-jax-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
             ),
@@ -271,7 +271,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         paths=(
             "src/azelficoast/research/mechanics/gen9_damage.py",
             "src/azelficoast/research/mechanics/native_damage_compiler.py",
-            "src/azelficoast/research/native_damage_experiment.py",
+            "src/azelficoast/research/experiments/native_damage_experiment.py",
             "src/azelficoast/research/mechanics/jax_gen9_damage.py",
             "src/azelficoast/research/verification/showdown_damage_corpus.py",
             "scripts/generate_showdown_damage_fixtures.cjs",
@@ -290,7 +290,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "showdown-gen9-damage-fixtures.json",
             ),
             (
-                "azelficoast.research.native_damage_experiment",
+                "azelficoast.research.experiments.native_damage_experiment",
                 "native-damage-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
             ),
@@ -309,14 +309,14 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         paths=(
             "src/azelficoast/research/mechanics/simulator_ir.py",
             "src/azelficoast/research/mechanics/jax_simulator.py",
-            "src/azelficoast/research/jax_simulator_experiment.py",
+            "src/azelficoast/research/experiments/jax_simulator_experiment.py",
             "tests/test_jax_simulator.py",
         ),
         artifact="jax-simulator-evidence",
         tests=("tests/test_jax_simulator.py",),
         modules=(
             (
-                "azelficoast.research.jax_simulator_experiment",
+                "azelficoast.research.experiments.jax_simulator_experiment",
                 "jax-simulator-experiment.json",
                 None,
             ),
@@ -337,7 +337,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/core/compiled_search.py",
             "src/azelficoast/belief/compiled_search.py",
             "src/azelficoast/belief/packed_evaluator.py",
-            "src/azelficoast/research/compiled_search_experiment.py",
+            "src/azelficoast/research/experiments/compiled_search_experiment.py",
             "tests/test_compiled_search.py",
             "tests/test_compiled_packed_search.py",
             "docs/architecture/compiled-data-plane.md",
@@ -350,7 +350,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
         modules=(
             (
-                "azelficoast.research.compiled_search_experiment",
+                "azelficoast.research.experiments.compiled_search_experiment",
                 "compiled-search-topology-experiment.json",
                 None,
             ),
@@ -426,7 +426,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/jax_gen9_ordered_attack.py",
             "src/azelficoast/research/mechanics/ordered_attack_belief.py",
             "src/azelficoast/research/mechanics/ordered_attack_compiler.py",
-            "src/azelficoast/research/ordered_attack_experiment.py",
+            "src/azelficoast/research/experiments/ordered_attack_experiment.py",
             "scripts/generate_showdown_ordered_attack_fixtures.cjs",
             "tests/test_gen9_ordered_attack.py",
         ),
@@ -438,7 +438,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_gen9_ordered_attack.py",),
         modules=(
             (
-                "azelficoast.research.ordered_attack_experiment",
+                "azelficoast.research.experiments.ordered_attack_experiment",
                 "ordered-attack-experiment.json",
                 "showdown-ordered-attack-fixtures.json",
             ),
@@ -451,7 +451,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/jax_gen9_two_attack_turn.py",
             "src/azelficoast/research/mechanics/two_attack_turn_belief.py",
             "src/azelficoast/research/mechanics/two_attack_turn_compiler.py",
-            "src/azelficoast/research/two_attack_turn_experiment.py",
+            "src/azelficoast/research/experiments/two_attack_turn_experiment.py",
             "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
             "tests/test_gen9_two_attack_turn.py",
         ),
@@ -463,7 +463,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_gen9_two_attack_turn.py",),
         modules=(
             (
-                "azelficoast.research.two_attack_turn_experiment",
+                "azelficoast.research.experiments.two_attack_turn_experiment",
                 "two-attack-turn-experiment.json",
                 "showdown-two-attack-turn-fixtures.json",
             ),
@@ -473,7 +473,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "stateful-protect",
         paths=(
             "src/azelficoast/research/mechanics/stateful_protect_turn.py",
-            "src/azelficoast/research/stateful_protect_experiment.py",
+            "src/azelficoast/research/experiments/stateful_protect_experiment.py",
             "scripts/generate_showdown_stateful_protect_fixtures.cjs",
             "tests/test_stateful_protect_turn.py",
         ),
@@ -485,7 +485,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_stateful_protect_turn.py",),
         modules=(
             (
-                "azelficoast.research.stateful_protect_experiment",
+                "azelficoast.research.experiments.stateful_protect_experiment",
                 "stateful-protect-result.json",
                 "stateful-protect-fixtures.json",
             ),
@@ -495,7 +495,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "switch-entry-hazard",
         paths=(
             "src/azelficoast/research/mechanics/switch_hazard_turn.py",
-            "src/azelficoast/research/switch_hazard_experiment.py",
+            "src/azelficoast/research/experiments/switch_hazard_experiment.py",
             "scripts/generate_showdown_switch_hazard_fixtures.cjs",
             "tests/test_switch_hazard_turn.py",
         ),
@@ -507,7 +507,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_switch_hazard_turn.py",),
         modules=(
             (
-                "azelficoast.research.switch_hazard_experiment",
+                "azelficoast.research.experiments.switch_hazard_experiment",
                 "switch-hazard-result.json",
                 "switch-hazard-fixtures.json",
             ),
@@ -522,7 +522,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/switch_hazard_turn.py",
             "src/azelficoast/research/mechanics/staged_attack.py",
             "src/azelficoast/research/mechanics/switch_intimidate_turn.py",
-            "src/azelficoast/research/switch_intimidate_experiment.py",
+            "src/azelficoast/research/experiments/switch_intimidate_experiment.py",
             "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
             "tests/test_switch_intimidate_turn.py",
         ),
@@ -534,7 +534,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_switch_intimidate_turn.py",),
         modules=(
             (
-                "azelficoast.research.switch_intimidate_experiment",
+                "azelficoast.research.experiments.switch_intimidate_experiment",
                 "switch-intimidate-result.json",
                 "switch-intimidate-fixtures.json",
             ),
@@ -544,7 +544,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "voluntary-switch",
         paths=(
             "src/azelficoast/research/mechanics/voluntary_switch_turn.py",
-            "src/azelficoast/research/voluntary_switch_experiment.py",
+            "src/azelficoast/research/experiments/voluntary_switch_experiment.py",
             "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
             "tests/test_voluntary_switch_turn.py",
         ),
@@ -556,7 +556,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         tests=("tests/test_voluntary_switch_turn.py",),
         modules=(
             (
-                "azelficoast.research.voluntary_switch_experiment",
+                "azelficoast.research.experiments.voluntary_switch_experiment",
                 "voluntary-switch-result.json",
                 "voluntary-switch-fixtures.json",
             ),

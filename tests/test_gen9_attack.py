@@ -119,7 +119,7 @@ def test_whole_attack_advertises_one_stable_dependency_signature() -> None:
 
 def test_attack_benchmark_admits_sparse_low_world_support() -> None:
     pytest.importorskip("jax")
-    from azelficoast.research.attack_transition_experiment import _uniform_belief_for_worlds
+    from azelficoast.research.experiments.attack_transition_experiment import _uniform_belief_for_worlds
     from azelficoast.research.mechanics.class_native_belief import build_factor_support
 
     support = build_factor_support(
@@ -140,7 +140,7 @@ def test_attack_benchmark_admits_sparse_low_world_support() -> None:
 
 def test_attack_benchmark_keeps_uniform_full_support_behavior() -> None:
     pytest.importorskip("jax")
-    from azelficoast.research.attack_transition_experiment import _uniform_belief_for_worlds
+    from azelficoast.research.experiments.attack_transition_experiment import _uniform_belief_for_worlds
     from azelficoast.research.mechanics.class_native_belief import build_factor_support
 
     support = build_factor_support(
