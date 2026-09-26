@@ -1,0 +1,13 @@
+{
+  "name": "azelficoast-static-tooling",
+  "private": true,
+  "scripts": {
+    "lint:scripts": "eslint \"scripts/**/*.cjs\"",
+    "typecheck:scripts": "tsc --project jsconfig.scripts.json"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.4",
+    "eslint": "10.11.0",
+    "typescript": "6.0.3"
+  }
+}

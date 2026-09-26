@@ -23,23 +23,14 @@ jobs:
         uses: ./.github/actions/setup-python-environment
         with:
           python-version: "3.11"
-      - name: Type check static frontier
+      - name: Type check Python static frontier
         run: uv run mypy
-      - name: Type check JavaScript script frontier
-        run: npx --yes --package typescript@6.0.3 tsc --project jsconfig.scripts.json
-
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-      - name: Setup Azelficoast Python
-        uses: ./.github/actions/setup-python-environment
-      - name: Lint Python
-        run: uv run ruff check .
+      - name: Install pinned JavaScript static tooling
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Lint JavaScript script frontier
-        run: npx --yes eslint@10.11.0 "scripts/**/*.cjs"
+        run: npm run lint:scripts
+      - name: Type check JavaScript script frontier
+        run: npm run typecheck:scripts
       - name: Check JavaScript syntax
         shell: bash
         run: |
@@ -52,6 +43,17 @@ jobs:
           for script in "${scripts[@]}"; do
             node --check "$script"
           done
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Lint Python
+        run: uv run ruff check .
       - name: Test
         run: uv run pytest
       - name: Fast hostile correctness gate
