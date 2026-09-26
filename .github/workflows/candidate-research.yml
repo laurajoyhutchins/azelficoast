@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - ".python-version"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
       - ".github/workflows/candidate-research.yml"
@@ -41,6 +42,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+
       - name: Select affected candidate experiments
         id: plan
         env:
@@ -49,11 +53,11 @@ jobs:
           REQUESTED: ${{ inputs.experiment }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            matrix="$(python src/azelficoast/research/ci.py plan --requested "${REQUESTED:-all}")"
+            matrix="$(uv run python src/azelficoast/research/ci.py plan --requested "${REQUESTED:-all}")"
           else
-            matrix="$(python src/azelficoast/research/ci.py plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+            matrix="$(uv run python src/azelficoast/research/ci.py plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
-          count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
+          count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
           echo "count=${count}" >> "${GITHUB_OUTPUT}"
           echo "selected=${matrix}"
@@ -73,7 +77,7 @@ jobs:
 
       - name: Type check accelerator frontier
         run: |
-          uv run mypy --python-version 3.13 \
+          uv run mypy \
             src/azelficoast/core/compiled_search.py \
             src/azelficoast/belief/showdown_packing.py \
             src/azelficoast/belief/packed_evaluator.py \

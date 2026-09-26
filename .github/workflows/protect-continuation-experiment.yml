@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
       - "showdown/revision.json"
@@ -43,7 +44,7 @@ jobs:
         working-directory: /tmp/pokemon-showdown
         run: |
           nohup node pokemon-showdown start --no-security >/tmp/showdown.log 2>&1 &
-          python - <<'PY'
+          uv run python - <<'PY'
           import socket
           import time
 
@@ -80,7 +81,7 @@ jobs:
             --rounds 2048 \
             | tee /tmp/protect-candidates.json
 
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 

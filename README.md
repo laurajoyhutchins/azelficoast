@@ -186,7 +186,7 @@ promote only if the evidence says yes
 
 ## Try it
 
-Azelficoast requires **Python 3.11+** and [uv](https://docs.astral.sh/uv/).
+Azelficoast requires **Python 3.12+** and [uv](https://docs.astral.sh/uv/). Development and CI use Python 3.12 from `.python-version`.
 
 ~~~bash
 uv sync

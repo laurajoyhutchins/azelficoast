@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - "showdown/research/belief/sample_joint_random_battle_posterior.cjs"
       - "src/azelficoast/belief/joint_posterior.py"
       - "src/azelficoast/belief/validity.py"
@@ -40,7 +41,7 @@ jobs:
 
       - name: Select broadest frozen public-information state
         run: |
-          python - <<'PY' > /tmp/joint-source-path
+          uv run python - <<'PY' > /tmp/joint-source-path
           import json
           from pathlib import Path
 
@@ -88,7 +89,7 @@ jobs:
             > /tmp/joint-posterior.json
           sampler_status=$?
           set -e
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
           d = json.loads(Path("/tmp/joint-posterior.json").read_text())

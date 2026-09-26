@@ -128,9 +128,8 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
     ).read_text(encoding="utf-8")
 
     assert "uses: actions/setup-python@v7" in source
-    assert 'python-version:' in source
-    assert 'default: "3.13"' in source
-    assert 'python-version: "${{ inputs.python-version }}"' in source
+    assert 'python-version-file: ".python-version"' in source
+    assert "inputs.python-version" not in source
     assert "python -m pip install uv==0.12.18" in source
     assert "uv sync --locked" in source
     assert "uv sync --locked --extra simulator" in source
@@ -141,7 +140,7 @@ def test_base_static_analysis_runs_in_declared_python_version() -> None:
 
     static = source[source.index("  static:\n") : source.index("  test:\n")]
     assert "uses: ./.github/actions/setup-python-environment" in static
-    assert 'python-version: "3.11"' in static
+    assert "python-version:" not in static
     assert "run: uv run mypy" in static
 
 
@@ -163,6 +162,9 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
         if path.name != "ci.yml" and "    paths:\n" in source:
             assert '- ".github/actions/setup-python-environment/action.yml"' in source, (
                 f"{path.name} must rerun when shared Python setup changes"
+            )
+            assert '- ".python-version"' in source, (
+                f"{path.name} must rerun when repository Python changes"
             )
 
         if '- "pyproject.toml"' in source:

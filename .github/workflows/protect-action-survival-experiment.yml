@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - ".github/actions/setup-python-environment/action.yml"
       - "experiments/protect-action-survival.json"
       - "src/azelficoast/research/action_survival.py"
@@ -32,7 +33,7 @@ jobs:
         run: |
           uv run python -m azelficoast.research.action_survival             experiments/protect-action-survival.json             | tee /tmp/protect-action-survival.json
 
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
