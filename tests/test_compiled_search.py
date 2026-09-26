@@ -7,9 +7,12 @@ from typing import Any, Mapping, Sequence
 import pytest
 
 from azelficoast.core.compiled_search import (
+    CardinalityEnvelope,
     compile_search_topology,
+    estimate_search_cardinality_lower_bound,
     materialize_compiled_frontier,
     reduce_compiled_root_values,
+    search_transition_program_adaptive,
     search_transition_program_compiled,
 )
 from azelficoast.core.search import search_transition_program
@@ -294,3 +297,124 @@ def test_compiled_path_preserves_deterministic_tie_breaking_for_exact_tie() -> N
     assert reference["chosen_action"] == "A"
     assert compiled["chosen_action"] == "A"
     assert compiled["root_values"] == pytest.approx(reference["root_values"], abs=1e-6)
+
+
+
+def test_cardinality_lower_bound_never_claims_realized_work_is_smaller() -> None:
+    program_set, posterior = _inputs()
+    for method in ("information_set", "determinization"):
+        lower = estimate_search_cardinality_lower_bound(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            expected_program_schema="example.transition-program-set",
+            expected_program_schema_version=1,
+        )
+        topology = compile_search_topology(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            expected_program_schema="example.transition-program-set",
+            expected_program_schema_version=1,
+        )
+
+        assert lower.world_count == topology.world_count
+        assert lower.class_count == topology.class_count
+        assert lower.chance_edge_count <= topology.edge_count
+        assert lower.leaf_count <= topology.leaf_count
+        assert lower.dense_leaf_world_cells <= (
+            topology.leaf_count * topology.world_count
+        )
+
+
+def test_adaptive_search_replans_before_dense_transport_on_cardinality_surprise() -> None:
+    program_set, posterior = _inputs()
+    reference = search_transition_program(
+        program_set=program_set,
+        posterior=posterior,
+        method="determinization",
+        evaluator=WeightedPayoffEvaluator(),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    result = search_transition_program_adaptive(
+        program_set=program_set,
+        posterior=posterior,
+        method="determinization",
+        evaluator=WeightedPayoffEvaluator(),
+        envelope=CardinalityEnvelope(
+            max_world_count=3,
+            max_class_count=3,
+            max_chance_edge_count=4,
+            max_leaf_count=6,
+            max_dense_leaf_world_cells=18,
+        ),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert result["physical_search_path"] == "python-frontier"
+    assert result["cardinality_plan"]["initial_path"] == "compiled-jax"
+    assert result["cardinality_plan"]["final_path"] == "python-frontier"
+    assert result["cardinality_plan"]["replanned"] is True
+    assert "chance_edges" in result["cardinality_plan"]["violations"]
+    assert result["cardinality_plan"]["observed"]["chance_edges"] == 8
+    assert result["transition_evaluations"] == reference["transition_evaluations"]
+    assert result["evaluator_calls"] == reference["evaluator_calls"]
+    assert result["chosen_action"] == reference["chosen_action"]
+    assert result["root_values"] == reference["root_values"]
+
+
+def test_adaptive_search_rejects_compiled_path_from_lower_bound_without_jax() -> None:
+    program_set, posterior = _inputs()
+    result = search_transition_program_adaptive(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        evaluator=WeightedPayoffEvaluator(),
+        envelope=CardinalityEnvelope(
+            max_world_count=2,
+            max_class_count=3,
+            max_chance_edge_count=100,
+            max_leaf_count=100,
+            max_dense_leaf_world_cells=1000,
+        ),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert result["physical_search_path"] == "python-frontier"
+    assert result["cardinality_plan"]["initial_path"] == "python-frontier"
+    assert result["cardinality_plan"]["observed"] is None
+    assert result["cardinality_plan"]["violations"] == ["worlds"]
+
+
+def test_adaptive_search_keeps_compiled_path_inside_observed_envelope() -> None:
+    pytest.importorskip("jax")
+    program_set, posterior = _inputs()
+    result = search_transition_program_adaptive(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        evaluator=WeightedPayoffEvaluator(),
+        envelope=CardinalityEnvelope(
+            max_world_count=3,
+            max_class_count=3,
+            max_chance_edge_count=8,
+            max_leaf_count=3,
+            max_dense_leaf_world_cells=9,
+        ),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert result["physical_search_path"] == "compiled-jax"
+    assert result["cardinality_plan"]["replanned"] is False
+    assert result["cardinality_plan"]["observed"] == {
+        "worlds": 3,
+        "classes": 3,
+        "chance_edges": 8,
+        "leaves": 3,
+        "dense_leaf_world_cells": 9,
+    }
