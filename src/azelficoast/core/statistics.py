@@ -7,10 +7,128 @@ authority.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from math import floor, isfinite
+from typing import Sequence
 
 from azelficoast.core.planning import LogicalOperator
+
+
+@dataclass(frozen=True, slots=True)
+class CategoricalDependency:
+    """Weighted two-column dependency evidence for extended planner statistics."""
+
+    left_name: str
+    right_name: str
+    total_weight: float
+    left_distinct: int
+    right_distinct: int
+    joint_distinct: int
+    total_variation_from_independence: float
+    left_predicts_right_accuracy: float
+    right_predicts_left_accuracy: float
+
+    def __post_init__(self) -> None:
+        if not self.left_name or not self.right_name:
+            raise ValueError("categorical dependency names must be non-empty")
+        if not isfinite(self.total_weight) or self.total_weight <= 0.0:
+            raise ValueError("categorical dependency total weight must be positive")
+        if min(self.left_distinct, self.right_distinct, self.joint_distinct) <= 0:
+            raise ValueError("categorical dependency distinct counts must be positive")
+        for value in (
+            self.total_variation_from_independence,
+            self.left_predicts_right_accuracy,
+            self.right_predicts_left_accuracy,
+        ):
+            if not isfinite(value) or value < 0.0 or value > 1.0:
+                raise ValueError("categorical dependency metrics must be in [0, 1]")
+
+    def as_record(self) -> dict[str, object]:
+        return {
+            "columns": [self.left_name, self.right_name],
+            "total_weight": self.total_weight,
+            "distinct": {
+                self.left_name: self.left_distinct,
+                self.right_name: self.right_distinct,
+                "joint": self.joint_distinct,
+            },
+            "total_variation_from_independence": (
+                self.total_variation_from_independence
+            ),
+            "functional_accuracy": {
+                f"{self.left_name}->{self.right_name}": (
+                    self.left_predicts_right_accuracy
+                ),
+                f"{self.right_name}->{self.left_name}": (
+                    self.right_predicts_left_accuracy
+                ),
+            },
+        }
+
+
+def analyze_categorical_dependency(
+    samples: Sequence[tuple[str, str, float]],
+    *,
+    left_name: str,
+    right_name: str,
+) -> CategoricalDependency:
+    """Measure weighted departure from independence without asserting causality."""
+
+    if not left_name or not right_name:
+        raise ValueError("categorical dependency names must be non-empty")
+    if not samples:
+        raise ValueError("categorical dependency requires at least one sample")
+
+    left_weights: dict[str, float] = defaultdict(float)
+    right_weights: dict[str, float] = defaultdict(float)
+    joint_weights: dict[tuple[str, str], float] = defaultdict(float)
+    total = 0.0
+    for left, right, weight in samples:
+        if not left or not right:
+            raise ValueError("categorical dependency values must be non-empty")
+        if not isfinite(weight) or weight <= 0.0:
+            raise ValueError("categorical dependency weights must be positive")
+        left_weights[left] += weight
+        right_weights[right] += weight
+        joint_weights[(left, right)] += weight
+        total += weight
+
+    total_variation = 0.0
+    for left, left_weight in left_weights.items():
+        p_left = left_weight / total
+        for right, right_weight in right_weights.items():
+            p_right = right_weight / total
+            p_joint = joint_weights.get((left, right), 0.0) / total
+            total_variation += abs(p_joint - p_left * p_right)
+    total_variation *= 0.5
+
+    left_predicts_right = sum(
+        max(
+            joint_weights.get((left, right), 0.0)
+            for right in right_weights
+        )
+        for left in left_weights
+    ) / total
+    right_predicts_left = sum(
+        max(
+            joint_weights.get((left, right), 0.0)
+            for left in left_weights
+        )
+        for right in right_weights
+    ) / total
+
+    return CategoricalDependency(
+        left_name=left_name,
+        right_name=right_name,
+        total_weight=total,
+        left_distinct=len(left_weights),
+        right_distinct=len(right_weights),
+        joint_distinct=len(joint_weights),
+        total_variation_from_independence=total_variation,
+        left_predicts_right_accuracy=left_predicts_right,
+        right_predicts_left_accuracy=right_predicts_left,
+    )
 
 
 @dataclass
