@@ -8,4 +8,3 @@ SELECT
     action_id,
     score
 FROM policy
-ORDER BY score DESC, action_id ASC

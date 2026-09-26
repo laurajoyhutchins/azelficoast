@@ -30,9 +30,9 @@ from azelficoast.core.statistics import PlannerStatistics
 from azelficoast.core.sql import (
     DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
-    MAXIMIN_SEMANTIC_ID,
+    MAXIMIN_SQL,
     prepare_decision_query,
-    prepare_maximin_query,
+    prepare_policy_query,
 )
 
 
@@ -730,10 +730,11 @@ def test_sql_partition_statistics_are_conditioned_on_correlation_regime() -> Non
 
 
 
-def test_distinct_sql_policy_semantics_do_not_inherit_expected_value_lowering() -> None:
-    prepared = prepare_maximin_query()
+def test_composable_sql_policy_does_not_inherit_expected_value_lowering() -> None:
+    prepared = prepare_policy_query(MAXIMIN_SQL)
 
-    assert prepared.semantic_identity == MAXIMIN_SEMANTIC_ID
+    assert prepared.semantic_identity is not None
+    assert prepared.semantic_identity != DECISION_QUERY_SEMANTIC_ID
     assert prepared.logical is None
     with pytest.raises(
         SQLPackedLoweringError,
