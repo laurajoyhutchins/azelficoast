@@ -141,18 +141,19 @@ def test_training_workflow_observes_replay_bridge_changes() -> None:
     assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
 
 
-def test_repository_evidence_is_digest_verified_before_use() -> None:
+def test_repository_evidence_admission_is_owned_by_python() -> None:
     manifest = ROOT / "experiments" / "evidence" / "canonical-evidence.json"
     bundle = ROOT / "experiments" / "evidence" / "canonical-evidence.tar.gz"
     action = ROOT / ".github" / "actions" / "setup-research-evidence" / "action.yml"
+    authority = ROOT / "src" / "azelficoast" / "research" / "evidence.py"
 
     assert manifest.is_file()
     assert bundle.is_file()
+    assert authority.is_file()
     source = action.read_text(encoding="utf-8")
-    assert "canonical-evidence.json" in source
-    assert "canonical-evidence.tar.gz" in source
-    assert "sha256sum" in source
-    assert "tar -xzf" in source
+    assert "uv run python -m azelficoast.research.evidence unpack" in source
+    assert "sha256sum" not in source
+    assert "tar -xzf" not in source
 
 
 def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
