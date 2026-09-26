@@ -2,10 +2,6 @@ name: Setup pinned Pokémon Showdown
 description: Restore or build the exact pinned Pokémon Showdown oracle revision.
 
 inputs:
-  sha:
-    description: Exact Pokémon Showdown commit SHA that defines oracle authority.
-    required: false
-    default: a5df8274e85b0889bf2a9b3422a08b39732374fc
   path:
     description: Destination path for the restored or built checkout.
     required: false
@@ -23,6 +19,18 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Read repository Showdown revision
+      id: revision
+      shell: bash
+      run: |
+        set -euo pipefail
+        revision="$(tr -d '[:space:]' < experiments/showdown-revision.txt)"
+        [[ "${#revision}" == 40 && "${revision}" =~ ^[0-9a-f]{40}$ ]] || {
+          echo "invalid experiments/showdown-revision.txt" >&2
+          exit 1
+        }
+        echo "sha=${revision}" >> "${GITHUB_OUTPUT}"
+
     - name: Identify existing JavaScript runtime
       id: runtime
       shell: bash
@@ -36,14 +44,14 @@ runs:
       uses: actions/cache/restore@v6
       with:
         path: ${{ inputs.path }}
-        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ inputs.sha }}
+        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ steps.revision.outputs.sha }}
 
     - name: Verify or build exact Showdown revision
       id: verify
       shell: bash
       env:
         SHOWDOWN_PATH: ${{ inputs.path }}
-        SHOWDOWN_SHA: ${{ inputs.sha }}
+        SHOWDOWN_SHA: ${{ steps.revision.outputs.sha }}
       run: |
         set -euo pipefail
 
@@ -112,4 +120,4 @@ runs:
       uses: actions/cache/save@v6
       with:
         path: ${{ inputs.path }}
-        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ inputs.sha }}
+        key: azelficoast-showdown-v1-${{ runner.os }}-${{ runner.arch }}-node${{ steps.runtime.outputs.node-version }}-npm${{ steps.runtime.outputs.npm-version }}-${{ steps.revision.outputs.sha }}
