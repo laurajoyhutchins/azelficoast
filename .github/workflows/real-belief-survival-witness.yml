@@ -13,6 +13,7 @@ on:
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/opponent-policy-semantics.json"
       - ".github/workflows/real-belief-survival-witness.yml"
   workflow_dispatch:
 
