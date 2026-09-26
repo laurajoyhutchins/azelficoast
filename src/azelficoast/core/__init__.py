@@ -53,6 +53,11 @@ from azelficoast.core.planning import (
     explain_operator_plan,
     explain_physical_plan,
 )
+from azelficoast.core.statistics import (
+    CardinalityEstimate,
+    CardinalityHistogram,
+    PlannerStatistics,
+)
 from azelficoast.core.search import (
     SEARCH_METHODS,
     SEARCH_SCHEMA,
@@ -81,6 +86,8 @@ from azelficoast.core.transition import (
 __all__ = [
     "CacheRouteEstimate",
     "CacheTierCost",
+    "CardinalityEstimate",
+    "CardinalityHistogram",
     "DEFAULT_DECISION_PLAN",
     "DEFAULT_DECISION_SQL",
     "ExecutionCostProfile",
@@ -99,6 +106,7 @@ __all__ = [
     "PLAN_EXPLAIN_SCHEMA",
     "PLAN_EXPLAIN_SCHEMA_VERSION",
     "PhysicalPlan",
+    "PlannerStatistics",
     "PreparedDecisionQuery",
     "BeliefEvaluator",
     "CERTIFICATE_SCHEMA",
