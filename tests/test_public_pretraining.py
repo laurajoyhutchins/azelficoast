@@ -236,6 +236,17 @@ def test_public_posterior_source_reuses_generator_population_cache(
     assert not cache_root.exists()
 
 
+def test_pinned_showdown_posterior_probe_declares_generator_faithful_treatment() -> None:
+    script = (
+        Path(public_pretraining.__file__).resolve().parents[3]
+        / "scripts"
+        / "probe_real_belief_trace.cjs"
+    )
+    source = script.read_text(encoding="utf-8")
+    posterior_only = source.split("if (posteriorOnly) {", 1)[1].split("process.exit(0);", 1)[0]
+    assert 'treatment: "generator_faithful"' in posterior_only
+
+
 def test_public_pretraining_refuses_to_replace_existing_promoted_evaluator(
     tmp_path: Path,
 ) -> None:
