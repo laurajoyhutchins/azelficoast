@@ -283,6 +283,9 @@ def execute_method(
             "evaluator_batches": int(
                 search.get("evaluator_batches", search["evaluator_calls"])
             ),
+            "frontier_builds": int(search.get("frontier_builds", 1)),
+            "frontier_memo_hit": bool(search.get("frontier_memo_hit", False)),
+            "frontier_group_identity": str(search.get("frontier_group_identity", "")),
             "executor_preparation_wall_ms": (prepared_ns - executor_started_ns) / 1_000_000.0,
             "search_wall_ms": (search_finished_ns - search_started_ns) / 1_000_000.0,
             "executor_wall_ms": (search_finished_ns - executor_started_ns) / 1_000_000.0,

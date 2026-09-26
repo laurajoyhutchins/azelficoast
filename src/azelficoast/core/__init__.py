@@ -32,6 +32,7 @@ from azelficoast.core.program import (
     TransitionProgramError,
     program_for_action,
 )
+from azelficoast.core.memo import MemoKey, MemoStats, SemanticMemo
 from azelficoast.core.planning import (
     DEFAULT_DECISION_PLAN,
     PLAN_EXPLAIN_SCHEMA,
@@ -65,6 +66,8 @@ __all__ = [
     "ExecutionFeatures",
     "ExecutionPath",
     "LogicalOperator",
+    "MemoKey",
+    "MemoStats",
     "LogicalPlan",
     "PLAN_EXPLAIN_SCHEMA",
     "PLAN_EXPLAIN_SCHEMA_VERSION",
@@ -84,6 +87,7 @@ __all__ = [
     "SEARCH_METHODS",
     "SEARCH_SCHEMA",
     "SEARCH_SCHEMA_VERSION",
+    "SemanticMemo",
     "TransitionOracleProducer",
     "TransitionProgramError",
     "VERIFICATION_SCHEMA",

@@ -883,6 +883,9 @@ class ResourceAccounting:
     transition_program_verification_included: bool
     posterior_construction_included: bool
     scope_note: str
+    frontier_builds: int = 1
+    frontier_memo_hit: bool = False
+    frontier_group_identity: str = ""
 
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> ResourceAccounting:
@@ -931,6 +934,25 @@ class ResourceAccounting:
         scope_note = record.get("scope_note")
         if not isinstance(scope_note, str) or not scope_note:
             raise ResearchContractError("resource accounting lacks its scope note")
+        frontier_builds = record.get("frontier_builds", 1)
+        if (
+            not isinstance(frontier_builds, int)
+            or isinstance(frontier_builds, bool)
+            or frontier_builds < 0
+        ):
+            raise ResearchContractError(
+                "resource accounting lacks valid frontier_builds"
+            )
+        frontier_memo_hit = record.get("frontier_memo_hit", False)
+        if not isinstance(frontier_memo_hit, bool):
+            raise ResearchContractError(
+                "resource accounting lacks boolean frontier_memo_hit"
+            )
+        frontier_group_identity = record.get("frontier_group_identity", "")
+        if not isinstance(frontier_group_identity, str):
+            raise ResearchContractError(
+                "resource accounting lacks valid frontier_group_identity"
+            )
         return cls(
             verified_execution_classes_consumed=counts[
                 "verified_execution_classes_consumed"
@@ -948,6 +970,9 @@ class ResourceAccounting:
             ],
             posterior_construction_included=flags["posterior_construction_included"],
             scope_note=scope_note,
+            frontier_builds=frontier_builds,
+            frontier_memo_hit=frontier_memo_hit,
+            frontier_group_identity=frontier_group_identity,
         )
 
     def to_record(self) -> dict[str, object]:
@@ -962,6 +987,9 @@ class ResourceAccounting:
             "transition_program_verification_included": self.transition_program_verification_included,
             "posterior_construction_included": self.posterior_construction_included,
             "scope_note": self.scope_note,
+            "frontier_builds": self.frontier_builds,
+            "frontier_memo_hit": self.frontier_memo_hit,
+            "frontier_group_identity": self.frontier_group_identity,
         }
 
 
