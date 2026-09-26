@@ -280,8 +280,8 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "if: always() && needs.plan.result == 'success'" in source
     assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
     assert 'if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]' in source
-    assert '"schema": "azelficoast.candidate-research-certificate"' in source
-    assert '"git_sha": os.environ["HEAD_SHA"]' in source
+    assert "uv run python -m azelficoast.research.ci certify" in source
+    assert "python - <<'PY'" not in source
     assert "name: candidate-research-certificate" in source
     assert "Type check accelerator frontier" in source
     assert "src/azelficoast/core/compiled_search.py" in source
