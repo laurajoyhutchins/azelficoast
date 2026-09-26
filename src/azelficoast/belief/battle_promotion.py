@@ -81,7 +81,7 @@ def _one_sided_superiority_p_value(wins: int, losses: int) -> float:
     if decisive <= 0:
         return 1.0
     numerator = sum(math.comb(decisive, value) for value in range(wins, decisive + 1))
-    return numerator / (2**decisive)
+    return float(numerator) / float(2**decisive)
 
 
 def settle_battle_panel(
