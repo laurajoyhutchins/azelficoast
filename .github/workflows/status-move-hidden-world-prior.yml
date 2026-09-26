@@ -5,9 +5,12 @@ on:
     types: [ready_for_review]
     paths:
       - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
       - "experiments/status-move-prior-selection.json"
+      - "experiments/showdown-revision.txt"
       - "scripts/sample_showdown_worlds.cjs"
       - "src/azelficoast/belief/status_move_prior.py"
+      - "src/azelficoast/research/hosted/**"
       - "tests/test_status_move_prior.py"
       - ".github/workflows/status-move-hidden-world-prior.yml"
   workflow_dispatch:
@@ -24,70 +27,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Setup Azelficoast Python
-        uses: ./.github/actions/setup-python-environment
-
+      - uses: ./.github/actions/setup-python-environment
       - name: Test prior comparison
         run: uv run pytest tests/test_status_move_prior.py
-
-      - name: Fetch pinned Pokémon Showdown
-        run: |
-          git init /tmp/pokemon-showdown
-          git -C /tmp/pokemon-showdown remote add origin https://github.com/smogon/pokemon-showdown.git
-          git -C /tmp/pokemon-showdown fetch --depth 1 origin a5df8274e85b0889bf2a9b3422a08b39732374fc
-          git -C /tmp/pokemon-showdown checkout --detach FETCH_HEAD
-
-      - name: Build Pokémon Showdown
-        working-directory: /tmp/pokemon-showdown
-        run: |
-          npm ci --omit=optional --no-audit --no-fund
-          npm run build
-
-      - name: Compare disjoint status-move prior families
-        run: |
-          uv run python -m azelficoast.belief.status_move_prior \
-            experiments/status-move-prior-selection.json \
-            --showdown-root /tmp/pokemon-showdown \
-            | tee /tmp/status-move-prior-results.json
-
-      - name: Verify preregistered treatment
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          result = json.loads(Path("/tmp/status-move-prior-results.json").read_text())
-          assert result["schema"] == "azelficoast.status-move-prior-results", result
-          assert result["schema_version"] == 1, result
-          assert result["case_count"] == 6, result
-          assert all(
-              case["left"]["seed_offset"] != case["right"]["seed_offset"]
-              for case in result["cases"]
-          ), result
-          assert all(
-              min(case["left"]["matched"], case["right"]["matched"]) > 0
-              for case in result["cases"]
-          ), result
-
-          print(json.dumps({
-              "passed": result["passed"],
-              "passed_case_count": result["passed_case_count"],
-              "cases": [
-                  {
-                      "move": case["move"],
-                      "species": case["species"],
-                      "matched": [case["left"]["matched"], case["right"]["matched"]],
-                      "item_support": case["item_support"],
-                      "support_stable": case["support_stable"],
-                      "total_variation": case["total_variation"],
-                      "passed": case["passed"],
-                  }
-                  for case in result["cases"]
-              ],
-          }, sort_keys=True))
-          PY
-
+      - uses: ./.github/actions/setup-showdown
+      - name: Execute hosted research contract
+        run: uv run python -m azelficoast.research.hosted status-move-hidden-world-prior
       - uses: actions/upload-artifact@v4
         if: always()
         with:

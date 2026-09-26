@@ -9,10 +9,11 @@ on:
       - ".github/actions/setup-showdown/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
+      - "experiments/showdown-revision.txt"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
+      - "src/azelficoast/research/hosted/**"
       - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
       - ".github/workflows/real-belief-survival-witness.yml"
   workflow_dispatch:
 
@@ -28,82 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Setup Azelficoast Python
-        uses: ./.github/actions/setup-python-environment
-
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-
-      - name: Verify canonical Tropius versus Chi-Yu source
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          source = json.loads(
-              Path("/tmp/azelficoast-evidence/survival-source.json").read_text()
-          )
-          assert source["fixture_id"] == (
-              "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2"
-          )
-          assert source["state"]["turn"] == 42
-          assert source["state"]["active"]["species"] == "tropius"
-          assert source["state"]["opponent_active"]["species"] == "chiyu"
-          assert len(source["state"]["legal_actions"]) == 11
-          assert source["own_active_tera_type"] == "Steel"
-          assert source["opponent_bench_species"] == "Hippowdon"
-          PY
-
-      - name: Restore verified pinned Pokémon Showdown
-        uses: ./.github/actions/setup-showdown
-
-      - name: Generate exact hidden-world oracle
-        run: |
-          node scripts/probe_real_belief_trace.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/azelficoast-evidence/survival-source.json \
-            > /tmp/tropius-chiyu-oracle.json
-
-      - name: Analyze public information sets
-        run: |
-          uv run python -m azelficoast.research.verification.real_belief_trace \
-            /tmp/tropius-chiyu-oracle.json \
-            | tee /tmp/tropius-chiyu-trace.json
-
-          uv run python -m azelficoast.research.verification.real_belief_miner \
-            /tmp/tropius-chiyu-oracle.json \
-            | tee /tmp/tropius-chiyu-mining.json
-
-      - name: Verify outcome-neutral treatment
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          trace = json.loads(Path("/tmp/tropius-chiyu-trace.json").read_text())
-          mining = json.loads(Path("/tmp/tropius-chiyu-mining.json").read_text())
-
-          assert trace["source_fixture_id"] == (
-              "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2"
-          ), trace
-          assert trace["showdown_commit"] == (
-              "a5df8274e85b0889bf2a9b3422a08b39732374fc"
-          ), trace
-          assert trace["experiment_valid"] is True, trace
-          assert trace["world_count"] >= 2, trace
-          assert trace["legal_action_count"] == 11, trace
-
-          protect = next(
-              row for row in trace["actions"]
-              if row["action"] == "/choose move protect"
-          )
-          assert protect["dependency_signature"]["classes_out"] < trace["world_count"], protect
-
-          assert mining["ranking_uses_policy_result"] is False, mining
-          assert mining["evaluated_count"] == 1, mining
-          PY
-
+      - uses: ./.github/actions/setup-python-environment
+      - uses: ./.github/actions/setup-research-evidence
+      - uses: ./.github/actions/setup-showdown
+      - name: Execute hosted research contract
+        run: uv run python -m azelficoast.research.hosted real-belief-survival-witness
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - ".github/actions/setup-showdown/action.yml"
+      - "experiments/showdown-revision.txt"
       - ".github/workflows/showdown-build-cache.yml"
   workflow_dispatch:
 

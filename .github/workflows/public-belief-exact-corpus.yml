@@ -6,295 +6,55 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
+      - "experiments/showdown-revision.txt"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
       - "src/azelficoast/core/decision_relevance.py"
       - "src/azelficoast/core/program.py"
       - "src/azelficoast/core/transition.py"
       - "src/azelficoast/core/whole_turn_program.py"
+      - "src/azelficoast/research/hosted/**"
       - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
       - "tests/hostile/test_transition_program_hostile.py"
       - ".github/workflows/public-belief-exact-corpus.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-python-environment
+      - name: Resolve code-owned witness matrix
+        id: matrix
+        run: echo "matrix=$(uv run python -m azelficoast.research.hosted matrix public-belief-exact)" >> "${GITHUB_OUTPUT}"
+
   exact-candidate:
+    needs: plan
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: jirachi-staraptor
-            fixture_id: 2b29e00e9babc864a5a1cfc32ba43be00ee587d02d3c3e0bfe3d0539deaaa898
-          - name: regigigas-staraptor-turn12
-            fixture_id: 6314b9a24e28265bb3b36c490c0297357ece57e7963ac653c3d798f4d3b82821
-          - name: regigigas-bruxish-turn17
-            fixture_id: 7a60eceebb54d4213afa90a51d6120e58f26bbcfd159d537087a6cd832a7b9ad
-          - name: tinkaton-gardevoir
-            fixture_id: bbe2078827062b7e32e0efcd28a77619b5d1e4edec4fd490ea71a5005e9e49d4
-          - name: regigigas-staraptor-turn13
-            fixture_id: ce6f0239a59d5d64bd303bce884ea063f9c1305bcbe6b2b55b18c51b349d5b46
-          - name: regigigas-bruxish-turn18
-            fixture_id: e806414b1c6f2afa650d7c15f466aafc032c4c1fb0adae94f94e152d483d30ad
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     runs-on: ubuntu-latest
     name: exact-${{ matrix.name }}
     steps:
       - uses: actions/checkout@v7
-
-      - name: Setup Azelficoast Python
-        uses: ./.github/actions/setup-python-environment
-
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-
-      - name: Extract exact candidate fixture
-        id: extract
-        env:
-          FIXTURE_ID: ${{ matrix.fixture_id }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          fixture_id = os.environ["FIXTURE_ID"]
-          fixture = None
-          candidate = None
-
-          with Path("/tmp/azelficoast-evidence/discovery/fixtures.jsonl").open() as stream:
-              for raw in stream:
-                  row = json.loads(raw)
-                  if row.get("fixture_id") == fixture_id:
-                      fixture = row
-                      break
-          candidates = json.loads(
-              Path("/tmp/azelficoast-evidence/discovery/candidates.json").read_text()
-          )
-          candidate = next(
-              (
-                  row
-                  for row in candidates["candidates"]
-                  if row.get("fixture_id") == fixture_id
-              ),
-              None,
-          )
-
-          assert fixture is not None, fixture_id
-          assert candidate is not None, fixture_id
-          assert candidate["current_speed_fork"] is True, candidate
-          assert candidate["showdown_commit"] == (
-              "a5df8274e85b0889bf2a9b3422a08b39732374fc"
-          ), candidate
-
-          latest_tera = None
-          p2_active = None
-          seen = []
-          fainted = set()
-          for batch in fixture["protocol_prefix"]:
-              for message in batch:
-                  if len(message) < 2 or message[0] != "":
-                      continue
-                  if message[1] == "request" and len(message) >= 3:
-                      try:
-                          request = json.loads(message[2])
-                      except json.JSONDecodeError:
-                          continue
-                      active = request.get("active") or []
-                      if active and active[0].get("canTerastallize"):
-                          latest_tera = active[0]["canTerastallize"]
-                  if (
-                      message[1] in {"switch", "drag"}
-                      and str(message[2]).startswith("p2")
-                  ):
-                      p2_active = str(message[3]).split(",", 1)[0]
-                      if p2_active not in seen:
-                          seen.append(p2_active)
-                  if (
-                      message[1] == "faint"
-                      and str(message[2]).startswith("p2")
-                      and p2_active
-                  ):
-                      fainted.add(p2_active.lower())
-
-          current = str(fixture["state"]["opponent_active"]["species"]).lower()
-          bench = next(
-              (
-                  species
-                  for species in reversed(seen)
-                  if species.lower().replace("-", "") != current.replace("-", "")
-                  and species.lower() not in fainted
-              ),
-              None,
-          )
-          if latest_tera is None or bench is None:
-              status = {
-                  "schema": "azelficoast.real-belief-exact-candidate-status",
-                  "schema_version": 1,
-                  "fixture_id": fixture_id,
-                  "supported": False,
-                  "reason": (
-                      "missing-public-own-tera"
-                      if latest_tera is None
-                      else "missing-public-opponent-bench"
-                  ),
-              }
-              Path("/tmp/candidate-status.json").write_text(
-                  json.dumps(status, sort_keys=True),
-                  encoding="utf-8",
-              )
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-                  out.write("supported=false\n")
-              raise SystemExit(0)
-
-          source = {
-              "schema": "azelficoast.real-belief-source-fixture",
-              "schema_version": 1,
-              "fixture_id": fixture_id,
-              "showdown_commit": candidate["showdown_commit"],
-              "source_artifact": {
-                  "id": 10827665365,
-                  "digest": (
-                      "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34"
-                  ),
-              },
-              "source_projection": (
-                  "exact frozen speed-fork decision selected before policy evaluation"
-              ),
-              "state": fixture["state"],
-              "protocol_prefix": fixture["protocol_prefix"],
-              "control_decisions": fixture.get("control_decisions", []),
-              "plausible_items": sorted(candidate["item_counts"]),
-              "observed_opponent_moves": candidate["revealed_moves"],
-              "opponent_response_move": candidate["locked_move"],
-              "own_active_tera_type": latest_tera,
-              "opponent_bench_species": bench,
-          }
-          Path("/tmp/candidate-source.json").write_text(
-              json.dumps(source, sort_keys=True),
-              encoding="utf-8",
-          )
-          Path("/tmp/candidate-status.json").write_text(
-              json.dumps(
-                  {
-                      "schema": "azelficoast.real-belief-exact-candidate-status",
-                      "schema_version": 1,
-                      "fixture_id": fixture_id,
-                      "supported": True,
-                      "candidate": candidate,
-                      "inferred": {
-                          "own_active_tera_type": latest_tera,
-                          "opponent_bench_species": bench,
-                      },
-                  },
-                  sort_keys=True,
-              ),
-              encoding="utf-8",
-          )
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
-              out.write("supported=true\n")
-          PY
-
-      - name: Setup verified Pokémon Showdown
-        if: steps.extract.outputs.supported == 'true'
-        uses: ./.github/actions/setup-showdown
-
-      - name: Generate exact mechanics oracle
-        if: steps.extract.outputs.supported == 'true'
-        run: |
-          node scripts/probe_real_belief_trace.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/candidate-source.json \
-            > /tmp/candidate-oracle.json
-
-      - name: Generate lazy transition program
-        if: steps.extract.outputs.supported == 'true'
-        run: |
-          node scripts/probe_real_belief_trace.cjs \
-            /tmp/pokemon-showdown \
-            /tmp/candidate-source.json \
-            --transition-program-only \
-            > /tmp/candidate-lazy-program.json
-
-      - name: Run pinned-Showdown hostile certification
-        if: steps.extract.outputs.supported == 'true'
-        env:
-          AZELFICOAST_HOSTILE_ORACLE_PATH: /tmp/candidate-oracle.json
-          AZELFICOAST_HOSTILE_LAZY_PROGRAM_PATH: /tmp/candidate-lazy-program.json
-        run: |
-          uv run pytest tests/hostile/test_transition_program_hostile.py \
-            -m hostile_showdown
-
-      - name: Analyze information set
-        if: steps.extract.outputs.supported == 'true'
-        run: |
-          uv run python -m azelficoast.research.verification.real_belief_trace \
-            /tmp/candidate-oracle.json \
-            | tee /tmp/candidate-trace.json
-
-          uv run python -m azelficoast.research.verification.real_belief_miner \
-            /tmp/candidate-oracle.json \
-            | tee /tmp/candidate-mining.json
-
-      - name: Verify outcome-neutral result
-        if: steps.extract.outputs.supported == 'true'
-        env:
-          FIXTURE_ID: ${{ matrix.fixture_id }}
-        run: |
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          fixture_id = os.environ["FIXTURE_ID"]
-          trace = json.loads(Path("/tmp/candidate-trace.json").read_text())
-          mining = json.loads(Path("/tmp/candidate-mining.json").read_text())
-
-          assert trace["source_fixture_id"] == fixture_id, trace
-          assert trace["experiment_valid"] is True, trace
-          assert trace["world_count"] >= 2, trace
-          assert trace["legal_action_count"] >= 1, trace
-          protect = next(
-              row
-              for row in trace["actions"]
-              if row["action"] == "/choose move protect"
-          )
-          assert protect["dependency_signature"]["classes_out"] < trace["world_count"], protect
-          assert mining["ranking_uses_policy_result"] is False, mining
-          assert mining["evaluated_count"] == 1, mining
-
-          summary = {
-              "schema": "azelficoast.real-belief-exact-candidate-result",
-              "schema_version": 1,
-              "fixture_id": fixture_id,
-              "world_count": trace["world_count"],
-              "legal_action_count": trace["legal_action_count"],
-              "strategy_fusion_observation_count": trace[
-                  "strategy_fusion_observation_count"
-              ],
-              "max_world_aware_choices_per_observation": trace[
-                  "max_world_aware_choices_per_observation"
-              ],
-              "policy_disagreement": trace["policy_disagreement"],
-              "determinization_action": trace["determinization"]["chosen_action"],
-              "public_belief_action": trace["public_belief"]["chosen_action"],
-          }
-          Path("/tmp/candidate-result.json").write_text(
-              json.dumps(summary, sort_keys=True),
-              encoding="utf-8",
-          )
-          print(json.dumps(summary, sort_keys=True))
-          PY
-
+      - uses: ./.github/actions/setup-python-environment
+      - uses: ./.github/actions/setup-research-evidence
+      - uses: ./.github/actions/setup-showdown
+      - name: Execute hosted research contract
+        run: uv run python -m azelficoast.research.hosted public-belief-exact "${{ matrix.name }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
