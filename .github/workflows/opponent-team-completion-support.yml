@@ -4,6 +4,8 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".python-version"
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
@@ -26,6 +28,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
 
       - name: Setup canonical research evidence
         uses: ./.github/actions/setup-research-evidence
