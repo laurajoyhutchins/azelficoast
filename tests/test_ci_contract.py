@@ -318,3 +318,17 @@ def test_showdown_revision_is_repository_owned() -> None:
         assert PINNED_SHOWDOWN_COMMIT not in path.read_text(encoding="utf-8"), (
             f"{path.relative_to(ROOT)} duplicates the repository Showdown revision"
         )
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        assert PINNED_SHOWDOWN_COMMIT not in source, (
+            f"{path.name} duplicates the current repository Showdown revision"
+        )
+        if "uses: ./.github/actions/setup-showdown" not in source:
+            continue
+        if "  pull_request:\n" not in source:
+            continue
+        assert (
+            '- "showdown/revision.json"' in source
+            or '- "showdown/**"' in source
+        ), f"{path.name} must observe Showdown revision authority changes"
