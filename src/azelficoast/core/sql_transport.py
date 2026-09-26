@@ -61,7 +61,6 @@ INFORMATION_SET_TRANSPORT_SCHEMA_SHA256 = _sha256_text(
 INFORMATION_SET_TRANSPORT_PLAN = LogicalPlan(
     operators=(
         LogicalOperator.SCAN,
-        LogicalOperator.FILTER,
         LogicalOperator.PROJECT,
         LogicalOperator.UPDATE_BELIEF,
         LogicalOperator.AGGREGATE,
@@ -72,6 +71,8 @@ _INFORMATION_SET_TRANSPORT_SEMANTICS = {
     "schema": SQL_TRANSPORT_SEMANTIC_SCHEMA,
     "schema_version": SQL_TRANSPORT_SEMANTIC_VERSION,
     "authority_boundary": "authorized leaf/world/chance incidence supplied by caller",
+    "query_sha256": INFORMATION_SET_TRANSPORT_SQL_SHA256,
+    "schema_sha256": INFORMATION_SET_TRANSPORT_SCHEMA_SHA256,
     "input_relations": {
         "worlds": ["world_index", "weight"],
         "leaves": ["leaf_index"],
