@@ -295,6 +295,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.verification.showdown_damage_corpus",
                 "showdown-gen9-damage-analysis.json",
                 "showdown-gen9-damage-fixtures.json",
+                "analyze_file",
             ),
             (
                 "azelficoast.research.experiments.native_damage_experiment",
