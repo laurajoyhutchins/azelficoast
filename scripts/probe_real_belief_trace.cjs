@@ -1610,7 +1610,7 @@ const factoredHidden = benchFactor
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-process.stdout.write(JSON.stringify({
+void writeJsonStream({
   schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
