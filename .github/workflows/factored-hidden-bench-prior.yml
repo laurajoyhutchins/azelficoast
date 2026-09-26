@@ -10,6 +10,7 @@ on:
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/opponent-policy-semantics.json"
       - "scripts/evaluate_conditional_team_prior.cjs"
       - "tests/test_real_belief_trace.py"
       - ".github/workflows/factored-hidden-bench-prior.yml"
