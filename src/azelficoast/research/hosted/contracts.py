@@ -25,6 +25,7 @@ _SHARED_SHOWDOWN_PATHS = {
 }
 _SHARED_EVIDENCE_PATHS = {
     ".github/actions/setup-research-evidence/action.yml",
+    "src/azelficoast/research/evidence.py",
     "experiments/evidence/canonical-evidence.json",
     "experiments/evidence/canonical-evidence.tar.gz",
 }
