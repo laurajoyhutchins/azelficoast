@@ -10,9 +10,10 @@ on:
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "experiments/natural-status-move-treatment.json"
+      - "experiments/showdown-revision.txt"
       - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
       - "src/azelficoast/research/verification/real_belief_trace.py"
+      - "src/azelficoast/research/hosted/**"
       - ".github/workflows/natural-status-move-public-belief.yml"
   workflow_dispatch:
 
@@ -28,103 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      - name: Setup Azelficoast Python
-        uses: ./.github/actions/setup-python-environment
-
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-
-      - name: Verify canonical natural decision
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          source = json.loads(
-              Path("/tmp/azelficoast-evidence/status-source.json").read_text()
-          )
-          treatment = json.loads(
-              Path("experiments/natural-status-move-treatment.json").read_text()
-          )
-          assert source["fixture_id"] == treatment["selection"]["expected_fixture_id"]
-          assert source["plausible_items"] == treatment["selection"]["plausible_items"]
-          assert source["opponent_response_move"].lower() == "roost"
-          PY
-
-      - name: Restore verified pinned Pokémon Showdown
-        uses: ./.github/actions/setup-showdown
-
-      - name: Execute exact status-move oracle
-        run: |
-          node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             /tmp/azelficoast-evidence/status-source.json             > /tmp/status-oracle.json
-
-          uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/status-oracle.json             > /tmp/status-trace.json
-
-      - name: Verify preregistered acceptance
-        run: |
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          source = json.loads(Path("/tmp/azelficoast-evidence/status-source.json").read_text())
-          oracle = json.loads(Path("/tmp/status-oracle.json").read_text())
-          trace = json.loads(Path("/tmp/status-trace.json").read_text())
-          treatment = json.loads(
-              Path("experiments/natural-status-move-treatment.json").read_text()
-          )
-
-          acceptance = treatment["acceptance"]
-          expected_fixture = treatment["selection"]["expected_fixture_id"]
-          expected_item = treatment["selection"]["plausible_items"]
-
-          assert source["fixture_id"] == expected_fixture, source
-          assert source["plausible_items"] == expected_item, source
-
-          assert oracle["source_fixture_id"] == expected_fixture, oracle
-          assert oracle["showdown_commit"] == treatment["showdown_commit"], oracle
-          assert oracle["reconstruction"]["observed_opponent_moves"] == ["roost"], oracle
-          assert (
-              oracle["reconstruction"]["hidden_world_count"]
-              >= acceptance["minimum_hidden_worlds"]
-          ), oracle
-          assert len(oracle["legal_actions"]) == acceptance["expected_legal_action_count"], oracle
-          assert oracle["mechanics"]["opponent_policy"] == {
-              "kind": "repeat-last-or-uniform-legal-moves",
-              "preferred_move": "roost",
-              "voluntary_switches": False,
-          }, oracle
-          assert {
-              world["hidden"]["opponent.active.item"]
-              for world in oracle["worlds"]
-          } == set(expected_item), oracle
-
-          assert trace["experiment_valid"] is True, trace
-          assert trace["source_fixture_id"] == expected_fixture, trace
-          assert trace["world_count"] == oracle["reconstruction"]["hidden_world_count"], trace
-          assert trace["legal_action_count"] == acceptance["expected_legal_action_count"], trace
-          assert trace["public_belief"]["chosen_action"] in oracle["legal_actions"], trace
-          assert trace["determinization"]["chosen_action"] in oracle["legal_actions"], trace
-
-          if acceptance["require_policy_disagreement"]:
-              assert trace["policy_disagreement"] is True, trace
-
-          print(json.dumps({
-              "fixture_id": expected_fixture,
-              "world_count": trace["world_count"],
-              "legal_action_count": trace["legal_action_count"],
-              "generator_matches": oracle["reconstruction"]["generator_matches"],
-              "strategy_fusion_observation_count": trace[
-                  "strategy_fusion_observation_count"
-              ],
-              "policy_disagreement": trace["policy_disagreement"],
-              "determinization_action": trace["determinization"]["chosen_action"],
-              "public_belief_action": trace["public_belief"]["chosen_action"],
-              "determinization_value": trace["determinization"]["value"],
-              "public_belief_value": trace["public_belief"]["value"],
-          }, sort_keys=True))
-          PY
-
+      - uses: ./.github/actions/setup-python-environment
+      - uses: ./.github/actions/setup-research-evidence
+      - uses: ./.github/actions/setup-showdown
+      - name: Execute hosted research contract
+        run: uv run python -m azelficoast.research.hosted natural-status-move
       - uses: actions/upload-artifact@v4
         if: always()
         with:
