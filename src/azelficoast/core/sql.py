@@ -19,7 +19,7 @@ from typing import Any
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalPlan
 
 SQL_EXPLAIN_SCHEMA = "azelficoast.core.sql-query-explain"
-SQL_EXPLAIN_SCHEMA_VERSION = 3
+SQL_EXPLAIN_SCHEMA_VERSION = 4
 DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
 DECISION_QUERY_SEMANTIC_VERSION = 1
 DECISION_SQL_SURFACE_SCHEMA = "azelficoast.core.decision-sql-surface"
@@ -178,9 +178,11 @@ class PreparedDecisionQuery:
     functions: tuple[str, ...]
     sqlite_version: str
     sqlite_query_plan: tuple[str, ...]
+    sqlite_program_sha256: str
     sql_surface_identity: str
     semantic_identity: str | None
     equivalence_rule: str | None
+    equivalence_scope: str | None
     logical: LogicalPlan | None
 
 
@@ -192,6 +194,33 @@ def _prepare_connection() -> sqlite3.Connection:
     connection = sqlite3.connect(":memory:")
     connection.executescript(_SCHEMA)
     return connection
+
+
+def _sqlite_program_sha256_from_rows(rows: list[tuple[Any, ...]]) -> str:
+    """Hash SQLite's executable program without unstable human comments."""
+
+    material = [list(row[:-1]) for row in rows]
+    payload = json.dumps(
+        material,
+        sort_keys=False,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _sqlite_program_sha256(connection: sqlite3.Connection, sql: str) -> str:
+    rows = connection.execute("EXPLAIN " + sql).fetchall()
+    return _sqlite_program_sha256_from_rows(rows)
+
+
+@lru_cache(maxsize=1)
+def _canonical_sqlite_program_sha256() -> str:
+    connection = _prepare_connection()
+    try:
+        return _sqlite_program_sha256(connection, DEFAULT_DECISION_SQL)
+    finally:
+        connection.close()
 
 
 def _normalize_reviewed_sql_source(sql: str) -> str:
@@ -392,12 +421,23 @@ def _reviewed_equivalence_index() -> dict[str, str]:
     return index
 
 
-def _reviewed_decision_equivalence(sql: str) -> tuple[str, str] | None:
+def _reviewed_decision_equivalence(
+    sql: str,
+    *,
+    sqlite_program_sha256: str,
+) -> tuple[str, str, str] | None:
     normalized = _normalize_reviewed_sql_source(sql)
     rule = _reviewed_equivalence_index().get(normalized)
-    if rule is None:
-        return None
-    return DECISION_QUERY_SEMANTIC_ID, rule
+    if rule is not None:
+        return DECISION_QUERY_SEMANTIC_ID, rule, "reviewed-relational"
+
+    if sqlite_program_sha256 == _canonical_sqlite_program_sha256():
+        return (
+            DECISION_QUERY_SEMANTIC_ID,
+            "sqlite-program-equivalence",
+            "sqlite-version-bound",
+        )
+    return None
 
 
 def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
@@ -447,6 +487,7 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
             query_plan_rows = connection.execute(
                 "EXPLAIN QUERY PLAN " + canonical
             ).fetchall()
+            program_rows = connection.execute("EXPLAIN " + canonical).fetchall()
             cursor = connection.execute(canonical)
         except sqlite3.DatabaseError as exc:
             raise SQLDecisionQueryError(str(exc)) from exc
@@ -475,9 +516,14 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
                 f"decision SQL read unsupported relations: {extra_text}"
             )
 
-        equivalent = _reviewed_decision_equivalence(canonical)
+        sqlite_program_sha256 = _sqlite_program_sha256_from_rows(program_rows)
+        equivalent = _reviewed_decision_equivalence(
+            canonical,
+            sqlite_program_sha256=sqlite_program_sha256,
+        )
         semantic_identity = equivalent[0] if equivalent is not None else None
         equivalence_rule = equivalent[1] if equivalent is not None else None
+        equivalence_scope = equivalent[2] if equivalent is not None else None
         logical = DEFAULT_DECISION_PLAN if equivalent is not None else None
 
         return PreparedDecisionQuery(
@@ -487,9 +533,11 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
             functions=tuple(sorted(functions)),
             sqlite_version=sqlite3.sqlite_version,
             sqlite_query_plan=tuple(str(row[3]) for row in query_plan_rows),
+            sqlite_program_sha256=sqlite_program_sha256,
             sql_surface_identity=DECISION_SQL_SURFACE_ID,
             semantic_identity=semantic_identity,
             equivalence_rule=equivalence_rule,
+            equivalence_scope=equivalence_scope,
             logical=logical,
         )
     finally:
@@ -508,6 +556,7 @@ def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
         "sql_surface_identity": query.sql_surface_identity,
         "semantic_identity": query.semantic_identity,
         "equivalence_rule": query.equivalence_rule,
+        "equivalence_scope": query.equivalence_scope,
         "logical_operators": (
             [operator.value for operator in query.logical.operators]
             if query.logical is not None
@@ -516,5 +565,6 @@ def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
         "sqlite": {
             "version": query.sqlite_version,
             "query_plan": list(query.sqlite_query_plan),
+            "program_sha256": query.sqlite_program_sha256,
         },
     }

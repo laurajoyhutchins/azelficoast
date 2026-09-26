@@ -34,9 +34,9 @@ from azelficoast.core.sql import (
 )
 
 SQL_PACKED_PLAN_SCHEMA = "azelficoast.sql-packed-decision-plan"
-SQL_PACKED_PLAN_SCHEMA_VERSION = 2
+SQL_PACKED_PLAN_SCHEMA_VERSION = 3
 SQL_PACKED_SEARCH_SCHEMA = "azelficoast.sql-packed-partial-information-search"
-SQL_PACKED_SEARCH_SCHEMA_VERSION = 2
+SQL_PACKED_SEARCH_SCHEMA_VERSION = 3
 
 
 class SQLPackedLoweringError(ValueError):
@@ -65,6 +65,7 @@ class SQLPackedDecisionPlan:
     sql_sha256: str
     semantic_identity: str
     equivalence_rule: str
+    equivalence_scope: str
     logical: LogicalPlan
     bindings: tuple[SQLPackedBinding, ...]
     physical_execution_stages: tuple[str, ...]
@@ -78,6 +79,7 @@ class SQLPackedDecisionPlan:
             "sql_sha256": self.sql_sha256,
             "semantic_identity": self.semantic_identity,
             "equivalence_rule": self.equivalence_rule,
+            "equivalence_scope": self.equivalence_scope,
             "logical_operators": [
                 operator.value for operator in self.logical.operators
             ],
@@ -174,9 +176,9 @@ def compile_packed_sql_decision_query(
         raise SQLPackedLoweringError(
             "admitted SQL has no reviewed packed/JAX semantic identity"
         )
-    if query.equivalence_rule is None:
+    if query.equivalence_rule is None or query.equivalence_scope is None:
         raise SQLPackedLoweringError(
-            "admitted SQL lacks reviewed relational equivalence evidence"
+            "admitted SQL lacks reviewed equivalence evidence"
         )
     if query.logical != DEFAULT_DECISION_PLAN:
         raise SQLPackedLoweringError(
@@ -209,6 +211,7 @@ def compile_packed_sql_decision_query(
         sql_sha256=query.sql_sha256,
         semantic_identity=query.semantic_identity,
         equivalence_rule=query.equivalence_rule,
+        equivalence_scope=query.equivalence_scope,
         logical=query.logical,
         bindings=_PACKED_BINDINGS,
         physical_execution_stages=_SQL_PACKED_EXECUTION_STAGES,
@@ -370,6 +373,7 @@ def search_sql_packed_transition_program(
         "sql_query_sha256": prepared.sql_sha256,
         "sql_semantic_identity": plan.semantic_identity,
         "sql_equivalence_rule": plan.equivalence_rule,
+        "sql_equivalence_scope": plan.equivalence_scope,
         "sql_physical_plan": plan.as_record(),
         "sql_cardinality_forecast": forecast,
         "sql_extended_statistics": (

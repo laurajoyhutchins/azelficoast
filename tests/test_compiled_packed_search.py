@@ -53,6 +53,16 @@ ORDER BY expected_value DESC, action_id ASC
 """.strip()
 
 
+PROGRAM_EQUIVALENT_DECISION_SQL = """
+SELECT
+    terms.action_id AS action_id,
+    SUM((terms.weight * terms.value)) AS expected_value
+FROM action_value_terms AS terms
+GROUP BY terms.action_id
+ORDER BY 2 DESC, 1 ASC
+""".strip()
+
+
 def _vocabulary() -> ShowdownVocabulary:
     material: dict[str, object] = {
         "schema": "azelficoast.showdown-vocabulary",
@@ -602,7 +612,17 @@ def test_equivalent_sql_rewrites_share_one_packed_physical_plan_identity() -> No
     assert rewritten.semantic_identity == canonical.semantic_identity
     assert rewritten.semantic_identity == DECISION_QUERY_SEMANTIC_ID
     assert rewritten.plan_sha256 == canonical.plan_sha256
+    assert rewritten.equivalence_scope == "reviewed-relational"
     assert rewritten.physical_execution_stages == canonical.physical_execution_stages
+
+    program_equivalent = compile_packed_sql_decision_query(
+        prepare_decision_query(PROGRAM_EQUIVALENT_DECISION_SQL)
+    )
+    assert program_equivalent.plan_sha256 == canonical.plan_sha256
+    assert program_equivalent.semantic_identity == canonical.semantic_identity
+    assert program_equivalent.equivalence_rule == "sqlite-program-equivalence"
+    assert program_equivalent.equivalence_scope == "sqlite-version-bound"
+    assert program_equivalent.as_record()["schema_version"] == 3
 
 
 def test_equivalent_sql_executes_through_same_packed_jax_plan_and_statistics() -> None:
@@ -646,6 +666,7 @@ def test_equivalent_sql_executes_through_same_packed_jax_plan_and_statistics() -
 
     assert rewritten["sql_query_sha256"] != canonical["sql_query_sha256"]
     assert rewritten["sql_semantic_identity"] == canonical["sql_semantic_identity"]
+    assert rewritten["sql_equivalence_scope"] == "reviewed-relational"
     assert rewritten["sql_physical_plan"]["plan_sha256"] == (
         canonical["sql_physical_plan"]["plan_sha256"]
     )
