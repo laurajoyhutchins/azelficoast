@@ -125,3 +125,9 @@ def test_candidate_certificate_is_owned_by_python_and_fails_closed() -> None:
             pass
         else:
             raise AssertionError(f"accepted failed certificate statuses: {statuses}")
+
+
+def test_repository_showdown_revision_selects_showdown_consumers() -> None:
+    selected = experiments_for_paths(("experiments/showdown-revision.txt",))
+    assert selected
+    assert all(experiment.showdown for experiment in selected)
