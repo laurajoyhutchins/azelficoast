@@ -25,16 +25,18 @@ SQL_EXPLAIN_SCHEMA_VERSION = 7
 DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
 DECISION_QUERY_SEMANTIC_VERSION = 1
 DECISION_SQL_SURFACE_SCHEMA = "azelficoast.core.decision-sql-surface"
-DECISION_SQL_SURFACE_VERSION = 5
+DECISION_SQL_SURFACE_VERSION = 6
 SQL_PARAMETER_BINDING_SCHEMA = "azelficoast.core.sql-parameter-bindings"
 SQL_PARAMETER_BINDING_VERSION = 1
 
 DECISION_EXPECTED_VALUE_QUERY = "decision.expected_value"
+DECISION_BEST_ACTION_QUERY = "decision.best_action"
 DECISION_POLICY_QUERY = "decision.policy"
 ACTION_SUMMARY_QUERY = "analysis.action_summary"
 
 _SQL_RESOURCE_PACKAGE = "azelficoast.queries"
 _DECISION_SQL_RESOURCE = "decision.sql"
+_BEST_ACTION_SQL_RESOURCE = "best_action.sql"
 _MAXIMIN_SQL_RESOURCE = "maximin.sql"
 _RISK_ADJUSTED_SQL_RESOURCE = "risk_adjusted.sql"
 _ACTION_SUMMARY_SQL_RESOURCE = "action_summary.sql"
@@ -51,6 +53,7 @@ def _read_sql_resource(name: str) -> str:
 
 
 DEFAULT_DECISION_SQL = _read_sql_resource(_DECISION_SQL_RESOURCE)
+BEST_ACTION_SQL = _read_sql_resource(_BEST_ACTION_SQL_RESOURCE)
 MAXIMIN_SQL = _read_sql_resource(_MAXIMIN_SQL_RESOURCE)
 RISK_ADJUSTED_SQL = _read_sql_resource(_RISK_ADJUSTED_SQL_RESOURCE)
 ACTION_SUMMARY_SQL = _read_sql_resource(_ACTION_SUMMARY_SQL_RESOURCE)
@@ -127,6 +130,21 @@ DECISION_QUERY_SEMANTIC_ID = "sha256:" + hashlib.sha256(
     ).encode("utf-8")
 ).hexdigest()
 
+_BEST_ACTION_RELATIONAL_SEMANTICS = {
+    **_DECISION_RELATIONAL_SEMANTICS,
+    "query_class": DECISION_BEST_ACTION_QUERY,
+    "limit": 1,
+    "result_contract": "winner-only-exact-action-and-value",
+}
+DECISION_BEST_ACTION_SEMANTIC_ID = "sha256:" + hashlib.sha256(
+    json.dumps(
+        _BEST_ACTION_RELATIONAL_SEMANTICS,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+).hexdigest()
+
 _ACTION_SUMMARY_SEMANTICS = {
     "schema": DECISION_QUERY_SEMANTIC_SCHEMA,
     "schema_version": DECISION_QUERY_SEMANTIC_VERSION,
@@ -168,6 +186,15 @@ _QUERY_CLASSES = {
         source_resource=_DECISION_SQL_RESOURCE,
         result_columns=("action_id", "expected_value"),
         semantic_identity=DECISION_QUERY_SEMANTIC_ID,
+        logical=DEFAULT_DECISION_PLAN,
+        semantic_identity_mode="fixed",
+    ),
+    DECISION_BEST_ACTION_QUERY: SQLQueryClass(
+        name=DECISION_BEST_ACTION_QUERY,
+        canonical_sql=BEST_ACTION_SQL,
+        source_resource=_BEST_ACTION_SQL_RESOURCE,
+        result_columns=("action_id", "expected_value"),
+        semantic_identity=DECISION_BEST_ACTION_SEMANTIC_ID,
         logical=DEFAULT_DECISION_PLAN,
         semantic_identity_mode="fixed",
     ),
@@ -232,8 +259,16 @@ _DECISION_SQL_SURFACE = {
                 if name == DECISION_POLICY_QUERY
                 else None
             ),
-            "packed_jax_lowering": (
-                name == DECISION_EXPECTED_VALUE_QUERY
+            "packed_jax_lowering": name in {
+                DECISION_EXPECTED_VALUE_QUERY,
+                DECISION_BEST_ACTION_QUERY,
+            },
+            "result_contract": (
+                "winner-only-exact-action-and-value"
+                if name == DECISION_BEST_ACTION_QUERY
+                else "all-action-exact-values"
+                if name == DECISION_EXPECTED_VALUE_QUERY
+                else None
             ),
         }
         for name, query in _QUERY_CLASSES.items()
@@ -277,8 +312,16 @@ def describe_decision_sql_surface() -> dict[str, Any]:
                     if name == DECISION_POLICY_QUERY
                     else None
                 ),
-                "packed_jax_lowering": (
-                    name == DECISION_EXPECTED_VALUE_QUERY
+                "packed_jax_lowering": name in {
+                    DECISION_EXPECTED_VALUE_QUERY,
+                    DECISION_BEST_ACTION_QUERY,
+                },
+                "result_contract": (
+                    "winner-only-exact-action-and-value"
+                    if name == DECISION_BEST_ACTION_QUERY
+                    else "all-action-exact-values"
+                    if name == DECISION_EXPECTED_VALUE_QUERY
+                    else None
                 ),
             }
             for name, query in _QUERY_CLASSES.items()
@@ -946,6 +989,15 @@ def prepare_decision_query(sql: str = DEFAULT_DECISION_SQL) -> PreparedSQLQuery:
     )
 
 
+def prepare_best_action_query(
+    sql: str = BEST_ACTION_SQL,
+) -> PreparedSQLQuery:
+    return prepare_sql_query(
+        sql,
+        query_class=DECISION_BEST_ACTION_QUERY,
+    )
+
+
 def prepare_policy_query(
     sql: str,
     *,
@@ -1007,3 +1059,10 @@ def explain_decision_query(query: PreparedSQLQuery) -> dict[str, Any]:
         raise SQLQueryError("expected decision.expected_value query")
     return explain_sql_query(query)
 
+
+
+
+def explain_best_action_query(query: PreparedSQLQuery) -> dict[str, Any]:
+    if query.query_class != DECISION_BEST_ACTION_QUERY:
+        raise SQLQueryError("expected decision.best_action query")
+    return explain_sql_query(query)

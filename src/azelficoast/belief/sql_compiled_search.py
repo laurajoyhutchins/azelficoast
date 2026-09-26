@@ -15,7 +15,9 @@ import json
 from typing import Any, Mapping
 
 from azelficoast.belief.compiled_search import (
+    PACKED_BOUNDED_EXECUTION_STAGES,
     PACKED_COMPILED_EXECUTION_STAGES,
+    choose_packed_compiled_action_bounded,
     search_packed_compiled_transition_program,
 )
 from azelficoast.belief.packed_evaluator import PackedBeliefEvaluatorSpec
@@ -31,17 +33,24 @@ from azelficoast.core.compiled_search import (
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
 from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql import (
+    BEST_ACTION_SQL,
+    DECISION_BEST_ACTION_QUERY,
+    DECISION_BEST_ACTION_SEMANTIC_ID,
+    DECISION_EXPECTED_VALUE_QUERY,
     DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
     PreparedSQLQuery,
     explain_sql_query,
+    prepare_best_action_query,
     prepare_decision_query,
 )
 
 SQL_PACKED_PLAN_SCHEMA = "azelficoast.sql-packed-decision-plan"
-SQL_PACKED_PLAN_SCHEMA_VERSION = 3
+SQL_PACKED_PLAN_SCHEMA_VERSION = 4
 SQL_PACKED_SEARCH_SCHEMA = "azelficoast.sql-packed-partial-information-search"
 SQL_PACKED_SEARCH_SCHEMA_VERSION = 3
+SQL_PACKED_BEST_ACTION_SCHEMA = "azelficoast.sql-packed-best-action"
+SQL_PACKED_BEST_ACTION_SCHEMA_VERSION = 1
 SQL_AZELFICOAST_EXPLAIN_SCHEMA = "azelficoast.sql-optimizer-explain"
 SQL_AZELFICOAST_EXPLAIN_SCHEMA_VERSION = 1
 
@@ -69,6 +78,8 @@ class SQLPackedBinding:
 class SQLPackedDecisionPlan:
     """Exact physical lowering for one admitted decision query."""
 
+    query_class: str
+    result_contract: str
     sql_sha256: str
     semantic_identity: str
     equivalence_rule: str
@@ -83,6 +94,8 @@ class SQLPackedDecisionPlan:
         return {
             "schema": SQL_PACKED_PLAN_SCHEMA,
             "schema_version": SQL_PACKED_PLAN_SCHEMA_VERSION,
+            "query_class": self.query_class,
+            "result_contract": self.result_contract,
             "sql_sha256": self.sql_sha256,
             "semantic_identity": self.semantic_identity,
             "equivalence_rule": self.equivalence_rule,
@@ -152,16 +165,60 @@ _PACKED_BINDINGS = (
     ),
 )
 
+_BOUNDED_PACKED_BINDINGS = (
+    SQLPackedBinding(
+        LogicalOperator.SCAN,
+        "pack_joint_posterior",
+        "posterior-pack",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.FILTER,
+        "pack_joint_posterior",
+        "posterior-pack",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.PROJECT,
+        "compile_search_topology",
+        "authorized-topology",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.PARTITION,
+        "compile_search_topology",
+        "authorized-topology",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.TRANSITION,
+        "compile_search_topology",
+        "authorized-topology",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.OBSERVE,
+        "compile_search_topology",
+        "authorized-topology",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.UPDATE_BELIEF,
+        "transport_posterior_mass",
+        "belief-transport",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.EVALUATE,
+        "predict_packed_shared_world_values",
+        "bounded-evaluate-reduce",
+    ),
+    SQLPackedBinding(
+        LogicalOperator.AGGREGATE,
+        "choose_bounded_action",
+        "bounded-evaluate-reduce",
+    ),
+)
+
+
 # This is the optimized physical order, not the source relational order. Topology
 # compilation is independent of posterior weights, so the current packed path hoists it
 # ahead of posterior packing and then performs the numeric JAX stages.
-_SQL_PACKED_EXECUTION_STAGES = (
-    "compile_search_topology",
-    "pack_joint_posterior",
-    "transport_posterior_mass",
-    "predict_packed_shared_world_values",
-    "reduce_compiled_root_values",
-)
+_SQL_PACKED_EXECUTION_STAGES = PACKED_COMPILED_EXECUTION_STAGES
+_SQL_BOUNDED_EXECUTION_STAGES = PACKED_BOUNDED_EXECUTION_STAGES
 
 
 def _plan_digest(material: Mapping[str, Any]) -> str:
@@ -177,12 +234,8 @@ def _plan_digest(material: Mapping[str, Any]) -> str:
 def compile_packed_sql_decision_query(
     query: PreparedSQLQuery,
 ) -> SQLPackedDecisionPlan:
-    """Lower the reviewed SQL decision query into the packed/JAX physical path."""
+    """Lower one reviewed decision SQL semantic class into packed/JAX machinery."""
 
-    if query.semantic_identity != DECISION_QUERY_SEMANTIC_ID:
-        raise SQLPackedLoweringError(
-            "admitted SQL has no reviewed packed/JAX semantic identity"
-        )
     if query.equivalence_rule is None or query.equivalence_scope is None:
         raise SQLPackedLoweringError(
             "admitted SQL lacks reviewed equivalence evidence"
@@ -191,7 +244,31 @@ def compile_packed_sql_decision_query(
         raise SQLPackedLoweringError(
             "decision SQL logical plan differs from the reviewed lowering"
         )
-    if tuple(binding.operator for binding in _PACKED_BINDINGS) != query.logical.operators:
+
+    if query.semantic_identity == DECISION_QUERY_SEMANTIC_ID:
+        if query.query_class != DECISION_EXPECTED_VALUE_QUERY:
+            raise SQLPackedLoweringError(
+                "expected-value semantic identity has the wrong query class"
+            )
+        bindings = _PACKED_BINDINGS
+        stages = _SQL_PACKED_EXECUTION_STAGES
+        numeric_backend = "jax-shared-packed-worlds"
+        result_contract = "all-action-exact-values"
+    elif query.semantic_identity == DECISION_BEST_ACTION_SEMANTIC_ID:
+        if query.query_class != DECISION_BEST_ACTION_QUERY:
+            raise SQLPackedLoweringError(
+                "best-action semantic identity has the wrong query class"
+            )
+        bindings = _BOUNDED_PACKED_BINDINGS
+        stages = _SQL_BOUNDED_EXECUTION_STAGES
+        numeric_backend = "jax-shared-packed-worlds-bounded"
+        result_contract = "winner-only-exact-action-and-value"
+    else:
+        raise SQLPackedLoweringError(
+            "admitted SQL has no reviewed packed/JAX semantic identity"
+        )
+
+    if tuple(binding.operator for binding in bindings) != query.logical.operators:
         raise SQLPackedLoweringError(
             "packed SQL bindings do not cover the logical plan exactly"
         )
@@ -199,6 +276,8 @@ def compile_packed_sql_decision_query(
     material = {
         "schema": SQL_PACKED_PLAN_SCHEMA,
         "schema_version": SQL_PACKED_PLAN_SCHEMA_VERSION,
+        "query_class": query.query_class,
+        "result_contract": result_contract,
         "semantic_identity": query.semantic_identity,
         "logical_operators": [
             operator.value for operator in query.logical.operators
@@ -209,23 +288,24 @@ def compile_packed_sql_decision_query(
                 "implementation": binding.implementation,
                 "fused_group": binding.fused_group,
             }
-            for binding in _PACKED_BINDINGS
+            for binding in bindings
         ],
-        "physical_execution_stages": list(_SQL_PACKED_EXECUTION_STAGES),
-        "numeric_backend": "jax-shared-packed-worlds",
+        "physical_execution_stages": list(stages),
+        "numeric_backend": numeric_backend,
     }
     return SQLPackedDecisionPlan(
+        query_class=query.query_class,
+        result_contract=result_contract,
         sql_sha256=query.sql_sha256,
         semantic_identity=query.semantic_identity,
         equivalence_rule=query.equivalence_rule,
         equivalence_scope=query.equivalence_scope,
         logical=query.logical,
-        bindings=_PACKED_BINDINGS,
-        physical_execution_stages=_SQL_PACKED_EXECUTION_STAGES,
-        numeric_backend="jax-shared-packed-worlds",
+        bindings=bindings,
+        physical_execution_stages=stages,
+        numeric_backend=numeric_backend,
         plan_sha256=_plan_digest(material),
     )
-
 
 def _optimizer_groups(plan: SQLPackedDecisionPlan) -> list[dict[str, Any]]:
     """Collapse reviewed operator bindings into explicit physical fusion groups."""
@@ -248,17 +328,17 @@ def _optimizer_groups(plan: SQLPackedDecisionPlan) -> list[dict[str, Any]]:
     return groups
 
 
-def explain_sql_packed_transition_program(
+def _explain_prepared_sql_packed_transition_program(
     *,
     program_set: Mapping[str, Any],
     posterior: Mapping[str, Any],
     method: str,
-    sql: str = DEFAULT_DECISION_SQL,
+    prepared: PreparedSQLQuery,
     expected_program_schema: str | None = None,
     expected_program_schema_version: int | None = None,
     planner_statistics: PlannerStatistics | None = None,
 ) -> dict[str, Any]:
-    """Explain the reviewed SQL/JAX plan without executing the evaluator.
+    """Explain one reviewed SQL/JAX plan without executing the evaluator.
 
     This is the programmatic equivalent of EXPLAIN AZELFICOAST. It parses and
     recognizes the SQL, validates the transition topology, computes cheap and realized
@@ -266,7 +346,6 @@ def explain_sql_packed_transition_program(
     invoke the learned evaluator, choose an action, or update planner statistics.
     """
 
-    prepared = prepare_decision_query(sql)
     plan = compile_packed_sql_decision_query(prepared)
 
     raw_worlds = posterior.get("worlds")
@@ -387,6 +466,53 @@ def explain_sql_packed_transition_program(
             "planner_statistics_mutated": False,
         },
     }
+
+
+
+def explain_sql_packed_transition_program(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    sql: str = DEFAULT_DECISION_SQL,
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+    planner_statistics: PlannerStatistics | None = None,
+) -> dict[str, Any]:
+    """Explain the full expected-value SQL lowering without evaluator execution."""
+
+    return _explain_prepared_sql_packed_transition_program(
+        prepared=prepare_decision_query(sql),
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+        planner_statistics=planner_statistics,
+    )
+
+
+def explain_sql_packed_best_action(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    sql: str = BEST_ACTION_SQL,
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+    planner_statistics: PlannerStatistics | None = None,
+) -> dict[str, Any]:
+    """Explain the winner-only bounded SQL lowering without evaluator execution."""
+
+    return _explain_prepared_sql_packed_transition_program(
+        prepared=prepare_best_action_query(sql),
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+        planner_statistics=planner_statistics,
+    )
 
 
 def search_sql_packed_transition_program(
@@ -555,4 +681,67 @@ def search_sql_packed_transition_program(
         "sql_execution_matches_hand_built_plan": (
             hand_built_stages == PACKED_COMPILED_EXECUTION_STAGES
         ),
+    }
+
+
+
+def search_sql_packed_best_action(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    vocabulary: ShowdownVocabulary,
+    evaluator_spec: PackedBeliefEvaluatorSpec,
+    evaluator_params: Mapping[str, Any],
+    sql: str = BEST_ACTION_SQL,
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+    batch_size: int = 1,
+) -> dict[str, Any]:
+    """Execute winner-only SQL through exact bounded packed/JAX pruning."""
+
+    prepared = prepare_best_action_query(sql)
+    plan = compile_packed_sql_decision_query(prepared)
+    result = choose_packed_compiled_action_bounded(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        vocabulary=vocabulary,
+        evaluator_spec=evaluator_spec,
+        evaluator_params=evaluator_params,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+        batch_size=batch_size,
+    )
+
+    hand_built_stages = tuple(result.get("physical_execution_stages", ()))
+    if hand_built_stages != plan.physical_execution_stages:
+        raise SQLPackedLoweringError(
+            "winner-only SQL physical plan drifted from bounded packed execution"
+        )
+    if result.get("numeric_backend") != plan.numeric_backend:
+        raise SQLPackedLoweringError(
+            "winner-only SQL numeric backend drifted from bounded packed execution"
+        )
+    if "root_values" in result:
+        raise SQLPackedLoweringError(
+            "winner-only execution must not expose fabricated exact loser values"
+        )
+
+    return {
+        **result,
+        "schema": SQL_PACKED_BEST_ACTION_SCHEMA,
+        "schema_version": SQL_PACKED_BEST_ACTION_SCHEMA_VERSION,
+        "bounded_search_schema": result["schema"],
+        "bounded_search_schema_version": result["schema_version"],
+        "sql_query_sha256": prepared.sql_sha256,
+        "sql_semantic_identity": plan.semantic_identity,
+        "sql_equivalence_rule": plan.equivalence_rule,
+        "sql_equivalence_scope": plan.equivalence_scope,
+        "sql_physical_plan": plan.as_record(),
+        "sql_result": {
+            "action_id": result["chosen_action"],
+            "expected_value": result["chosen_value"],
+        },
+        "sql_execution_matches_hand_built_plan": True,
     }

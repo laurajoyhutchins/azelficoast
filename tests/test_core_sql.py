@@ -10,6 +10,9 @@ from azelficoast.core.sql import (
     ACTION_SUMMARY_QUERY,
     ACTION_SUMMARY_SEMANTIC_ID,
     ACTION_SUMMARY_SQL,
+    BEST_ACTION_SQL,
+    DECISION_BEST_ACTION_QUERY,
+    DECISION_BEST_ACTION_SEMANTIC_ID,
     DECISION_EXPECTED_VALUE_QUERY,
     DECISION_POLICY_QUERY,
     DECISION_QUERY_SEMANTIC_ID,
@@ -21,9 +24,11 @@ from azelficoast.core.sql import (
     bound_semantic_identity,
     parameter_bindings_identity,
     describe_decision_sql_surface,
+    explain_best_action_query,
     explain_decision_query,
     explain_sql_query,
     prepare_action_summary_query,
+    prepare_best_action_query,
     prepare_decision_query,
     policy_semantic_identity,
     prepare_policy_query,
@@ -55,6 +60,35 @@ def test_default_decision_sql_is_admitted_by_real_sqlite_parser() -> None:
         "SCAN" in step or "SEARCH" in step
         for step in prepared.sqlite_query_plan
     )
+
+
+def test_best_action_sql_is_a_distinct_winner_only_semantic_query() -> None:
+    prepared = prepare_best_action_query()
+    explanation = explain_best_action_query(prepared)
+
+    assert prepared.query_class == DECISION_BEST_ACTION_QUERY
+    assert prepared.sql == BEST_ACTION_SQL
+    assert prepared.semantic_identity == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert prepared.bound_semantic_identity == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert prepared.semantic_identity != DECISION_QUERY_SEMANTIC_ID
+    assert prepared.parameter_names == ()
+    assert prepared.equivalence_rule == "canonical-source"
+    assert prepared.equivalence_scope == "reviewed-source"
+    assert prepared.logical == DEFAULT_DECISION_PLAN
+    assert BEST_ACTION_SQL.endswith("LIMIT 1")
+    assert explanation["query_class"] == DECISION_BEST_ACTION_QUERY
+    assert explanation["semantic_identity"] == DECISION_BEST_ACTION_SEMANTIC_ID
+
+
+def test_best_action_sql_fails_closed_when_result_cardinality_changes() -> None:
+    changed = BEST_ACTION_SQL.replace("LIMIT 1", "LIMIT 2")
+    prepared = prepare_best_action_query(changed)
+
+    assert prepared.semantic_identity is None
+    assert prepared.bound_semantic_identity is None
+    assert prepared.logical is None
+    assert prepared.equivalence_rule is None
+    assert prepared.equivalence_scope is None
 
 
 def test_explain_binds_exact_sql_and_planner_environment() -> None:
@@ -219,6 +253,18 @@ def test_writer_surface_exposes_named_query_classes() -> None:
     assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
         "packed_jax_lowering"
     ] is True
+    assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
+        "result_contract"
+    ] == "all-action-exact-values"
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY][
+        "semantic_identity"
+    ] == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY][
+        "packed_jax_lowering"
+    ] is True
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY][
+        "result_contract"
+    ] == "winner-only-exact-action-and-value"
     assert surface["query_classes"][DECISION_POLICY_QUERY][
         "semantic_identity"
     ] is None
@@ -308,6 +354,12 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
         .read_text(encoding="utf-8")
         .strip()
     )
+    best_action_source = (
+        files("azelficoast.queries")
+        .joinpath("best_action.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
     maximin_source = (
         files("azelficoast.queries")
         .joinpath("maximin.sql")
@@ -335,6 +387,7 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     surface = describe_decision_sql_surface()
 
     assert query_source == DEFAULT_DECISION_SQL
+    assert best_action_source == BEST_ACTION_SQL
     assert maximin_source == MAXIMIN_SQL
     assert risk_adjusted_source == RISK_ADJUSTED_SQL
     assert summary_source == ACTION_SUMMARY_SQL
@@ -347,6 +400,9 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     )
     assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY]["source"] == (
         "azelficoast.queries/decision.sql"
+    )
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY]["source"] == (
+        "azelficoast.queries/best_action.sql"
     )
     assert surface["query_classes"][DECISION_POLICY_QUERY]["source"] is None
     assert surface["policy_examples"] == {
@@ -362,7 +418,7 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     assert surface["query_classes"][ACTION_SUMMARY_QUERY]["source"] == (
         "azelficoast.queries/action_summary.sql"
     )
-    assert surface["schema_version"] == 5
+    assert surface["schema_version"] == 6
 
 
 def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:

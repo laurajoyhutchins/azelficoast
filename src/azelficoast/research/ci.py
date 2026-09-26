@@ -335,13 +335,18 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "compiled-search-topology",
         paths=(
             "src/azelficoast/core/compiled_search.py",
+            "src/azelficoast/core/sql.py",
             "src/azelficoast/belief/compiled_search.py",
             "src/azelficoast/belief/packed_evaluator.py",
+            "src/azelficoast/belief/sql_compiled_search.py",
+            "src/azelficoast/queries/*.sql",
             "src/azelficoast/research/compiled_search_experiment.py",
             "tests/test_compiled_search.py",
             "tests/test_compiled_packed_search.py",
+            "tests/test_core_sql.py",
             "docs/architecture/compiled-data-plane.md",
             "docs/search-architecture.md",
+            "docs/sql-writing.md",
         ),
         artifact="compiled-search-topology-evidence",
         tests=(
