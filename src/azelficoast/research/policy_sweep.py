@@ -6,7 +6,6 @@ the generic executor and evidence checker; it does not encode coefficient sweeps
 
 from __future__ import annotations
 
-import argparse
 import itertools
 import json
 import math
@@ -416,14 +415,5 @@ def run_plan(path: Path) -> dict[str, Any]:
     return run_policy_sweep(plan=plan, fixtures=fixtures)
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("plan", nargs="?", type=Path, default=DEFAULT_PLAN)
-    args = parser.parse_args(argv)
-    result = run_plan(args.plan)
-    print(json.dumps(result, sort_keys=True))
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def run_default_plan() -> dict[str, Any]:
+    return run_plan(DEFAULT_PLAN)
