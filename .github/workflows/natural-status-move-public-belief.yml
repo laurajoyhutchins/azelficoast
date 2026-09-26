@@ -11,6 +11,7 @@ on:
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "experiments/natural-status-move-treatment.json"
       - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/real_belief_probe/**"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - ".github/workflows/natural-status-move-public-belief.yml"
   workflow_dispatch:

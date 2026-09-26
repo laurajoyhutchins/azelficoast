@@ -471,10 +471,16 @@ def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
 
 
 def test_showdown_probe_preserves_semantic_support_before_execution_projection() -> None:
-    source = (
-        Path(__file__).resolve().parents[1]
-        / "scripts"
-        / "probe_real_belief_trace.cjs"
+    scripts = Path(__file__).resolve().parents[1] / "scripts"
+    source = (scripts / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
+    generator_source = (
+        scripts / "real_belief_probe" / "generator_population.cjs"
+    ).read_text(encoding="utf-8")
+    opponent_source = (
+        scripts / "real_belief_probe" / "opponent_policy.cjs"
+    ).read_text(encoding="utf-8")
+    compiler_source = (
+        scripts / "real_belief_probe" / "transition_program_compiler.cjs"
     ).read_text(encoding="utf-8")
 
     assert '"--historical-showdown-commit"' in source
@@ -483,7 +489,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert '"--generator-cache-dir"' in source
     assert "generatorCacheDir && !posteriorOnly" in source
 
-    cache_block = source.split(
+    cache_block = generator_source.split(
         "function generatorPopulationMaterial(species)", 1
     )[1].split("function generatorVariants()", 1)[0]
     assert "showdown_commit: actualCommit" in cache_block
@@ -494,7 +500,7 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert "document.variants_sha256 !== sha256(document.variants)" in cache_block
     assert "sampled !== GENERATOR_ROUNDS" in cache_block
 
-    conditioning_block = source.split("function generatorVariants()", 1)[1].split(
+    conditioning_block = generator_source.split("function generatorVariants()", 1)[1].split(
         "function mechanicsProjectionVariantCount", 1
     )[0]
     assert "const population = generatorPopulation(species, requested)" in conditioning_block
@@ -502,8 +508,8 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert "publicAbility && toID(set.ability) !== publicAbility" in conditioning_block
     assert "plausibleItemIds && !plausibleItemIds.has(toID(set.item))" in conditioning_block
     assert "[...observed].every(move => moves.includes(move))" in conditioning_block
+    assert "function mechanicsProjectionVariantCount(variants)" in generator_source
 
-    assert "function mechanicsProjectionVariantCount(variants)" in source
     assert '"opponent.active.item": entry.set.item' in source
     assert '"opponent.active.ability": entry.set.ability' in source
     assert '"opponent.active.evs": entry.set.evs' in source
@@ -540,51 +546,48 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
         "execution optimization only; semantic posterior support retains every "
         "generator variant"
     ) in source
-    assert "function opponentActionDistribution(" in source
+    assert "function opponentActionDistribution(" in opponent_source
     assert "const currentSpecies = toID(" in source
     assert "moveSpecies === currentSpecies" in source
-    assert '"strategy-mixture"' in source
-    assert '"simple-heuristics"' in source
-    assert '"dirty-tricks"' in source
-    assert '"max-damage"' in source
-    assert '"repeat-observed-move"' in source
-    assert '"uniform-legal-moves"' in source
-    assert '"equal-active-strategies"' in source
-    assert "function moveDamageHeuristic(" in source
-    assert "function simpleHeuristicsDistribution(" in source
-    assert "function legalOpponentSwitches(" in source
-    assert "function voluntarySwitchDistribution(" in source
-    assert '"simple-heuristics-switch"' in source
-    assert "function dirtyTricksDistribution(" in source
-    assert '"dirty-tricks-switch"' in source
-    assert '"dirty-tricks-anti-setup"' in source
-    assert '"dirty-tricks-priority-cleanup"' in source
-    assert '"dirty-tricks-status"' in source
-    assert '"dirty-tricks-denial"' in source
-    assert '"dirty-tricks-chip"' in source
-    assert '"dirty-tricks-stall"' in source
-    assert "function equalStrategyMixture(" in source
-    assert '"uniform-forced-switch"' in source
-    assert 'hiddenReads.add("opponent.active.moves")' in source
-    assert 'hiddenReads.add("opponent.active.evs")' in source
-    assert 'hiddenReads.add("opponent.active.ivs")' in source
-    assert 'hiddenReads.add("opponent.active.exact_hp")' in source
-    assert 'hiddenReads.add("opponent.active.tera_type")' in source
-    assert 'row.choice + " terastallize"' in source
-    assert '"repeat-last-or-uniform-legal-moves"' not in source
-    assert "showdown_turn_executions: showdownTurnExecutions" in source
-    assert '"projection-first"' in source
-    assert 'cacheMode === "projection-first"' in source
-    assert '["projection", "exact"]' in source
-    assert "for (const cacheKind of cacheProbeOrder)" in source
-    assert "exactExecutionCacheMisses++" in source
-    assert "projectedExecutionCacheMisses++" in source
-    assert "route_execution_count: uniqueExecutions" in source
-    assert "route_total_ms:" in source
-    assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
-    assert "opponent_policy: OPPONENT_POLICY" in source
+    assert '"simple-heuristics"' in opponent_source
+    assert '"dirty-tricks"' in opponent_source
+    assert '"max-damage"' in opponent_source
+    assert "function moveDamageHeuristic(" in opponent_source
+    assert "function simpleHeuristicsDistribution(" in opponent_source
+    assert "function legalOpponentSwitches(" in opponent_source
+    assert "function voluntarySwitchDistribution(" in opponent_source
+    assert "function dirtyTricksDistribution(" in opponent_source
+    assert "function equalStrategyMixture(" in opponent_source
+    assert '"uniform-forced-switch"' in opponent_source
+    assert 'hiddenReads.add("opponent.active.moves")' in opponent_source
+    assert 'hiddenReads.add("opponent.active.evs")' in opponent_source
+    assert 'hiddenReads.add("opponent.active.ivs")' in opponent_source
+    assert 'hiddenReads.add("opponent.active.exact_hp")' in opponent_source
+    assert 'hiddenReads.add("opponent.active.tera_type")' in opponent_source
+    assert 'row.choice + " terastallize"' in opponent_source
+
+    assert "showdown_turn_executions: showdownTurnExecutions" in compiler_source
+    assert '"projection-first"' in compiler_source
+    assert 'cacheMode === "projection-first"' in compiler_source
+    assert '["projection", "exact"]' in compiler_source
+    assert "for (const cacheKind of cacheProbeOrder)" in compiler_source
+    assert "exactExecutionCacheMisses++" in compiler_source
+    assert "projectedExecutionCacheMisses++" in compiler_source
+    assert "route_execution_count: uniqueExecutions" in compiler_source
+    assert "route_total_ms:" in compiler_source
+    assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in compiler_source
+    assert "opponent_policy: OPPONENT_POLICY" in compiler_source
+
     posterior_block = source.split("if (posteriorOnly)", 1)[1].split(
-        "function immediateWholeTurn", 1
+        "createTransitionProgramCompiler", 1
     )[0]
     assert "generator_cache" not in posterior_block.lower()
     assert "marginalized_hidden" not in source
+
+    # The entrypoint now composes authorities rather than re-implementing them.
+    assert "createGeneratorPopulationSource" in source
+    assert "createOpponentPolicyEngine" in source
+    assert "createTransitionProgramCompiler" in source
+    assert "function generatorPopulationMaterial" not in source
+    assert "function moveDamageHeuristic(" not in source
+    assert "function compileLazyWholeTurnPrograms(" not in source

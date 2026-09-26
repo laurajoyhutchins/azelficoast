@@ -23,8 +23,26 @@ jobs:
         uses: ./.github/actions/setup-python-environment
         with:
           python-version: "3.11"
-      - name: Type check static frontier
+      - name: Type check Python static frontier
         run: uv run mypy
+      - name: Install pinned JavaScript static tooling
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Lint JavaScript script frontier
+        run: npm run lint:scripts
+      - name: Type check JavaScript script frontier
+        run: npm run typecheck:scripts
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' scripts < <(find scripts -type f -name '*.cjs' -print0 | sort -z)
+          if (( ${#scripts[@]} == 0 )); then
+            echo "no CJS scripts found" >&2
+            exit 1
+          fi
+          for script in "${scripts[@]}"; do
+            node --check "$script"
+          done
 
   test:
     runs-on: ubuntu-latest
@@ -34,13 +52,8 @@ jobs:
         uses: ./.github/actions/setup-research-evidence
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
-      - name: Lint
+      - name: Lint Python
         run: uv run ruff check .
-      - name: Check Showdown probe syntax
-        run: |
-          node --check scripts/probe_real_belief_trace.cjs
-          node --check scripts/probe_real_belief_worker.cjs
-          node --check scripts/transition_successor_delta.cjs
       - name: Test
         run: uv run pytest
       - name: Fast hostile correctness gate

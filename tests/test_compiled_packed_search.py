@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import json
 from typing import Any, Mapping, Sequence
@@ -28,7 +29,14 @@ from azelficoast.belief.sql_compiled_search import (
     search_sql_packed_best_action,
     search_sql_packed_transition_program,
 )
-from azelficoast.core.compiled_search import compile_search_topology
+from azelficoast.core.compiled_search import (
+    compile_search_topology,
+    transport_posterior_mass,
+)
+from azelficoast.core.sql_transport import (
+    SQLTransportError,
+    transport_information_set_mass_sql,
+)
 from azelficoast.core.planning import LogicalOperator
 from azelficoast.core.search import search_transition_program
 from azelficoast.core.statistics import PlannerStatistics
@@ -347,6 +355,82 @@ def test_compiled_topology_carries_successor_and_legal_action_tensors() -> None:
     assert all(any(row) for row in topology.leaf_legal_mask)
 
 
+def test_sql_transport_matches_compiled_jax_mass_transport() -> None:
+    pytest.importorskip("jax")
+    posterior = _posterior()
+    topology = compile_search_topology(
+        program_set=_program(),
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    weights_by_id = {
+        str(world["world_id"]): float(world["weight"])
+        for world in posterior["worlds"]
+    }
+    sql = transport_information_set_mass_sql(
+        topology=topology,
+        world_weights_by_id=weights_by_id,
+    )
+    jax = transport_posterior_mass(topology, posterior)
+
+    assert sql.compiled_topology_digest == topology.topology_digest
+    assert sql.as_record()["compiled_topology_digest"] == topology.topology_digest
+    assert sql.normalized_world_weights == pytest.approx(
+        jax.normalized_world_weights.tolist(),
+        abs=1e-6,
+    )
+    assert sql.leaf_mass == pytest.approx(jax.leaf_mass.tolist(), abs=1e-6)
+    for sql_row, jax_row in zip(
+        sql.leaf_world_mass,
+        jax.leaf_world_mass.tolist(),
+        strict=True,
+    ):
+        assert sql_row == pytest.approx(jax_row, abs=1e-6)
+    for sql_row, jax_row in zip(
+        sql.leaf_world_weights,
+        jax.leaf_world_weights.tolist(),
+        strict=True,
+    ):
+        assert sql_row == pytest.approx(jax_row, abs=1e-6)
+
+
+def test_sql_transport_rejects_incidence_not_bound_to_compiled_topology() -> None:
+    posterior = _posterior()
+    topology = compile_search_topology(
+        program_set=_program(),
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    weights_by_id = {
+        str(world["world_id"]): float(world["weight"])
+        for world in posterior["worlds"]
+    }
+    assert topology.leaf_count > 1
+    alternate_leaf = (topology.edge_leaf_index[0] + 1) % topology.leaf_count
+    tampered = replace(
+        topology,
+        edge_leaf_index=(alternate_leaf, *topology.edge_leaf_index[1:]),
+    )
+
+    with pytest.raises(SQLTransportError, match="digest does not match"):
+        transport_information_set_mass_sql(
+            topology=tampered,
+            world_weights_by_id=weights_by_id,
+        )
+
+    incomplete_weights = dict(weights_by_id)
+    incomplete_weights.pop(topology.world_ids[0])
+    with pytest.raises(SQLTransportError, match="support differs"):
+        transport_information_set_mass_sql(
+            topology=topology,
+            world_weights_by_id=incomplete_weights,
+        )
+
+
 def test_shared_world_compiled_search_reuses_topology_across_prior_weights() -> None:
     pytest.importorskip("jax")
     vocabulary = _vocabulary()
@@ -458,6 +542,14 @@ def test_sql_optimizer_explain_is_read_only_and_exposes_multi_stage_plan() -> No
         "expand-outcomes-before-world-join"
     )
     assert explanation["optimizer"]["outcome_world_join"]["saved_join_rows"] == 0
+    transport_reference = explanation["optimizer"]["relational_transport_reference"]
+    assert transport_reference["semantic_identity"].startswith("sha256:")
+    assert transport_reference["logical_operators"] == [
+        "scan",
+        "project",
+        "update_belief",
+        "aggregate",
+    ]
     cardinality = explanation["optimizer"]["cardinality"]
     assert cardinality["lower_bound"]["worlds"] == 2
     assert cardinality["lower_bound"]["classes"] == 3

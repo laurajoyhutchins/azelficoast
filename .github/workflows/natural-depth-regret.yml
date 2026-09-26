@@ -10,6 +10,7 @@ on:
       - "src/azelficoast/research/depth.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/real_belief_probe/**"
       - "tests/test_depth_population.py"
       - "tests/test_depth_study.py"
       - "tests/test_real_belief_trace.py"

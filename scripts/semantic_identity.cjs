@@ -17,11 +17,14 @@ function stable(value) {
 }
 
 function canonicalPythonJson(value) {
-  return JSON.stringify(stable(value)).replace(
-    /[^\x00-\x7f]/g,
-    character =>
-      "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0")
-  );
+  return JSON.stringify(stable(value))
+    .split("")
+    .map(character =>
+      character.charCodeAt(0) > 0x7f
+        ? "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0")
+        : character
+    )
+    .join("");
 }
 
 function sha256PythonCanonical(value) {
