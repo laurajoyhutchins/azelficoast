@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import argparse
 import ctypes
 import json
 import statistics
 import tempfile
 import time
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Mapping
 
 import jax
 import numpy as np
@@ -518,15 +517,6 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
             "hosted timing is execution-target-specific CPU evidence",
         ],
     }
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    args = parser.parse_args(argv)
-    result = run_experiment(args.fixtures)
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
 
 
 if __name__ == "__main__":
