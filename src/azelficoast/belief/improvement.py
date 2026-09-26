@@ -229,7 +229,9 @@ def load_training_dataset(
     records = _records(path)
     seen_ids: set[str] = set()
     identity_split: dict[tuple[str, str], str] = {}
-    groups = {split: set() for split in ("train", "validation", "test")}
+    groups: dict[str, set[str]] = {
+        split: set() for split in ("train", "validation", "test")
+    }
 
     for record in records:
         if (
@@ -261,7 +263,7 @@ def load_training_dataset(
             raise ImprovementError(f"self-improvement requires a non-empty {split!r} split")
 
     records.sort(key=lambda row: str(row["record_id"]))
-    examples = {split: [] for split in groups}
+    examples: dict[str, list[TrainingExample]] = {split: [] for split in groups}
     for record in records:
         examples[str(record["split"])].append(
             _example(record, spec=spec, value_target_source=value_target_source)
