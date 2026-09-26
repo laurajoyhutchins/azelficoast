@@ -32,8 +32,8 @@ class Generator:
 class ModuleRun:
     module: str
     output: str
-    input: str | None = None
-    entrypoint: str | None = None
+    input: str | None
+    entrypoint: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,7 +65,7 @@ def _spec(
     artifact: str,
     generator: tuple[str, str] | None = None,
     tests: tuple[str, ...] = (),
-    modules: tuple[tuple[object, ...], ...],
+    modules: tuple[tuple[str, str, str | None, str], ...],
     checks: tuple[Check, ...] = (),
     simulator: bool = True,
     showdown: bool = True,
@@ -722,10 +722,6 @@ def _run(
 
 
 def _execute_module(module: ModuleRun, work: Path) -> int:
-    if module.entrypoint is None:
-        raise CandidateExperimentError(
-            f"{module.module} lacks a contract-owned entrypoint"
-        )
     entrypoint = getattr(importlib.import_module(module.module), module.entrypoint, None)
     if not callable(entrypoint):
         raise CandidateExperimentError(
