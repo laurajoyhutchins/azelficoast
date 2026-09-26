@@ -65,7 +65,7 @@ if (
   fail("--historical-showdown-commit must be a 40-hex commit");
 }
 
-const PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
+const {PINNED_SHOWDOWN_COMMIT} = require("../shared/revision.cjs");
 const SHOWDOWN_COMMIT = historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT;
 const GENERATOR_ROUNDS = 2048;
 

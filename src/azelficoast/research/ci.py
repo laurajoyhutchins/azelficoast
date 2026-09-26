@@ -12,8 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 
-SHOWDOWN_REVISION = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
+
+SHOWDOWN_REVISION = PINNED_SHOWDOWN_COMMIT
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 DEFAULT_OUTPUT_ROOT = Path("/tmp/azelficoast-research")
 

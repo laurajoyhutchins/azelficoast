@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tomllib
+
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
+from azelficoast.research.ci import SHOWDOWN_REVISION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -291,3 +295,26 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "src/azelficoast/belief/showdown_packing.py" in source
     assert "src/azelficoast/belief/packed_evaluator.py" in source
     assert "src/azelficoast/belief/compiled_search.py" in source
+
+
+def test_showdown_revision_is_repository_owned() -> None:
+    revision_path = ROOT / "showdown" / "revision.json"
+    document = json.loads(revision_path.read_text(encoding="utf-8"))
+
+    assert document == {
+        "schema": "azelficoast.showdown-revision",
+        "schema_version": 1,
+        "commit": PINNED_SHOWDOWN_COMMIT,
+    }
+    assert SHOWDOWN_REVISION == PINNED_SHOWDOWN_COMMIT
+
+    setup = (
+        ROOT / ".github" / "actions" / "setup-showdown" / "action.yml"
+    ).read_text(encoding="utf-8")
+    assert "require('./showdown/revision.json').commit" in setup
+    assert PINNED_SHOWDOWN_COMMIT not in setup
+
+    for path in sorted((ROOT / "showdown").rglob("*.cjs")):
+        assert PINNED_SHOWDOWN_COMMIT not in path.read_text(encoding="utf-8"), (
+            f"{path.relative_to(ROOT)} duplicates the repository Showdown revision"
+        )

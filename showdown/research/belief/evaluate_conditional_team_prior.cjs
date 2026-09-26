@@ -31,7 +31,7 @@ for (const [label, count] of teamCounts) {
   }
 }
 
-const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
+const {PINNED_SHOWDOWN_COMMIT: SHOWDOWN_COMMIT} = require("../../shared/revision.cjs");
 const actualCommit = execFileSync(
   "git",
   ["-C", showdownRoot, "rev-parse", "HEAD"],
