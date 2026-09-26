@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
-import json
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -492,20 +490,6 @@ def analyze_document(document: Mapping[str, Any]) -> dict[str, object]:
             "Special queued attacks and other switch-in effects are excluded.",
         ],
     }
-
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    document = json.loads(args.fixtures.read_text(encoding="utf-8"))
-    result = analyze_document(document)
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
 
 
 if __name__ == "__main__":
