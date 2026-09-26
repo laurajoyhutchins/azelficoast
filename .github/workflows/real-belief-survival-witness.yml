@@ -7,6 +7,7 @@ on:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "experiments/showdown-revision.txt"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
