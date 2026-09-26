@@ -20,14 +20,20 @@ from typing import Any
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalPlan
 
 SQL_EXPLAIN_SCHEMA = "azelficoast.core.sql-query-explain"
-SQL_EXPLAIN_SCHEMA_VERSION = 4
+SQL_EXPLAIN_SCHEMA_VERSION = 5
 DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
 DECISION_QUERY_SEMANTIC_VERSION = 1
 DECISION_SQL_SURFACE_SCHEMA = "azelficoast.core.decision-sql-surface"
-DECISION_SQL_SURFACE_VERSION = 2
+DECISION_SQL_SURFACE_VERSION = 3
+
+DECISION_EXPECTED_VALUE_QUERY = "decision.expected_value"
+DECISION_MAXIMIN_QUERY = "decision.maximin"
+ACTION_SUMMARY_QUERY = "analysis.action_summary"
 
 _SQL_RESOURCE_PACKAGE = "azelficoast.queries"
 _DECISION_SQL_RESOURCE = "decision.sql"
+_MAXIMIN_SQL_RESOURCE = "maximin.sql"
+_ACTION_SUMMARY_SQL_RESOURCE = "action_summary.sql"
 _DECISION_SCHEMA_RESOURCE = "decision_schema.sql"
 
 
@@ -41,6 +47,8 @@ def _read_sql_resource(name: str) -> str:
 
 
 DEFAULT_DECISION_SQL = _read_sql_resource(_DECISION_SQL_RESOURCE)
+MAXIMIN_SQL = _read_sql_resource(_MAXIMIN_SQL_RESOURCE)
+ACTION_SUMMARY_SQL = _read_sql_resource(_ACTION_SUMMARY_SQL_RESOURCE)
 _SCHEMA = _read_sql_resource(_DECISION_SCHEMA_RESOURCE)
 _SCHEMA_SOURCE_SHA256 = "sha256:" + hashlib.sha256(
     _SCHEMA.encode("utf-8")
@@ -52,11 +60,21 @@ _REQUIRED_RELATIONS = frozenset(
 _WRITER_RELATIONS = (
     ("active_worlds", ("world_id", "weight")),
     ("action_value_terms", ("action_id", "weight", "value")),
+    (
+        "action_statistics",
+        (
+            "action_id",
+            "posterior_mass",
+            "expected_value",
+            "worst_value",
+            "best_value",
+        ),
+    ),
 )
 _ALLOWED_RELATIONS = _REQUIRED_RELATIONS | frozenset(
     name for name, _ in _WRITER_RELATIONS
 )
-_ALLOWED_FUNCTIONS = frozenset({"sum"})
+_ALLOWED_FUNCTIONS = frozenset({"sum", "min", "max"})
 _ALLOWED_ACTIONS = frozenset(
     {
         sqlite3.SQLITE_SELECT,
@@ -104,6 +122,91 @@ DECISION_QUERY_SEMANTIC_ID = "sha256:" + hashlib.sha256(
     ).encode("utf-8")
 ).hexdigest()
 
+_ACTION_SUMMARY_SEMANTICS = {
+    "schema": DECISION_QUERY_SEMANTIC_SCHEMA,
+    "schema_version": DECISION_QUERY_SEMANTIC_VERSION,
+    "query_class": ACTION_SUMMARY_QUERY,
+    "source_relation": "action_statistics",
+    "projection": [
+        "action_id",
+        "posterior_mass",
+        "expected_value",
+        "worst_value",
+        "best_value",
+    ],
+    "order_by": [["action_id", "asc"]],
+}
+ACTION_SUMMARY_SEMANTIC_ID = "sha256:" + hashlib.sha256(
+    json.dumps(
+        _ACTION_SUMMARY_SEMANTICS,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+).hexdigest()
+
+_MAXIMIN_SEMANTICS = {
+    "schema": DECISION_QUERY_SEMANTIC_SCHEMA,
+    "schema_version": DECISION_QUERY_SEMANTIC_VERSION,
+    "query_class": DECISION_MAXIMIN_QUERY,
+    "source_relation": "action_statistics",
+    "score": "worst_value",
+    "order_by": [["score", "desc"], ["action_id", "asc"]],
+}
+MAXIMIN_SEMANTIC_ID = "sha256:" + hashlib.sha256(
+    json.dumps(
+        _MAXIMIN_SEMANTICS,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+).hexdigest()
+
+
+@dataclass(frozen=True)
+class SQLQueryClass:
+    name: str
+    canonical_sql: str
+    source_resource: str
+    result_columns: tuple[str, ...]
+    semantic_identity: str
+    logical: LogicalPlan | None
+
+
+_QUERY_CLASSES = {
+    DECISION_EXPECTED_VALUE_QUERY: SQLQueryClass(
+        name=DECISION_EXPECTED_VALUE_QUERY,
+        canonical_sql=DEFAULT_DECISION_SQL,
+        source_resource=_DECISION_SQL_RESOURCE,
+        result_columns=("action_id", "expected_value"),
+        semantic_identity=DECISION_QUERY_SEMANTIC_ID,
+        logical=DEFAULT_DECISION_PLAN,
+    ),
+    DECISION_MAXIMIN_QUERY: SQLQueryClass(
+        name=DECISION_MAXIMIN_QUERY,
+        canonical_sql=MAXIMIN_SQL,
+        source_resource=_MAXIMIN_SQL_RESOURCE,
+        result_columns=("action_id", "score"),
+        semantic_identity=MAXIMIN_SEMANTIC_ID,
+        logical=None,
+    ),
+    ACTION_SUMMARY_QUERY: SQLQueryClass(
+        name=ACTION_SUMMARY_QUERY,
+        canonical_sql=ACTION_SUMMARY_SQL,
+        source_resource=_ACTION_SUMMARY_SQL_RESOURCE,
+        result_columns=(
+            "action_id",
+            "posterior_mass",
+            "expected_value",
+            "worst_value",
+            "best_value",
+        ),
+        semantic_identity=ACTION_SUMMARY_SEMANTIC_ID,
+        logical=None,
+    ),
+}
+
+
 _DECISION_SQL_SURFACE = {
     "schema": DECISION_SQL_SURFACE_SCHEMA,
     "schema_version": DECISION_SQL_SURFACE_VERSION,
@@ -111,12 +214,18 @@ _DECISION_SQL_SURFACE = {
         name: {"columns": list(columns)}
         for name, columns in _WRITER_RELATIONS
     },
-    "required_result_columns": ["action_id", "expected_value"],
-    "canonical_query": DEFAULT_DECISION_SQL,
     "schema_source_sha256": _SCHEMA_SOURCE_SHA256,
-    "sources": {
-        "query": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SQL_RESOURCE}",
-        "schema": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+    "schema_source": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+    "query_classes": {
+        name: {
+            "source": f"{_SQL_RESOURCE_PACKAGE}/{query.source_resource}",
+            "result_columns": list(query.result_columns),
+            "semantic_identity": query.semantic_identity,
+            "packed_jax_lowering": (
+                name == DECISION_EXPECTED_VALUE_QUERY
+            ),
+        }
+        for name, query in _QUERY_CLASSES.items()
     },
 }
 DECISION_SQL_SURFACE_ID = "sha256:" + hashlib.sha256(
@@ -130,7 +239,7 @@ DECISION_SQL_SURFACE_ID = "sha256:" + hashlib.sha256(
 
 
 def describe_decision_sql_surface() -> dict[str, Any]:
-    """Return the stable writer-facing SQL relations and canonical query."""
+    """Return the stable writer-facing relations and named SQL query classes."""
 
     return {
         "schema": DECISION_SQL_SURFACE_SCHEMA,
@@ -140,22 +249,29 @@ def describe_decision_sql_surface() -> dict[str, Any]:
             name: {"columns": list(columns)}
             for name, columns in _WRITER_RELATIONS
         },
-        "required_result_columns": ["action_id", "expected_value"],
-        "canonical_query": DEFAULT_DECISION_SQL,
         "schema_source_sha256": _SCHEMA_SOURCE_SHA256,
-        "sources": {
-            "query": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SQL_RESOURCE}",
-            "schema": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+        "schema_source": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+        "query_classes": {
+            name: {
+                "source": f"{_SQL_RESOURCE_PACKAGE}/{query.source_resource}",
+                "result_columns": list(query.result_columns),
+                "semantic_identity": query.semantic_identity,
+                "packed_jax_lowering": (
+                    name == DECISION_EXPECTED_VALUE_QUERY
+                ),
+            }
+            for name, query in _QUERY_CLASSES.items()
         },
     }
 
 
-class SQLDecisionQueryError(ValueError):
+class SQLQueryError(ValueError):
     """Raised when SQL cannot be admitted as a read-only decision query."""
 
 
 @dataclass(frozen=True)
-class PreparedDecisionQuery:
+class PreparedSQLQuery:
+    query_class: str
     sql: str
     sql_sha256: str
     relations: tuple[str, ...]
@@ -198,11 +314,12 @@ def _sqlite_program_sha256(connection: sqlite3.Connection, sql: str) -> str:
     return _sqlite_program_sha256_from_rows(rows)
 
 
-@lru_cache(maxsize=1)
-def _canonical_sqlite_program_sha256() -> str:
+@lru_cache(maxsize=None)
+def _canonical_sqlite_program_sha256(query_class: str) -> str:
+    contract = _QUERY_CLASSES[query_class]
     connection = _prepare_connection()
     try:
-        return _sqlite_program_sha256(connection, DEFAULT_DECISION_SQL)
+        return _sqlite_program_sha256(connection, contract.canonical_sql)
     finally:
         connection.close()
 
@@ -405,40 +522,49 @@ def _reviewed_equivalence_index() -> dict[str, str]:
     return index
 
 
-def _reviewed_decision_equivalence(
+def _reviewed_sql_equivalence(
     sql: str,
     *,
+    query_class: str,
     sqlite_program_sha256: str,
 ) -> tuple[str, str, str] | None:
+    contract = _QUERY_CLASSES[query_class]
     normalized = _normalize_reviewed_sql_source(sql)
-    rule = _reviewed_equivalence_index().get(normalized)
-    if rule is not None:
-        return DECISION_QUERY_SEMANTIC_ID, rule, "reviewed-relational"
 
-    if sqlite_program_sha256 == _canonical_sqlite_program_sha256():
+    if query_class == DECISION_EXPECTED_VALUE_QUERY:
+        rule = _reviewed_equivalence_index().get(normalized)
+        if rule is not None:
+            return contract.semantic_identity, rule, "reviewed-relational"
+    elif normalized == _normalize_reviewed_sql_source(contract.canonical_sql):
+        return contract.semantic_identity, "canonical-source", "reviewed-source"
+
+    if (
+        sqlite_program_sha256
+        == _canonical_sqlite_program_sha256(query_class)
+    ):
         return (
-            DECISION_QUERY_SEMANTIC_ID,
+            contract.semantic_identity,
             "sqlite-program-equivalence",
             "sqlite-version-bound",
         )
     return None
 
 
-def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
-    """Parse and admit one read-only SQL decision query.
+def prepare_sql_query(
+    sql: str,
+    *,
+    query_class: str,
+) -> PreparedSQLQuery:
+    """Parse, authorize, and recognize one named writer SQL query class."""
 
-    SQLite is deliberately used as the SQL parser rather than maintaining an
-    Azelficoast-specific SQL grammar. The query runs only against an empty structural
-    schema during admission, so mechanics and evaluation code cannot execute here.
-
-    Admission is broader than executable semantic recognition. Queries outside the
-    reviewed relational equivalence class remain inspectable, but receive no logical
-    decision-plan identity and therefore cannot be lowered into trusted execution.
-    """
+    try:
+        contract = _QUERY_CLASSES[query_class]
+    except KeyError as exc:
+        raise SQLQueryError(f"unknown SQL query class: {query_class}") from exc
 
     canonical = sql.strip()
     if not canonical:
-        raise SQLDecisionQueryError("decision SQL must be non-empty")
+        raise SQLQueryError("SQL query must be non-empty")
 
     relations: set[str] = set()
     functions: set[str] = set()
@@ -474,43 +600,46 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
             program_rows = connection.execute("EXPLAIN " + canonical).fetchall()
             cursor = connection.execute(canonical)
         except sqlite3.DatabaseError as exc:
-            raise SQLDecisionQueryError(str(exc)) from exc
+            raise SQLQueryError(str(exc)) from exc
         finally:
             connection.set_authorizer(None)
 
         columns = tuple(
             description[0] for description in (cursor.description or ())
         )
-        if columns != ("action_id", "expected_value"):
-            raise SQLDecisionQueryError(
-                "decision SQL must return exactly action_id, expected_value"
+        if columns != contract.result_columns:
+            expected = ", ".join(contract.result_columns)
+            raise SQLQueryError(
+                f"{query_class} must return exactly {expected}"
             )
 
         missing = _REQUIRED_RELATIONS.difference(relations)
         if missing:
             missing_text = ", ".join(sorted(missing))
-            raise SQLDecisionQueryError(
-                f"decision SQL must read required relations: {missing_text}"
+            raise SQLQueryError(
+                f"SQL query must read required relations: {missing_text}"
             )
 
         extra = relations.difference(_ALLOWED_RELATIONS)
         if extra:
             extra_text = ", ".join(sorted(extra))
-            raise SQLDecisionQueryError(
-                f"decision SQL read unsupported relations: {extra_text}"
+            raise SQLQueryError(
+                f"SQL query read unsupported relations: {extra_text}"
             )
 
         sqlite_program_sha256 = _sqlite_program_sha256_from_rows(program_rows)
-        equivalent = _reviewed_decision_equivalence(
+        equivalent = _reviewed_sql_equivalence(
             canonical,
+            query_class=query_class,
             sqlite_program_sha256=sqlite_program_sha256,
         )
         semantic_identity = equivalent[0] if equivalent is not None else None
         equivalence_rule = equivalent[1] if equivalent is not None else None
         equivalence_scope = equivalent[2] if equivalent is not None else None
-        logical = DEFAULT_DECISION_PLAN if equivalent is not None else None
+        logical = contract.logical if equivalent is not None else None
 
-        return PreparedDecisionQuery(
+        return PreparedSQLQuery(
+            query_class=query_class,
             sql=canonical,
             sql_sha256=_sql_sha256(canonical),
             relations=tuple(sorted(relations)),
@@ -528,12 +657,36 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
         connection.close()
 
 
-def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
-    """Return SQL admission, semantic-recognition, and SQLite planner evidence."""
+def prepare_decision_query(sql: str = DEFAULT_DECISION_SQL) -> PreparedSQLQuery:
+    return prepare_sql_query(
+        sql,
+        query_class=DECISION_EXPECTED_VALUE_QUERY,
+    )
+
+
+def prepare_maximin_query(sql: str = MAXIMIN_SQL) -> PreparedSQLQuery:
+    return prepare_sql_query(
+        sql,
+        query_class=DECISION_MAXIMIN_QUERY,
+    )
+
+
+def prepare_action_summary_query(
+    sql: str = ACTION_SUMMARY_SQL,
+) -> PreparedSQLQuery:
+    return prepare_sql_query(
+        sql,
+        query_class=ACTION_SUMMARY_QUERY,
+    )
+
+
+def explain_sql_query(query: PreparedSQLQuery) -> dict[str, Any]:
+    """Return admission, semantic-recognition, and SQLite planner evidence."""
 
     return {
         "schema": SQL_EXPLAIN_SCHEMA,
         "schema_version": SQL_EXPLAIN_SCHEMA_VERSION,
+        "query_class": query.query_class,
         "sql_sha256": query.sql_sha256,
         "relations": list(query.relations),
         "functions": list(query.functions),
@@ -552,3 +705,10 @@ def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
             "program_sha256": query.sqlite_program_sha256,
         },
     }
+
+
+def explain_decision_query(query: PreparedSQLQuery) -> dict[str, Any]:
+    if query.query_class != DECISION_EXPECTED_VALUE_QUERY:
+        raise SQLQueryError("expected decision.expected_value query")
+    return explain_sql_query(query)
+

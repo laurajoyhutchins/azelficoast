@@ -220,11 +220,31 @@ The VDBE path is deliberately environment-bound rather than treated as a portabl
 EXPLAIN evidence records both the SQLite version and executable-program hash. The
 portable reviewed relational rules remain separate evidence.
 
-The semantic identity, rather than exact SQL spelling, keys the reviewed packed/JAX
-physical lowering and planner statistics. Equivalent SQL therefore shares one
-content-addressed physical plan and one advisory selectivity history. A query whose
-execution program changes receives no authority merely because its output columns still
-look plausible.
+The writer surface now has named semantic query classes rather than one privileged result
+shape. `decision.expected_value` retains the reviewed packed/JAX lowering.
+`analysis.action_summary` exposes reusable aggregate policy inputs through
+`action_statistics`, and `decision.maximin` is the first deliberately different
+policy semantics. Maximin is admitted and identifiable as SQL, but it has no packed/JAX
+execution authority yet.
+
+```text
+action_value_terms
+       |
+       v
+action_statistics
+   /          \
+  v            v
+expected      maximin
+value         policy
+  |            |
+  v            x  no physical lowering yet
+packed/JAX
+```
+
+The semantic identity, rather than exact SQL spelling, keys any reviewed physical
+lowering and planner statistics. Equivalent SQL therefore shares one content-addressed
+physical plan and one advisory selectivity history. A query whose semantics differ can
+be admitted as its own class without silently inheriting execution authority.
 
 
 ### Active-support pushdown
