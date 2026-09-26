@@ -673,24 +673,28 @@ def prepare_sql_query(
     try:
         connection.set_authorizer(authorize)
         try:
+            writer_cursor = connection.execute(canonical)
+            writer_columns = tuple(
+                description[0]
+                for description in (writer_cursor.description or ())
+            )
+            if writer_columns != contract.result_columns:
+                expected = ", ".join(contract.result_columns)
+                raise SQLQueryError(
+                    f"{query_class} must return exactly {expected}"
+                )
+
             query_plan_rows = connection.execute(
                 "EXPLAIN QUERY PLAN " + execution_sql
             ).fetchall()
             program_rows = connection.execute("EXPLAIN " + execution_sql).fetchall()
-            cursor = connection.execute(execution_sql)
+            connection.execute(execution_sql)
+        except SQLQueryError:
+            raise
         except sqlite3.DatabaseError as exc:
             raise SQLQueryError(str(exc)) from exc
         finally:
             connection.set_authorizer(None)
-
-        columns = tuple(
-            description[0] for description in (cursor.description or ())
-        )
-        if columns != contract.result_columns:
-            expected = ", ".join(contract.result_columns)
-            raise SQLQueryError(
-                f"{query_class} must return exactly {expected}"
-            )
 
         missing = _REQUIRED_RELATIONS.difference(relations)
         if missing:
