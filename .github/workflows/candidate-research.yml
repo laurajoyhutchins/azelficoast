@@ -50,9 +50,9 @@ jobs:
           REQUESTED: ${{ inputs.experiment }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            matrix="$(python src/azelficoast/research/ci.py plan --requested "${REQUESTED:-all}")"
+            matrix="$(PYTHONPATH=src python -m azelficoast.research.ci plan --requested "${REQUESTED:-all}")"
           else
-            matrix="$(python src/azelficoast/research/ci.py plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+            matrix="$(PYTHONPATH=src python -m azelficoast.research.ci plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
           count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"

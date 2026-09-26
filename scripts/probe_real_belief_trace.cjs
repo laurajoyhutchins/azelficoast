@@ -1513,9 +1513,11 @@ if (posteriorOnly) {
     },
     legal_actions: legalActions,
     worlds: outputWorlds,
-  }, null, 2) + "\n");
-  process.exit(0);
-}
+  }).catch(error => {
+    process.stderr.write(String(error.stack || error) + "\n");
+    process.exitCode = 1;
+  });
+} else {
 const {createTransitionProgramCompiler} = require(
   path.join(path.dirname(process.argv[1]), "real_belief_probe", "transition_program_compiler.cjs")
 );
@@ -1615,7 +1617,7 @@ const factoredHidden = benchFactor
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-process.stdout.write(JSON.stringify({
+void writeJsonStream({
   schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
@@ -1677,3 +1679,4 @@ process.stdout.write(JSON.stringify({
   process.stderr.write(String(error.stack || error) + "\n");
   process.exitCode = 1;
 });
+}
