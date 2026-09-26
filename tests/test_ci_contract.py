@@ -308,3 +308,23 @@ def test_showdown_consumers_observe_revision_contract_changes() -> None:
         )
 
 
+
+
+def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
+    contract = json.loads(
+        (ROOT / "experiments" / "opponent-policy-semantics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    script = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+    architecture = (ROOT / "docs" / "search-architecture.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert contract["schema"] == "azelficoast.opponent-policy-semantics"
+    assert contract["semantics_version"]
+    assert "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION" in script
+    assert "versioned contract lives in" in architecture
+    assert "experiments/opponent-policy-semantics.json" in architecture
