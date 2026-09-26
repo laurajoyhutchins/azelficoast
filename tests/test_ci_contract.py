@@ -302,3 +302,49 @@ def test_research_semantics_do_not_live_in_workflow_yaml() -> None:
         assert digest.search(source) is None, (
             f"{path.name} must not own fixture, evidence, or revision digests"
         )
+
+def test_showdown_action_reads_authority_from_repository_data() -> None:
+    action = (
+        ROOT / ".github" / "actions" / "setup-showdown" / "action.yml"
+    ).read_text(encoding="utf-8")
+    revision_path = ROOT / "experiments" / "showdown-revision.txt"
+
+    assert revision_path.is_file(), "Showdown revision authority is missing"
+    revision = revision_path.read_text(encoding="utf-8").strip()
+    assert "experiments/showdown-revision.txt" in action
+    assert revision not in action
+    assert re.fullmatch(r"[0-9a-f]{40}", revision)
+
+
+def test_candidate_research_certificate_semantics_live_in_python() -> None:
+    source = (WORKFLOWS / "candidate-research.yml").read_text(encoding="utf-8")
+
+    assert "\n  certify:\n" in source
+    assert "needs: [plan, exact, accelerator-static]" in source
+    assert "if: always() && needs.plan.result == 'success'" in source
+    assert "ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}" in source
+    assert "src/azelficoast/research/ci.py certify" in source
+    assert '"schema": "azelficoast.candidate-research-certificate"' not in source
+    assert "python - <<" not in source
+    assert "if [[ \"${ACCELERATOR_STATIC_RESULT}\" != \"success\" ]]" not in source
+    assert "name: candidate-research-certificate" in source
+
+
+def test_hosted_witness_membership_is_not_encoded_in_yaml() -> None:
+    module_path = ROOT / "src" / "azelficoast" / "research" / "hosted" / "belief.py"
+    assert module_path.is_file(), "hosted belief contract is missing"
+
+    from azelficoast.research.hosted.belief import (
+        EXHAUSTED_FIXTURES,
+        PUBLIC_BELIEF_FIXTURES,
+    )
+
+    suites = {
+        "exhausted-bench-real-belief.yml": ("exhausted-bench", EXHAUSTED_FIXTURES),
+        "public-belief-exact-corpus.yml": ("public-belief-exact", PUBLIC_BELIEF_FIXTURES),
+    }
+    for workflow, (suite, cases) in suites.items():
+        source = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+        assert f"azelficoast.research.hosted matrix {suite}" in source
+        for name in cases:
+            assert name not in source
