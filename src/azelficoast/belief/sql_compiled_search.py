@@ -20,6 +20,10 @@ from azelficoast.belief.compiled_search import (
 )
 from azelficoast.belief.packed_evaluator import PackedBeliefEvaluatorSpec
 from azelficoast.belief.showdown_packing import ShowdownVocabulary
+from azelficoast.belief.statistics import (
+    PosteriorCorrelationProfile,
+    posterior_correlation_profile,
+)
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
 from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql import (
@@ -244,9 +248,16 @@ def search_sql_packed_transition_program(
         f"{plan.semantic_identity}:filter:hidden_worlds:active-positive:"
         f"{posterior.get('schema', 'unknown')}"
     )
+    correlation_profile: PosteriorCorrelationProfile | None = None
+    correlation_signature = "unprofiled"
+    if planner_statistics is not None:
+        correlation_profile = posterior_correlation_profile(posterior)
+        correlation_signature = correlation_profile.signature
+
     partition_signature = (
         f"{plan.semantic_identity}:partition:{method}:"
-        f"{program_set.get('schema', 'unknown')}"
+        f"{program_set.get('schema', 'unknown')}:"
+        f"correlation:{correlation_signature}"
     )
 
     filter_estimate: CardinalityEstimate | None = None
@@ -361,6 +372,11 @@ def search_sql_packed_transition_program(
         "sql_equivalence_rule": plan.equivalence_rule,
         "sql_physical_plan": plan.as_record(),
         "sql_cardinality_forecast": forecast,
+        "sql_extended_statistics": (
+            correlation_profile.as_record()
+            if correlation_profile is not None
+            else None
+        ),
         "sql_cardinality_observed": observed,
         "sql_cardinality_error": error,
         "sql_execution_matches_hand_built_plan": (
