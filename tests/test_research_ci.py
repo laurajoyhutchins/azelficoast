@@ -13,6 +13,12 @@ def test_shared_python_setup_selects_every_collapsed_experiment() -> None:
     }
 
 
+def test_candidate_runner_change_selects_only_its_contract() -> None:
+    assert _names(("src/azelficoast/research/ci.py",)) == {
+        "candidate-research-contract"
+    }
+
+
 def test_showdown_setup_selects_only_showdown_consumers() -> None:
     selected = experiments_for_paths((".github/actions/setup-showdown/action.yml",))
     assert selected
