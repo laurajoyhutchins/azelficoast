@@ -1,0 +1,64 @@
+{
+  "schema": "azelficoast.posterior-stratified-population-contract",
+  "schema_version": 1,
+  "issue": 69,
+  "showdown_revision_source": "experiments/showdown-revision.txt",
+  "completion_posterior_treatments": [
+    "oracle",
+    "generator_faithful",
+    "practical"
+  ],
+  "default_enabled_treatments": [
+    "generator_faithful",
+    "practical"
+  ],
+  "search_methods": [
+    "determinization",
+    "information_set"
+  ],
+  "execution_depths": [
+    1
+  ],
+  "required_depth_curve": [
+    1,
+    2
+  ],
+  "compute": {
+    "unit": "transition_evaluations",
+    "same_authorized_limit_per_method": true
+  },
+  "opponent_model": "fixed_observed_response",
+  "confirmatory_predictors": [
+    "legal_action_count",
+    "incoming_ko_roll_probability_gap",
+    "opponent_public_hp_fraction"
+  ],
+  "population": {
+    "minimum_selected_states": 100,
+    "source_corpus_frozen_before_treatments": true,
+    "inclusion_ledger_frozen_before_treatments": true,
+    "forbidden_selection_fields": [
+      "policy_disagreement",
+      "value_bias",
+      "regret",
+      "chosen_action",
+      "battle_outcome"
+    ]
+  },
+  "inference": {
+    "cluster_unit": "battle_tag",
+    "bootstrap_replicates": 2000,
+    "bootstrap_seed": 1729
+  },
+  "oracle_authority": {
+    "kind": "exact_conditional",
+    "evidence_required": true,
+    "realized_hidden_state_used": false
+  },
+  "completion_requirements": {
+    "all_posterior_treatments_required": true,
+    "depth_curve_required": true,
+    "battle_clustered_uncertainty_required": true,
+    "negative_and_zero_results_retained": true
+  }
+}
