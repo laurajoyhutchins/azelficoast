@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
+import json
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any, Sequence
 
+from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.treatments import build_posterior
 from azelficoast.research.matched_comparison import freeze_packet, settle_packet, validate_plan
 from azelficoast.research.matched_search import execute_method
@@ -189,3 +193,79 @@ def matched_cohort(manifest: Mapping[str, Any]) -> dict[str, Any]:
         "selection_uses_policy_result": manifest.get("selection_uses_policy_result"),
         "selected": rows,
     }
+
+
+def _load_object(path: str | Path) -> dict[str, Any]:
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise MatchedPopulationRunError(f"{path}: expected a JSON object")
+    return value
+
+
+def _write_json(path: str | Path, value: Mapping[str, Any]) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(
+        json.dumps(dict(value), sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    state = commands.add_parser("state")
+    state.add_argument("plan", type=Path)
+    state.add_argument("source", type=Path)
+    state.add_argument("manifest", type=Path)
+    state.add_argument("oracle", type=Path)
+    state.add_argument("--population-index", required=True, type=int)
+    state.add_argument("--depth", required=True, type=int)
+    state.add_argument("--evaluator-checkpoint", type=Path)
+    state.add_argument("--output-dir", required=True, type=Path)
+
+    cohort = commands.add_parser("cohort")
+    cohort.add_argument("manifest", type=Path)
+    cohort.add_argument("--output", required=True, type=Path)
+
+    args = parser.parse_args(argv)
+    if args.command == "cohort":
+        result = matched_cohort(_load_object(args.manifest))
+        _write_json(args.output, result)
+        print(json.dumps(result, sort_keys=True))
+        return 0
+
+    plan = _load_object(args.plan)
+    raw_evaluator = plan.get("evaluator")
+    if not isinstance(raw_evaluator, Mapping):
+        raise MatchedPopulationRunError("matched plan lacks evaluator identity")
+    if raw_evaluator.get("schema") == "azelficoast.material-utility-evaluator":
+        evaluator = None
+    else:
+        if args.evaluator_checkpoint is None:
+            parser.error("--evaluator-checkpoint is required for learned evaluation")
+        evaluator = BeliefEvaluatorRuntime.from_checkpoint(args.evaluator_checkpoint)
+
+    rows = run_state(
+        plan=plan,
+        source=_load_object(args.source),
+        manifest=_load_object(args.manifest),
+        population_index=args.population_index,
+        oracle=_load_object(args.oracle),
+        evaluator=evaluator,
+        depths=(args.depth,),
+    )
+    for row in rows:
+        treatment = row["posterior_treatment"]
+        depth = row["depth"]
+        path = args.output_dir / (
+            f"result-{args.population_index:03d}-{treatment}-d{depth}.json"
+        )
+        _write_json(path, row)
+    print(json.dumps(rows, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
