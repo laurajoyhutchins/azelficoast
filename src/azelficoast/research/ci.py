@@ -237,6 +237,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.verification.showdown_damage_corpus",
                 "showdown-gen9-damage-analysis.json",
                 "showdown-gen9-damage-fixtures.json",
+                "analyze_file",
             ),
             (
                 "azelficoast.research.experiments.jax_gen9_damage_experiment",
@@ -361,6 +362,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.compiled_search_experiment",
                 "compiled-search-topology-experiment.json",
                 None,
+                "run_experiment",
             ),
         ),
         checks=(
@@ -403,6 +405,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.verification.showdown_transition_corpus",
                 "showdown-transition-analysis.json",
                 "showdown-transition-fixtures.json",
+                "analyze_file",
             ),
         ),
         checks=(
@@ -607,6 +610,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.policy_sweep",
                 "policy-parameter-sweep.json",
                 None,
+                "run_default_plan",
             ),
         ),
         checks=(
@@ -718,29 +722,17 @@ def _run(
 
 
 def _execute_module(module: ModuleRun, work: Path) -> int:
-    output = work / module.output
     if module.entrypoint is None:
-        command = [sys.executable, "-m", module.module]
-        if module.input is not None:
-            command.append(str(work / module.input))
-        return _run(command, stdout=output, check=False)
-
+        raise CandidateExperimentError(
+            f"{module.module} lacks a contract-owned entrypoint"
+        )
     entrypoint = getattr(importlib.import_module(module.module), module.entrypoint, None)
     if not callable(entrypoint):
         raise CandidateExperimentError(
             f"{module.module} lacks callable entrypoint {module.entrypoint!r}"
         )
 
-    if module.entrypoint == "analyze_document":
-        if module.input is None:
-            raise CandidateExperimentError(
-                f"{module.module}:{module.entrypoint} requires an input artifact"
-            )
-        argument = json.loads((work / module.input).read_text(encoding="utf-8"))
-        if not isinstance(argument, Mapping):
-            raise CandidateExperimentError(f"{module.input} must contain a JSON object")
-        result = entrypoint(argument)
-    elif module.input is None:
+    if module.input is None:
         result = entrypoint()
     else:
         result = entrypoint(work / module.input)
@@ -754,10 +746,11 @@ def _execute_module(module: ModuleRun, work: Path) -> int:
         raise CandidateExperimentError(
             f"{module.module}:{module.entrypoint} returned non-boolean passed"
         )
+
+    output = work / module.output
     output.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
     print(output.read_text(encoding="utf-8"), end="", flush=True)
     return 1 if passed is False else 0
-
 
 def _read_path(record: object, path: Sequence[str | int]) -> object:
     value = record
