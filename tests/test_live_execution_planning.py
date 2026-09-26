@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from azelficoast.live.execution_planning import (
-    CACHE_MODE_EXACT,
     CACHE_MODE_FRESH,
     CACHE_MODE_PROJECTION,
     CACHE_MODE_PROJECTION_FIRST,
