@@ -19,7 +19,7 @@ from azelficoast.belief.packed_evaluator import (
 )
 from azelficoast.belief.showdown_packing import ShowdownVocabulary
 from azelficoast.belief.training import TrainingExample, init_adam, train_step
-from azelficoast.research.evaluator_representation_experiment import (
+from azelficoast.research.experiments.evaluator_representation_experiment import (
     run_representation_comparison,
 )
 from azelficoast.research.training_records import TRAINING_SCHEMA, TRAINING_SCHEMA_VERSION

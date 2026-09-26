@@ -16,7 +16,7 @@ import numpy as np
 
 import azelficoast.research.mechanics.gen9_attack as gen9_attack
 import azelficoast.research.mechanics.gen9_damage as gen9_damage
-from azelficoast.research.adaptive_execution_experiment import (
+from azelficoast.research.experiments.adaptive_execution_experiment import (
     _evaluate,
     _execution_target_signature,
     _fit_absolute_baseline,
