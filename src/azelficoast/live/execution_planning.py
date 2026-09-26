@@ -21,10 +21,12 @@ from azelficoast.core.planning import (
 CACHE_MODE_FRESH = "fresh"
 CACHE_MODE_EXACT = "exact"
 CACHE_MODE_PROJECTION = "projection"
+CACHE_MODE_PROJECTION_FIRST = "projection-first"
 _CACHE_MODES = {
     CACHE_MODE_FRESH,
     CACHE_MODE_EXACT,
     CACHE_MODE_PROJECTION,
+    CACHE_MODE_PROJECTION_FIRST,
 }
 
 
@@ -42,6 +44,10 @@ class TransitionRouteHistory:
     projection_miss_total_ms: float = 0.0
     fresh_executions: int = 0
     fresh_execution_total_ms: float = 0.0
+    exact_first_route_units: int = 0
+    exact_first_route_total_ms: float = 0.0
+    projection_first_route_units: int = 0
+    projection_first_route_total_ms: float = 0.0
     observations: int = 0
 
     @staticmethod
@@ -86,6 +92,9 @@ class TransitionRouteHistory:
         fresh_execution_total_ms = self._duration(
             raw.get("fresh_execution_total_ms")
         )
+        route_units = self._count(raw.get("route_execution_count"))
+        route_total_ms = self._duration(raw.get("route_total_ms"))
+        cache_mode = producer.get("transition_cache_mode")
 
         if (
             exact_hits is None
@@ -100,6 +109,10 @@ class TransitionRouteHistory:
             or fresh_execution_total_ms is None
         ):
             return False
+        if (route_units is None) != (route_total_ms is None):
+            return False
+        if cache_mode is not None and cache_mode not in _CACHE_MODES:
+            return False
 
         self.exact_hits += exact_hits
         self.exact_misses += exact_misses
@@ -111,6 +124,13 @@ class TransitionRouteHistory:
         self.projection_miss_total_ms += projection_miss_total_ms
         self.fresh_executions += fresh_executions
         self.fresh_execution_total_ms += fresh_execution_total_ms
+        if route_units is not None and route_total_ms is not None:
+            if cache_mode == CACHE_MODE_PROJECTION:
+                self.exact_first_route_units += route_units
+                self.exact_first_route_total_ms += route_total_ms
+            elif cache_mode == CACHE_MODE_PROJECTION_FIRST:
+                self.projection_first_route_units += route_units
+                self.projection_first_route_total_ms += route_total_ms
         self.observations += 1
         return True
 
@@ -119,42 +139,86 @@ class TransitionRouteHistory:
         return total / count if count > 0 else fallback
 
     def plan(self, *, semantic_signature: str) -> tuple[str, Mapping[str, Any]]:
-        """Choose fresh, exact-cache, or projected-delta execution from measured cost."""
+        """Choose an exact transition route and, when measured, its cache-probe order."""
 
         if not semantic_signature:
             raise ValueError("semantic signature must be non-empty")
 
-        # One full-route observation gives the planner measurements for all misses and,
-        # when locality exists immediately, cache-hit costs as well.
+        if self.exact_first_route_units <= 0:
+            return (
+                CACHE_MODE_PROJECTION,
+                {
+                    "schema": "azelficoast.live-transition-route-plan",
+                    "schema_version": 2,
+                    "logical_operator": LogicalOperator.TRANSITION.value,
+                    "semantic_signature": semantic_signature,
+                    "selected_implementation": "showdown:exact-then-projection-cache",
+                    "cache_mode": CACHE_MODE_PROJECTION,
+                    "cache_probe_order": ["exact-cache", "projected-delta"],
+                    "selection_basis": "cold-start-order-measurement",
+                    "history_observations": self.observations,
+                },
+            )
+
+        if self.projection_first_route_units <= 0:
+            return (
+                CACHE_MODE_PROJECTION_FIRST,
+                {
+                    "schema": "azelficoast.live-transition-route-plan",
+                    "schema_version": 2,
+                    "logical_operator": LogicalOperator.TRANSITION.value,
+                    "semantic_signature": semantic_signature,
+                    "selected_implementation": "showdown:projection-then-exact-cache",
+                    "cache_mode": CACHE_MODE_PROJECTION_FIRST,
+                    "cache_probe_order": ["projected-delta", "exact-cache"],
+                    "selection_basis": "cold-start-order-measurement",
+                    "history_observations": self.observations,
+                },
+            )
+
         if self.fresh_executions <= 0:
             return (
                 CACHE_MODE_PROJECTION,
                 {
                     "schema": "azelficoast.live-transition-route-plan",
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "logical_operator": LogicalOperator.TRANSITION.value,
                     "semantic_signature": semantic_signature,
-                    "selected_implementation": "showdown:projected-delta-cache",
+                    "selected_implementation": "showdown:exact-then-projection-cache",
                     "cache_mode": CACHE_MODE_PROJECTION,
-                    "selection_basis": "cold-start-measurement",
+                    "cache_probe_order": ["exact-cache", "projected-delta"],
+                    "selection_basis": "fresh-cost-measurement",
                     "history_observations": self.observations,
                 },
             )
 
-        # A route that stops querying a cache would otherwise stop learning whether
-        # locality has changed. Refresh the full route deterministically once every
-        # sixteen observed program compilations.
         if self.observations > 0 and self.observations % 16 == 0:
+            refresh_mode = (
+                CACHE_MODE_PROJECTION
+                if self.exact_first_route_units <= self.projection_first_route_units
+                else CACHE_MODE_PROJECTION_FIRST
+            )
+            refresh_order = (
+                ["exact-cache", "projected-delta"]
+                if refresh_mode == CACHE_MODE_PROJECTION
+                else ["projected-delta", "exact-cache"]
+            )
+            refresh_name = (
+                "showdown:exact-then-projection-cache"
+                if refresh_mode == CACHE_MODE_PROJECTION
+                else "showdown:projection-then-exact-cache"
+            )
             return (
-                CACHE_MODE_PROJECTION,
+                refresh_mode,
                 {
                     "schema": "azelficoast.live-transition-route-plan",
-                    "schema_version": 1,
+                    "schema_version": 2,
                     "logical_operator": LogicalOperator.TRANSITION.value,
                     "semantic_signature": semantic_signature,
-                    "selected_implementation": "showdown:projected-delta-cache",
-                    "cache_mode": CACHE_MODE_PROJECTION,
-                    "selection_basis": "periodic-locality-refresh",
+                    "selected_implementation": refresh_name,
+                    "cache_mode": refresh_mode,
+                    "cache_probe_order": refresh_order,
+                    "selection_basis": "periodic-order-refresh",
                     "history_observations": self.observations,
                 },
             )
@@ -170,16 +234,6 @@ class TransitionRouteHistory:
             self.exact_hits,
             fallback=exact_miss_ms,
         )
-        projection_miss_ms = self._mean(
-            self.projection_miss_total_ms,
-            self.projection_misses,
-            fallback=0.0,
-        )
-        projection_hit_ms = self._mean(
-            self.projection_hit_total_ms,
-            self.projection_hits,
-            fallback=projection_miss_ms,
-        )
 
         exact_tier = CacheTierCost(
             name="exact-cache",
@@ -190,34 +244,16 @@ class TransitionRouteHistory:
             hit_cost_ms=exact_hit_ms,
             miss_cost_ms=exact_miss_ms,
         )
-        projection_tier = CacheTierCost(
-            name="projected-delta",
-            locality=LocalityEvidence(
-                hits=self.projection_hits,
-                misses=self.projection_misses,
-            ),
-            hit_cost_ms=projection_hit_ms,
-            miss_cost_ms=projection_miss_ms,
-        )
-
         exact_route = estimate_cache_route((exact_tier,), fallback_ms=fresh_ms)
-        projection_route = estimate_cache_route(
-            (exact_tier, projection_tier),
-            fallback_ms=fresh_ms,
+
+        exact_first_ms = (
+            self.exact_first_route_total_ms / self.exact_first_route_units
+        )
+        projection_first_ms = (
+            self.projection_first_route_total_ms
+            / self.projection_first_route_units
         )
 
-        exact_evidence = {
-            "route": list(exact_route.tier_names),
-            "fallback": "fresh-showdown",
-            "hit_probabilities": list(exact_route.hit_probabilities),
-            "remaining_miss_probability": exact_route.remaining_miss_probability,
-        }
-        projection_evidence = {
-            "route": list(projection_route.tier_names),
-            "fallback": "fresh-showdown",
-            "hit_probabilities": list(projection_route.hit_probabilities),
-            "remaining_miss_probability": projection_route.remaining_miss_probability,
-        }
         plan = choose_operator_implementation(
             (
                 OperatorImplementation(
@@ -232,21 +268,44 @@ class TransitionRouteHistory:
                     name="showdown:exact-cache",
                     semantic_signature=semantic_signature,
                     predicted_ms=exact_route.expected_ms,
-                    evidence=exact_evidence,
+                    evidence={
+                        "route": list(exact_route.tier_names),
+                        "fallback": "fresh-showdown",
+                        "hit_probabilities": list(exact_route.hit_probabilities),
+                        "remaining_miss_probability": (
+                            exact_route.remaining_miss_probability
+                        ),
+                    },
                 ),
                 OperatorImplementation(
                     operator=LogicalOperator.TRANSITION,
-                    name="showdown:projected-delta-cache",
+                    name="showdown:exact-then-projection-cache",
                     semantic_signature=semantic_signature,
-                    predicted_ms=projection_route.expected_ms,
-                    evidence=projection_evidence,
+                    predicted_ms=exact_first_ms,
+                    evidence={
+                        "route": ["exact-cache", "projected-delta"],
+                        "measurement": "observed-route-cost-per-execution",
+                        "sample_units": self.exact_first_route_units,
+                    },
+                ),
+                OperatorImplementation(
+                    operator=LogicalOperator.TRANSITION,
+                    name="showdown:projection-then-exact-cache",
+                    semantic_signature=semantic_signature,
+                    predicted_ms=projection_first_ms,
+                    evidence={
+                        "route": ["projected-delta", "exact-cache"],
+                        "measurement": "observed-route-cost-per-execution",
+                        "sample_units": self.projection_first_route_units,
+                    },
                 ),
             )
         )
         modes = {
             "showdown:fresh": CACHE_MODE_FRESH,
             "showdown:exact-cache": CACHE_MODE_EXACT,
-            "showdown:projected-delta-cache": CACHE_MODE_PROJECTION,
+            "showdown:exact-then-projection-cache": CACHE_MODE_PROJECTION,
+            "showdown:projection-then-exact-cache": CACHE_MODE_PROJECTION_FIRST,
         }
         selected_mode = modes[plan.selected.name]
         if selected_mode not in _CACHE_MODES:
@@ -255,8 +314,21 @@ class TransitionRouteHistory:
         explanation = explain_operator_plan(plan)
         explanation.update(
             {
+                "schema_version": 2,
                 "cache_mode": selected_mode,
-                "selection_basis": "measured-locality-and-latency",
+                "cache_probe_order": {
+                    CACHE_MODE_FRESH: [],
+                    CACHE_MODE_EXACT: ["exact-cache"],
+                    CACHE_MODE_PROJECTION: [
+                        "exact-cache",
+                        "projected-delta",
+                    ],
+                    CACHE_MODE_PROJECTION_FIRST: [
+                        "projected-delta",
+                        "exact-cache",
+                    ],
+                }[selected_mode],
+                "selection_basis": "measured-route-order-cost",
                 "history_observations": self.observations,
                 "history": {
                     "exact_hits": self.exact_hits,
@@ -264,6 +336,12 @@ class TransitionRouteHistory:
                     "projection_hits": self.projection_hits,
                     "projection_misses": self.projection_misses,
                     "fresh_executions": self.fresh_executions,
+                    "exact_first_route_units": self.exact_first_route_units,
+                    "projection_first_route_units": (
+                        self.projection_first_route_units
+                    ),
+                    "exact_first_ms_per_execution": exact_first_ms,
+                    "projection_first_ms_per_execution": projection_first_ms,
                 },
             }
         )

@@ -210,3 +210,38 @@ Move work only after identifying its authority and shape:
 
 This keeps optimization subordinate to the correctness boundary: generated output is
 not verified output, and a faster backend does not gain authority by being faster.
+
+
+## Cost-based cache probe ordering
+
+The persistent Showdown transition route has two exact reusable caches:
+
+1. an exact execution cache keyed by the complete normalized execution identity;
+2. a broader public-projection cache that rehydrates a verified successor delta when its
+   public and hidden read projections match.
+
+Both caches are physical accelerators for the same TransitionProgram semantics. Their
+probe order is therefore permitted to vary, but cache membership never establishes
+semantic equivalence.
+
+The live planner now treats the two full routes as separate physical implementations:
+
+```text
+exact-cache -> projected-delta -> fresh Showdown
+projected-delta -> exact-cache -> fresh Showdown
+```
+
+Cold start samples both orders before preferring either. Each transition-program
+compilation records the total cache/probe/fresh execution time and the number of unique
+semantic executions, producing an observed milliseconds-per-execution cost for that
+route. The planner compares those measured route costs with exact-only and fresh
+execution. It does **not** multiply independent cache hit probabilities to guess the
+reverse order because the two caches are correlated.
+
+Periodic exploration remeasures the less-sampled route so a stale locality pattern does
+not become permanent policy. The selected probe order is included in planner evidence
+and in the TransitionProgram producer record.
+
+This reordering changes only cache lookup order. Any cache hit still reconstructs the
+same execution semantics, and all misses terminate in the same pinned-Showdown
+execution path.

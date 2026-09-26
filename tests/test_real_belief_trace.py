@@ -573,6 +573,14 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'row.choice + " terastallize"' in source
     assert '"repeat-last-or-uniform-legal-moves"' not in source
     assert "showdown_turn_executions: showdownTurnExecutions" in source
+    assert '"projection-first"' in source
+    assert 'cacheMode === "projection-first"' in source
+    assert '["projection", "exact"]' in source
+    assert "for (const cacheKind of cacheProbeOrder)" in source
+    assert "exactExecutionCacheMisses++" in source
+    assert "projectedExecutionCacheMisses++" in source
+    assert "route_execution_count: uniqueExecutions" in source
+    assert "route_total_ms:" in source
     assert "uniqueExecutions * ROOT_CHANCE_SAMPLES" not in source
     assert "opponent_policy: OPPONENT_POLICY" in source
     posterior_block = source.split("if (posteriorOnly)", 1)[1].split(
