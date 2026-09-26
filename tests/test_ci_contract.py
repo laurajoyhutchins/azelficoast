@@ -296,7 +296,7 @@ def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
     runner = (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(encoding="utf-8")
 
     assert len(revision) == 40
-    assert revision in (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(encoding="utf-8")
+    assert "SHOWDOWN_REVISION = revision_path.read_text(encoding=\"utf-8\").strip()" in runner
     assert "default: a5df8274e85b0889bf2a9b3422a08b39732374fc" not in action
     assert "steps.revision.outputs.sha" in action
     assert "revision_path = REPOSITORY_ROOT / \"experiments\" / \"showdown-revision.txt\"" in runner
