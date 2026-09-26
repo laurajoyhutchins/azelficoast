@@ -50,4 +50,4 @@ jobs:
       - name: Pokémon-shaped counterexample
         run: uv run python -m azelficoast.research.verification.pokemon_counterexample
       - name: Simulator dependency experiment
-        run: uv run python -m azelficoast.research.simulator_experiment
+        run: uv run python -m azelficoast.research.experiments.simulator_experiment
