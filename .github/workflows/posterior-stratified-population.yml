@@ -1,0 +1,238 @@
+# Candidate-only execution of issue #69's frozen posterior-stratified population contract.
+name: posterior-stratified-population
+
+on:
+  pull_request:
+    types: [ready_for_review]
+    paths:
+      - "experiments/posterior-stratified-population-contract.json"
+      - "experiments/showdown-revision.txt"
+      - "experiments/opponent-policy-semantics.json"
+      - "src/azelficoast/research/posterior_population_contract.py"
+      - "src/azelficoast/research/posterior_population_selection.py"
+      - "src/azelficoast/research/posterior_evidence.py"
+      - "src/azelficoast/research/matched_population_run.py"
+      - "src/azelficoast/research/matched_population.py"
+      - "src/azelficoast/research/matched_comparison.py"
+      - "src/azelficoast/research/matched_search.py"
+      - "src/azelficoast/research/contracts.py"
+      - "src/azelficoast/research/population_cohort.py"
+      - "src/azelficoast/research/natural_disagreements.py"
+      - "src/azelficoast/research/verification/real_belief_trace.py"
+      - "src/azelficoast/belief/treatments.py"
+      - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/real_belief_probe/**"
+      - "scripts/screen_public_belief_speed_forks.cjs"
+      - "tests/test_posterior_population_contract.py"
+      - "tests/test_posterior_evidence.py"
+      - "tests/test_posterior_treatments.py"
+      - "tests/test_matched_oracle_search.py"
+      - ".github/workflows/posterior-stratified-population.yml"
+      - ".github/actions/setup-python-environment/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: posterior-stratified-population-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  freeze:
+    name: freeze outcome-blind population
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: ./.github/actions/setup-python-environment
+
+      - name: Setup verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - name: Restore frozen source corpus
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          source_run="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["population"]["source_artifact"]["workflow_run_id"])')"
+          artifact_name="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["population"]["source_artifact"]["artifact_name"])')"
+          rm -rf /tmp/source
+          mkdir -p /tmp/source
+          gh run download "$source_run"             --repo "$GITHUB_REPOSITORY"             --name "$artifact_name"             --dir /tmp/source
+
+      - name: Mine the preregistered bounded hidden-choice population
+        run: |
+          set -euo pipefail
+          rounds="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["population"]["generator_rounds"])')"
+          uv run python -m azelficoast.research.natural_disagreements             /tmp/source/corpus.jsonl             --showdown-root /tmp/pokemon-showdown             --rounds "$rounds"             > /tmp/candidates.json
+
+      - name: Screen preregistered mechanics predictors
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          candidates = json.loads(Path("/tmp/candidates.json").read_text())
+          fixture_ids = {
+              str(row["fixture_id"])
+              for row in candidates["candidates"]
+          }
+          found = set()
+          with (
+              Path("/tmp/source/corpus.jsonl").open() as source,
+              Path("/tmp/candidate-fixtures.jsonl").open("w") as destination,
+          ):
+              next(source)
+              for line in source:
+                  row = json.loads(line)
+                  fixture_id = str(row.get("fixture_id", ""))
+                  if fixture_id not in fixture_ids:
+                      continue
+                  destination.write(line)
+                  found.add(fixture_id)
+          if found != fixture_ids:
+              raise SystemExit(
+                  f"candidate fixture extraction incomplete: {len(found)}/{len(fixture_ids)}"
+              )
+          PY
+
+          rounds="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["population"]["mechanics_screen_rounds"])')"
+          node scripts/screen_public_belief_speed_forks.cjs             /tmp/pokemon-showdown             /tmp/candidates.json             /tmp/candidate-fixtures.jsonl             "$rounds"             > /tmp/mechanics.json
+
+      - name: Freeze issue 69 ledger and work matrix
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/issue69
+          mkdir -p /tmp/issue69/selected
+          uv run python -m azelficoast.research.posterior_population_selection             experiments/posterior-stratified-population-contract.json             /tmp/source/source-metadata.json             /tmp/candidates.json             /tmp/mechanics.json             /tmp/source/corpus.jsonl             --selected-dir /tmp/issue69/selected             --manifest /tmp/issue69/manifest.json             --execution-plan /tmp/issue69/execution-plan.json             --matched-plan /tmp/issue69/matched-plan.json             | tee /tmp/issue69/freeze-summary.json
+
+          cp /tmp/candidates.json /tmp/issue69/candidates.json
+          cp /tmp/mechanics.json /tmp/issue69/mechanics.json
+          cp /tmp/source/source-metadata.json /tmp/issue69/source-metadata.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: posterior-stratified-population-selection
+          path: /tmp/issue69
+          if-no-files-found: error
+
+  exact:
+    name: exact shard ${{ matrix.shard }}
+    needs: freeze
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: ./.github/actions/setup-python-environment
+
+      - name: Setup verified Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: posterior-stratified-population-selection
+          path: /tmp/issue69
+
+      - name: Execute matched posterior/depth shard
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/results /tmp/generator-cache
+
+          python - <<'PY' > /tmp/shard.tsv
+          import json
+          import os
+          from pathlib import Path
+
+          shard = int(os.environ["SHARD"])
+          manifest = json.loads(Path("/tmp/issue69/manifest.json").read_text())
+          for row in manifest["selected"]:
+              index = int(row["population_index"])
+              if (index - 1) % 32 == shard:
+                  print(index, row["filename"], sep="\t")
+          PY
+
+          low_rounds="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["oracle_authority"]["generator_faithful_rounds"])')"
+          high_rounds="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["oracle_authority"]["oracle_generator_rounds"])')"
+          root_samples="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["chance_treatment"]["root_chance_samples"])')"
+          continuation_samples="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["chance_treatment"]["continuation_chance_samples"])')"
+          seed_family="$(python -c 'import json; print(json.load(open("experiments/posterior-stratified-population-contract.json"))["chance_treatment"]["chance_seed_family"])')"
+
+          while IFS=$'\t' read -r index filename; do
+            test -n "$index" || continue
+            source="/tmp/issue69/selected/$filename"
+
+            AZELFICOAST_GENERATOR_ROUNDS="$low_rounds"               node scripts/probe_real_belief_trace.cjs                 /tmp/pokemon-showdown "$source"                 --posterior-only                 --generator-cache-dir /tmp/generator-cache                 > /tmp/generator-reference.json
+
+            for depth in 1 2; do
+              AZELFICOAST_GENERATOR_ROUNDS="$high_rounds"               AZELFICOAST_ROOT_CHANCE_SAMPLES="$root_samples"               AZELFICOAST_CONTINUATION_CHANCE_SAMPLES="$continuation_samples"               AZELFICOAST_CONTINUATION_DECISION_HORIZONS="$depth"               AZELFICOAST_CHANCE_SEED_FAMILY="$seed_family"                 node scripts/probe_real_belief_trace.cjs                   /tmp/pokemon-showdown "$source"                   --generator-cache-dir /tmp/generator-cache                   > /tmp/dense-oracle.json
+
+              uv run python -m azelficoast.research.posterior_evidence                 /tmp/dense-oracle.json                 /tmp/generator-reference.json                 experiments/posterior-stratified-population-contract.json                 --output /tmp/bound-oracle.json                 > /tmp/posterior-evidence-summary.json
+
+              uv run python -m azelficoast.research.matched_population_run state                 /tmp/issue69/matched-plan.json                 "$source"                 /tmp/issue69/manifest.json                 /tmp/bound-oracle.json                 --population-index "$index"                 --depth "$depth"                 --output-dir /tmp/results                 > /tmp/matched-state-summary.json
+            done
+          done < /tmp/shard.tsv
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: posterior-stratified-population-exact-${{ matrix.shard }}
+          path: /tmp/results
+          if-no-files-found: error
+
+  aggregate:
+    name: settle complete population
+    needs: exact
+    if: always() && needs.exact.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - uses: ./.github/actions/setup-python-environment
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: posterior-stratified-population-selection
+          path: /tmp/issue69
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: posterior-stratified-population-exact-*
+          path: /tmp/exact
+          merge-multiple: true
+
+      - name: Settle battle-clustered population evidence
+        run: |
+          set -euo pipefail
+          uv run python -m azelficoast.research.matched_population_run cohort             /tmp/issue69/manifest.json             --output /tmp/issue69/cohort.json             > /tmp/cohort-summary.json
+
+          uv run python -m azelficoast.research.matched_population             /tmp/issue69/matched-plan.json             /tmp/issue69/cohort.json             /tmp/exact             --output /tmp/posterior-stratified-population-aggregate.json             | tee /tmp/aggregate-output.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: posterior-stratified-population-results
+          path: |
+            /tmp/posterior-stratified-population-aggregate.json
+            /tmp/aggregate-output.json
+            /tmp/issue69/manifest.json
+            /tmp/issue69/execution-plan.json
+            /tmp/issue69/matched-plan.json
+            /tmp/issue69/cohort.json
+          if-no-files-found: error
