@@ -14,10 +14,11 @@ import time
 from typing import Any, Sequence
 
 from azelficoast.core.compiled_search import (
+    CardinalityEnvelope,
     compile_search_topology,
     materialize_compiled_frontier,
     reduce_compiled_root_values,
-    search_transition_program_compiled,
+    search_transition_program_adaptive,
     transport_posterior_mass,
 )
 from azelficoast.core.search import search_transition_program
@@ -165,11 +166,20 @@ def main() -> int:
     compile_end = time.perf_counter_ns()
 
     first_start = time.perf_counter_ns()
-    compiled = search_transition_program_compiled(
+    compiled = search_transition_program_adaptive(
         program_set=program,
         posterior=posterior,
         method="information_set",
         evaluator=evaluator,
+        envelope=CardinalityEnvelope(
+            max_world_count=WORLD_COUNT,
+            max_class_count=ACTION_COUNT * CLASSES_PER_ACTION,
+            max_chance_edge_count=ACTION_COUNT * WORLD_COUNT * 2,
+            max_leaf_count=ACTION_COUNT * OBSERVATIONS_PER_ACTION * 2,
+            max_dense_leaf_world_cells=(
+                ACTION_COUNT * OBSERVATIONS_PER_ACTION * 2 * WORLD_COUNT
+            ),
+        ),
         expected_program_schema="azelficoast.synthetic-transition-program-set",
         expected_program_schema_version=1,
     )
@@ -227,6 +237,8 @@ def main() -> int:
         and maximum_difference <= 1e-5
         and abs(action_mass - expected_action_mass) <= 1e-5
         and warm_reduction_difference <= 1e-5
+        and compiled["physical_search_path"] == "compiled-jax"
+        and compiled["cardinality_plan"]["replanned"] is False
     )
 
     result = {
@@ -248,6 +260,7 @@ def main() -> int:
             "successor_state_count": len(topology.successor_states),
             "successor_action_count": len(topology.successor_action_vocabulary),
         },
+        "cardinality_plan": compiled["cardinality_plan"],
         "correctness": {
             "reference_action": reference["chosen_action"],
             "compiled_action": compiled["chosen_action"],

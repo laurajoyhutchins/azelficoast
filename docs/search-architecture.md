@@ -306,3 +306,28 @@ search at the same exact transition program and posterior. Semantic equality and
 conservation are hard gates. Host timing is descriptive. Live exact search remains on
 the existing path until this evidence is strong enough to justify a separate promotion
 step.
+
+
+## Cardinality-guarded compiled search
+
+Dense compiled search materializes a `[leaf, world]` posterior tensor. That is a
+physical implementation detail, not part of information-set semantics, so the planner
+now fences it with an explicit cardinality envelope.
+
+Before topology compilation, Azelficoast computes only proven structural lower bounds:
+world count and execution-class count are exact; chance-edge count is bounded below by
+declared outcome rows; information-set search has at least one leaf per root action and
+determinization has at least one leaf per root-action/world pair. If even that lower
+bound exceeds the admitted envelope, the planner selects the exact Python frontier
+immediately.
+
+If the lower bound fits, Python compiles the authorized topology and records the realized
+class, chance-edge, leaf, and `leaf × world` cardinalities. The planner checks the
+realized shape again **before dense JAX posterior transport**. A cardinality surprise
+therefore re-plans to the exact Python frontier without changing the logical search,
+transition-program identity, evaluator, or scientific work accounting.
+
+The compiled-search candidate experiment carries the frozen 512-world benchmark's
+observed envelope explicitly and fails if the adaptive planner unexpectedly leaves the
+compiled path. This is a calibration-domain fence, not a claim that the same dense plan
+is appropriate for larger unseen frontiers.

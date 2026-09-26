@@ -40,6 +40,7 @@ from azelficoast.core.search import (
     _EvaluatorMeter,
     _normalized_inputs,
     _validated_classes,
+    search_transition_program,
 )
 from azelficoast.core.transition import canonical_json, sha256_json
 
@@ -47,10 +48,233 @@ COMPILED_TOPOLOGY_SCHEMA = "azelficoast.core.compiled-search-topology"
 COMPILED_TOPOLOGY_SCHEMA_VERSION = 1
 COMPILED_SEARCH_SCHEMA = "azelficoast.core.compiled-partial-information-search"
 COMPILED_SEARCH_SCHEMA_VERSION = 1
+CARDINALITY_PLAN_SCHEMA = "azelficoast.core.compiled-search-cardinality-plan"
+CARDINALITY_PLAN_SCHEMA_VERSION = 1
+SEARCH_PATH_COMPILED = "compiled-jax"
+SEARCH_PATH_PYTHON = "python-frontier"
 
 
 class CompiledSearchError(ValueError):
     """Raised when an authorized search topology cannot be compiled or transported."""
+
+
+@dataclass(frozen=True, slots=True)
+class SearchCardinality:
+    """Structural search size used by the physical planner."""
+
+    world_count: int
+    class_count: int
+    chance_edge_count: int
+    leaf_count: int
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.world_count,
+            self.class_count,
+            self.chance_edge_count,
+            self.leaf_count,
+        ):
+            if value <= 0:
+                raise ValueError("search cardinalities must be positive")
+
+    @property
+    def dense_leaf_world_cells(self) -> int:
+        return self.world_count * self.leaf_count
+
+    def as_record(self) -> dict[str, int]:
+        return {
+            "worlds": self.world_count,
+            "classes": self.class_count,
+            "chance_edges": self.chance_edge_count,
+            "leaves": self.leaf_count,
+            "dense_leaf_world_cells": self.dense_leaf_world_cells,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CardinalityEnvelope:
+    """Authorized structural domain for one dense compiled-search treatment."""
+
+    max_world_count: int
+    max_class_count: int
+    max_chance_edge_count: int
+    max_leaf_count: int
+    max_dense_leaf_world_cells: int
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.max_world_count,
+            self.max_class_count,
+            self.max_chance_edge_count,
+            self.max_leaf_count,
+            self.max_dense_leaf_world_cells,
+        ):
+            if value <= 0:
+                raise ValueError("cardinality envelope bounds must be positive")
+
+    def violations(self, cardinality: SearchCardinality) -> tuple[str, ...]:
+        rows = (
+            ("worlds", cardinality.world_count, self.max_world_count),
+            ("classes", cardinality.class_count, self.max_class_count),
+            (
+                "chance_edges",
+                cardinality.chance_edge_count,
+                self.max_chance_edge_count,
+            ),
+            ("leaves", cardinality.leaf_count, self.max_leaf_count),
+            (
+                "dense_leaf_world_cells",
+                cardinality.dense_leaf_world_cells,
+                self.max_dense_leaf_world_cells,
+            ),
+        )
+        return tuple(name for name, actual, maximum in rows if actual > maximum)
+
+    def as_record(self) -> dict[str, int]:
+        return {
+            "max_worlds": self.max_world_count,
+            "max_classes": self.max_class_count,
+            "max_chance_edges": self.max_chance_edge_count,
+            "max_leaves": self.max_leaf_count,
+            "max_dense_leaf_world_cells": self.max_dense_leaf_world_cells,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class AdaptiveCardinalityPlan:
+    """Initial and revised physical choice around a measured cardinality boundary."""
+
+    lower_bound: SearchCardinality
+    envelope: CardinalityEnvelope
+    initial_path: str
+    final_path: str
+    observed: SearchCardinality | None
+    violations: tuple[str, ...]
+
+    @property
+    def replanned(self) -> bool:
+        return self.initial_path != self.final_path
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "schema": CARDINALITY_PLAN_SCHEMA,
+            "schema_version": CARDINALITY_PLAN_SCHEMA_VERSION,
+            "lower_bound": self.lower_bound.as_record(),
+            "envelope": self.envelope.as_record(),
+            "initial_path": self.initial_path,
+            "final_path": self.final_path,
+            "replanned": self.replanned,
+            "observed": (
+                self.observed.as_record() if self.observed is not None else None
+            ),
+            "violations": list(self.violations),
+        }
+
+
+def estimate_search_cardinality_lower_bound(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+) -> SearchCardinality:
+    """Return cheap cardinality lower bounds before topology materialization.
+
+    The estimate deliberately uses only bounds that cannot exceed the realized topology:
+    every class contributes at least one chance edge; every root action contributes at
+    least one information-set leaf; determinization contributes at least one leaf per
+    root-action/world pair. This is a guard, not a hopeful selectivity prediction.
+    """
+
+    if method not in SEARCH_METHODS:
+        raise CompiledSearchError(f"unknown search method {method!r}")
+    try:
+        actions, worlds_by_id, _ = _normalized_inputs(
+            program_set=program_set,
+            posterior=posterior,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
+        )
+    except PartialInformationSearchError as error:
+        raise CompiledSearchError(str(error)) from error
+
+    class_count = 0
+    outcome_rows = 0
+    world_ids = set(worlds_by_id)
+    for action in actions:
+        try:
+            classes = _validated_classes(
+                program_set=program_set,
+                action=action,
+                world_ids=world_ids,
+            )
+        except PartialInformationSearchError as error:
+            raise CompiledSearchError(str(error)) from error
+        class_count += len(classes)
+        outcome_rows += sum(len(row["outcomes"]) for row in classes)
+
+    leaf_lower_bound = len(actions)
+    if method == "determinization":
+        leaf_lower_bound *= len(worlds_by_id)
+
+    return SearchCardinality(
+        world_count=len(worlds_by_id),
+        class_count=class_count,
+        chance_edge_count=outcome_rows,
+        leaf_count=leaf_lower_bound,
+    )
+
+
+def _observed_cardinality(topology: "CompiledSearchTopology") -> SearchCardinality:
+    return SearchCardinality(
+        world_count=topology.world_count,
+        class_count=topology.class_count,
+        chance_edge_count=topology.edge_count,
+        leaf_count=topology.leaf_count,
+    )
+
+
+def _cardinality_plan(
+    *,
+    lower_bound: SearchCardinality,
+    envelope: CardinalityEnvelope,
+    observed: SearchCardinality | None = None,
+) -> AdaptiveCardinalityPlan:
+    lower_violations = envelope.violations(lower_bound)
+    if lower_violations:
+        return AdaptiveCardinalityPlan(
+            lower_bound=lower_bound,
+            envelope=envelope,
+            initial_path=SEARCH_PATH_PYTHON,
+            final_path=SEARCH_PATH_PYTHON,
+            observed=None,
+            violations=lower_violations,
+        )
+
+    if observed is None:
+        return AdaptiveCardinalityPlan(
+            lower_bound=lower_bound,
+            envelope=envelope,
+            initial_path=SEARCH_PATH_COMPILED,
+            final_path=SEARCH_PATH_COMPILED,
+            observed=None,
+            violations=(),
+        )
+
+    observed_violations = envelope.violations(observed)
+    return AdaptiveCardinalityPlan(
+        lower_bound=lower_bound,
+        envelope=envelope,
+        initial_path=SEARCH_PATH_COMPILED,
+        final_path=(
+            SEARCH_PATH_PYTHON
+            if observed_violations
+            else SEARCH_PATH_COMPILED
+        ),
+        observed=observed,
+        violations=observed_violations,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -812,6 +1036,49 @@ def reduce_compiled_root_values(
     }
 
 
+def _execute_compiled_topology(
+    *,
+    topology: CompiledSearchTopology,
+    posterior: Mapping[str, Any],
+    evaluator: Any,
+) -> dict[str, Any]:
+    frontier, transported = materialize_compiled_frontier(topology, posterior)
+    meter = _EvaluatorMeter(evaluator)
+    leaf_values = meter.values(frontier.leaves)
+    root_values = reduce_compiled_root_values(
+        topology,
+        transported,
+        leaf_values,
+    )
+    best = max(root_values.values())
+    chosen_action = min(
+        action for action, value in root_values.items() if value == best
+    )
+    return {
+        "schema": COMPILED_SEARCH_SCHEMA,
+        "schema_version": COMPILED_SEARCH_SCHEMA_VERSION,
+        "method": topology.method,
+        "transition_program_digest": topology.program_digest,
+        "compiled_topology_digest": topology.topology_digest,
+        "transition_evaluations": topology.transition_evaluations,
+        "evaluator_calls": meter.calls,
+        "evaluator_batches": meter.batches,
+        "chosen_action": chosen_action,
+        "root_values": root_values,
+        "compiled_shape": {
+            "actions": topology.action_count,
+            "worlds": topology.world_count,
+            "classes": topology.class_count,
+            "chance_edges": topology.edge_count,
+            "observations": len(topology.observation_keys),
+            "leaves": topology.leaf_count,
+            "dense_leaf_world_cells": topology.leaf_count * topology.world_count,
+        },
+        "numeric_backend": "jax",
+        "semantic_authority": "python-validated-transition-program",
+    }
+
+
 def search_transition_program_compiled(
     *,
     program_set: Mapping[str, Any],
@@ -830,37 +1097,92 @@ def search_transition_program_compiled(
         expected_program_schema=expected_program_schema,
         expected_program_schema_version=expected_program_schema_version,
     )
-    frontier, transported = materialize_compiled_frontier(topology, posterior)
-    meter = _EvaluatorMeter(evaluator)
-    leaf_values = meter.values(frontier.leaves)
-    root_values = reduce_compiled_root_values(
-        topology,
-        transported,
-        leaf_values,
+    return _execute_compiled_topology(
+        topology=topology,
+        posterior=posterior,
+        evaluator=evaluator,
     )
-    best = max(root_values.values())
-    chosen_action = min(
-        action for action, value in root_values.items() if value == best
+
+
+def search_transition_program_adaptive(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    evaluator: Any,
+    envelope: CardinalityEnvelope,
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+) -> dict[str, Any]:
+    """Choose dense compiled search only inside an explicit cardinality envelope.
+
+    The planner first evaluates a proven lower bound. If it fits, Python compiles the
+    semantic topology and the planner re-checks exact realized cardinalities before any
+    dense JAX posterior transport. A realized shape surprise therefore changes only the
+    physical implementation, never the logical search or evaluator semantics.
+    """
+
+    lower_bound = estimate_search_cardinality_lower_bound(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+    )
+    plan = _cardinality_plan(
+        lower_bound=lower_bound,
+        envelope=envelope,
+    )
+    if plan.final_path == SEARCH_PATH_PYTHON:
+        result = search_transition_program(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            evaluator=evaluator,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
+        )
+        return {
+            **result,
+            "physical_search_path": SEARCH_PATH_PYTHON,
+            "cardinality_plan": plan.as_record(),
+        }
+
+    topology = compile_search_topology(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+    )
+    observed = _observed_cardinality(topology)
+    plan = _cardinality_plan(
+        lower_bound=lower_bound,
+        envelope=envelope,
+        observed=observed,
+    )
+    if plan.final_path == SEARCH_PATH_PYTHON:
+        result = search_transition_program(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            evaluator=evaluator,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
+        )
+        return {
+            **result,
+            "physical_search_path": SEARCH_PATH_PYTHON,
+            "cardinality_plan": plan.as_record(),
+        }
+
+    result = _execute_compiled_topology(
+        topology=topology,
+        posterior=posterior,
+        evaluator=evaluator,
     )
     return {
-        "schema": COMPILED_SEARCH_SCHEMA,
-        "schema_version": COMPILED_SEARCH_SCHEMA_VERSION,
-        "method": method,
-        "transition_program_digest": topology.program_digest,
-        "compiled_topology_digest": topology.topology_digest,
-        "transition_evaluations": topology.transition_evaluations,
-        "evaluator_calls": meter.calls,
-        "evaluator_batches": meter.batches,
-        "chosen_action": chosen_action,
-        "root_values": root_values,
-        "compiled_shape": {
-            "actions": topology.action_count,
-            "worlds": topology.world_count,
-            "classes": topology.class_count,
-            "chance_edges": topology.edge_count,
-            "observations": len(topology.observation_keys),
-            "leaves": topology.leaf_count,
-        },
-        "numeric_backend": "jax",
-        "semantic_authority": "python-validated-transition-program",
+        **result,
+        "physical_search_path": SEARCH_PATH_COMPILED,
+        "cardinality_plan": plan.as_record(),
     }
