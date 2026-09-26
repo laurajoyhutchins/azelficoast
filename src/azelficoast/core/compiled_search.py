@@ -45,17 +45,155 @@ from azelficoast.core.search import (
 from azelficoast.core.transition import canonical_json, sha256_json
 
 COMPILED_TOPOLOGY_SCHEMA = "azelficoast.core.compiled-search-topology"
-COMPILED_TOPOLOGY_SCHEMA_VERSION = 1
+COMPILED_TOPOLOGY_SCHEMA_VERSION = 2
 COMPILED_SEARCH_SCHEMA = "azelficoast.core.compiled-partial-information-search"
-COMPILED_SEARCH_SCHEMA_VERSION = 1
+COMPILED_SEARCH_SCHEMA_VERSION = 2
 CARDINALITY_PLAN_SCHEMA = "azelficoast.core.compiled-search-cardinality-plan"
 CARDINALITY_PLAN_SCHEMA_VERSION = 1
 SEARCH_PATH_COMPILED = "compiled-jax"
 SEARCH_PATH_PYTHON = "python-frontier"
+OUTCOME_JOIN_PLAN_SCHEMA = "azelficoast.core.outcome-world-join-plan"
+OUTCOME_JOIN_PLAN_SCHEMA_VERSION = 1
+JOIN_ORDER_EXPAND_FIRST = "expand-outcomes-before-world-join"
+JOIN_ORDER_AGGREGATE_FIRST = "aggregate-outcomes-before-world-join"
 
 
 class CompiledSearchError(ValueError):
     """Raised when an authorized search topology cannot be compiled or transported."""
+
+
+@dataclass(frozen=True, slots=True)
+class OutcomeWorldJoinPlan:
+    """Costed ordering for outcome aggregation versus the class-member join."""
+
+    selected_order: str
+    raw_outcome_rows: int
+    grouped_outcome_rows: int
+    raw_join_rows: int
+    grouped_join_rows: int
+    expand_first_work_units: int
+    aggregate_first_work_units: int
+
+    def __post_init__(self) -> None:
+        if self.selected_order not in {
+            JOIN_ORDER_EXPAND_FIRST,
+            JOIN_ORDER_AGGREGATE_FIRST,
+        }:
+            raise ValueError("unknown outcome/world join order")
+        for value in (
+            self.raw_outcome_rows,
+            self.grouped_outcome_rows,
+            self.raw_join_rows,
+            self.grouped_join_rows,
+            self.expand_first_work_units,
+            self.aggregate_first_work_units,
+        ):
+            if value <= 0:
+                raise ValueError("outcome/world join cardinalities must be positive")
+        if self.grouped_outcome_rows > self.raw_outcome_rows:
+            raise ValueError("outcome grouping cannot increase outcome rows")
+        if self.grouped_join_rows > self.raw_join_rows:
+            raise ValueError("outcome grouping cannot increase join rows")
+
+    @property
+    def saved_join_rows(self) -> int:
+        return self.raw_join_rows - self.grouped_join_rows
+
+    def as_record(self) -> dict[str, Any]:
+        return {
+            "schema": OUTCOME_JOIN_PLAN_SCHEMA,
+            "schema_version": OUTCOME_JOIN_PLAN_SCHEMA_VERSION,
+            "selected_order": self.selected_order,
+            "raw_outcome_rows": self.raw_outcome_rows,
+            "grouped_outcome_rows": self.grouped_outcome_rows,
+            "raw_join_rows": self.raw_join_rows,
+            "grouped_join_rows": self.grouped_join_rows,
+            "expand_first_work_units": self.expand_first_work_units,
+            "aggregate_first_work_units": self.aggregate_first_work_units,
+            "saved_join_rows": self.saved_join_rows,
+            "equivalence_rule": (
+                "sum probabilities only for outcomes with identical public "
+                "observation, public successor, and successor legal-action set"
+            ),
+        }
+
+
+def _search_outcome_key(outcome: Mapping[str, Any]) -> str:
+    legal = outcome.get("legal_actions")
+    if not isinstance(legal, list):
+        raise CompiledSearchError("transition outcome lacks legal actions")
+    return canonical_json(
+        {
+            "observation": outcome.get("observation"),
+            "successor": outcome.get("successor"),
+            "legal_actions": sorted(set(str(action) for action in legal)),
+        }
+    )
+
+
+def _group_search_equivalent_outcomes(
+    outcomes: Sequence[Mapping[str, Any]],
+) -> tuple[dict[str, Any], ...]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for outcome in outcomes:
+        key = _search_outcome_key(outcome)
+        existing = grouped.get(key)
+        if existing is None:
+            legal = outcome.get("legal_actions")
+            assert isinstance(legal, list)
+            grouped[key] = {
+                "probability": float(outcome["probability"]),
+                "observation": copy.deepcopy(outcome.get("observation")),
+                "successor": copy.deepcopy(dict(outcome["successor"])),
+                "legal_actions": sorted(set(str(action) for action in legal)),
+            }
+        else:
+            existing["probability"] = math.fsum(
+                (
+                    float(existing["probability"]),
+                    float(outcome["probability"]),
+                )
+            )
+    return tuple(grouped[key] for key in sorted(grouped))
+
+
+def _plan_outcome_world_join(
+    prepared_classes: Sequence[
+        tuple[Mapping[str, Any], tuple[dict[str, Any], ...]]
+    ],
+) -> OutcomeWorldJoinPlan:
+    raw_outcome_rows = 0
+    grouped_outcome_rows = 0
+    raw_join_rows = 0
+    grouped_join_rows = 0
+
+    for row, grouped in prepared_classes:
+        members = row["member_world_ids"]
+        outcomes = row["outcomes"]
+        member_count = len(members)
+        raw_count = len(outcomes)
+        grouped_count = len(grouped)
+        raw_outcome_rows += raw_count
+        grouped_outcome_rows += grouped_count
+        raw_join_rows += member_count * raw_count
+        grouped_join_rows += member_count * grouped_count
+
+    expand_first_work_units = raw_join_rows
+    aggregate_first_work_units = raw_outcome_rows + grouped_join_rows
+    selected_order = (
+        JOIN_ORDER_AGGREGATE_FIRST
+        if aggregate_first_work_units < expand_first_work_units
+        else JOIN_ORDER_EXPAND_FIRST
+    )
+    return OutcomeWorldJoinPlan(
+        selected_order=selected_order,
+        raw_outcome_rows=raw_outcome_rows,
+        grouped_outcome_rows=grouped_outcome_rows,
+        raw_join_rows=raw_join_rows,
+        grouped_join_rows=grouped_join_rows,
+        expand_first_work_units=expand_first_work_units,
+        aggregate_first_work_units=aggregate_first_work_units,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +350,10 @@ def estimate_search_cardinality_lower_bound(
         except PartialInformationSearchError as error:
             raise CompiledSearchError(str(error)) from error
         class_count += len(classes)
-        outcome_rows += sum(len(row["outcomes"]) for row in classes)
+        outcome_rows += sum(
+            len(_group_search_equivalent_outcomes(row["outcomes"]))
+            for row in classes
+        )
 
     leaf_lower_bound = len(actions)
     if method == "determinization":
@@ -289,6 +430,7 @@ class CompiledSearchTopology:
     method: str
     program_digest: str
     topology_digest: str
+    outcome_world_join_plan: OutcomeWorldJoinPlan
     root_actions: tuple[str, ...]
     world_ids: tuple[str, ...]
     world_to_class: tuple[tuple[int, ...], ...]
@@ -441,6 +583,7 @@ class CompiledSearchTopology:
             "schema_version": COMPILED_TOPOLOGY_SCHEMA_VERSION,
             "method": self.method,
             "program_digest": self.program_digest,
+            "outcome_world_join_plan": self.outcome_world_join_plan.as_record(),
             "root_actions": list(self.root_actions),
             "world_ids": list(self.world_ids),
             "world_to_class": [list(row) for row in self.world_to_class],
@@ -579,6 +722,30 @@ def compile_search_topology(
     world_ids = tuple(program_set["world_ids"])
     world_index = {world_id: index for index, world_id in enumerate(world_ids)}
 
+    prepared_by_action: list[
+        tuple[str, list[tuple[Mapping[str, Any], tuple[dict[str, Any], ...]]]]
+    ] = []
+    prepared_classes_flat: list[
+        tuple[Mapping[str, Any], tuple[dict[str, Any], ...]]
+    ] = []
+    for action in actions:
+        try:
+            classes = _validated_classes(
+                program_set=program_set,
+                action=action,
+                world_ids=set(world_ids),
+            )
+        except PartialInformationSearchError as error:
+            raise CompiledSearchError(str(error)) from error
+        prepared = [
+            (row, _group_search_equivalent_outcomes(row["outcomes"]))
+            for row in classes
+        ]
+        prepared_by_action.append((action, prepared))
+        prepared_classes_flat.extend(prepared)
+
+    outcome_world_join_plan = _plan_outcome_world_join(prepared_classes_flat)
+
     world_to_class: list[list[int]] = [
         [-1] * len(world_ids) for _ in actions
     ]
@@ -594,17 +761,8 @@ def compile_search_topology(
     successor_index_by_key: dict[str, int] = {}
     successor_states: list[Mapping[str, Any]] = []
 
-    for action_index, action in enumerate(actions):
-        try:
-            classes = _validated_classes(
-                program_set=program_set,
-                action=action,
-                world_ids=set(world_ids),
-            )
-        except PartialInformationSearchError as error:
-            raise CompiledSearchError(str(error)) from error
-
-        for local_class_index, row in enumerate(classes):
+    for action_index, (action, prepared_classes) in enumerate(prepared_by_action):
+        for local_class_index, (row, grouped_outcomes) in enumerate(prepared_classes):
             global_class_index = len(class_action_index)
             class_action_index.append(action_index)
             class_local_index.append(local_class_index)
@@ -618,7 +776,13 @@ def compile_search_topology(
                     )
                 world_to_class[action_index][index] = global_class_index
 
-            for outcome_index, outcome in enumerate(row["outcomes"]):
+            selected_outcomes: Sequence[Mapping[str, Any]] = (
+                grouped_outcomes
+                if outcome_world_join_plan.selected_order
+                == JOIN_ORDER_AGGREGATE_FIRST
+                else row["outcomes"]
+            )
+            for outcome_index, outcome in enumerate(selected_outcomes):
                 observation_key = _observation_partition(
                     action_index,
                     outcome.get("observation"),
@@ -753,6 +917,7 @@ def compile_search_topology(
         "schema_version": COMPILED_TOPOLOGY_SCHEMA_VERSION,
         "method": method,
         "program_digest": sha256_json(program_set),
+        "outcome_world_join_plan": outcome_world_join_plan.as_record(),
         "root_actions": list(actions),
         "world_ids": list(world_ids),
         "world_to_class": world_to_class,
@@ -784,6 +949,7 @@ def compile_search_topology(
         method=method,
         program_digest=material["program_digest"],
         topology_digest=topology_digest,
+        outcome_world_join_plan=outcome_world_join_plan,
         root_actions=tuple(actions),
         world_ids=world_ids,
         world_to_class=tuple(tuple(row) for row in world_to_class),
@@ -1070,6 +1236,13 @@ def _execute_compiled_topology(
             "worlds": topology.world_count,
             "classes": topology.class_count,
             "chance_edges": topology.edge_count,
+            "raw_chance_edges": topology.outcome_world_join_plan.raw_join_rows,
+            "outcome_join_order": (
+                topology.outcome_world_join_plan.selected_order
+            ),
+            "outcome_join_saved_rows": (
+                topology.outcome_world_join_plan.saved_join_rows
+            ),
             "observations": len(topology.observation_keys),
             "leaves": topology.leaf_count,
             "dense_leaf_world_cells": topology.leaf_count * topology.world_count,

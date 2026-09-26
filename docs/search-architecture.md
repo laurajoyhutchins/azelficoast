@@ -331,3 +331,44 @@ The compiled-search candidate experiment carries the frozen 512-world benchmark'
 observed envelope explicitly and fails if the adaptive planner unexpectedly leaves the
 compiled path. This is a calibration-domain fence, not a claim that the same dense plan
 is appropriate for larger unseen frontiers.
+
+
+## Cost-based outcome/world join ordering
+
+Compiled search now has its first cardinality-driven ordering choice inside the search
+topology itself.
+
+A verified transition class can contain multiple opponent-policy or chance outcomes.
+The reference semantics eventually join those outcomes with every hidden world in the
+class. Before that join, some outcome rows may already be identical for everything the
+search layer is allowed to observe:
+
+- the public observation;
+- the public successor state;
+- the successor legal-action set.
+
+For each topology, Azelficoast costs two exact physical plans:
+
+```text
+expand outcomes × member worlds
+
+vs.
+
+GROUP BY search-equivalent outcomes
+    -> sum probability
+    -> join member worlds
+```
+
+The cost unit is deliberately simple and inspectable. The expand-first plan costs its
+world/outcome join rows. The aggregate-first plan costs the raw outcome scan plus its
+smaller world join. Aggregation is pushed down only when that total is strictly smaller.
+
+This is a physical rewrite, not new game semantics. Outcomes with different public
+observations, public successors, or legal-action sets are never merged. Verified
+transition-class count is unchanged, so `transition_evaluations` retains the same
+scientific meaning. The compiled topology records both raw and physical chance-edge
+cardinalities, selected join order, predicted work units, and rows saved.
+
+The pre-JAX cardinality guard uses the number of search-equivalent outcome groups as its
+chance-edge lower bound. That remains a true lower bound whether the physical compiler
+chooses aggregation pushdown or the original expansion order.

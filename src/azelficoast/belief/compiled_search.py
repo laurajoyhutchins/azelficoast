@@ -40,7 +40,7 @@ from azelficoast.core.compiled_search import (
 from azelficoast.research.contracts import PublicSuccessorState, ResearchContractError
 
 PACKED_COMPILED_SEARCH_SCHEMA = "azelficoast.packed-compiled-partial-information-search"
-PACKED_COMPILED_SEARCH_SCHEMA_VERSION = 1
+PACKED_COMPILED_SEARCH_SCHEMA_VERSION = 2
 PACKED_COMPILED_EXECUTION_STAGES = (
     "compile_search_topology",
     "pack_joint_posterior",
@@ -138,6 +138,13 @@ def search_packed_compiled_transition_program(
             "worlds": topology.world_count,
             "classes": topology.class_count,
             "chance_edges": topology.edge_count,
+            "raw_chance_edges": topology.outcome_world_join_plan.raw_join_rows,
+            "outcome_join_order": (
+                topology.outcome_world_join_plan.selected_order
+            ),
+            "outcome_join_saved_rows": (
+                topology.outcome_world_join_plan.saved_join_rows
+            ),
             "observations": len(topology.observation_keys),
             "successor_states": len(topology.successor_states),
             "successor_action_vocabulary": len(
@@ -149,6 +156,9 @@ def search_packed_compiled_transition_program(
             ),
         },
         "numeric_backend": "jax-shared-packed-worlds",
+        "outcome_world_join_plan": (
+            topology.outcome_world_join_plan.as_record()
+        ),
         "physical_execution_stages": list(PACKED_COMPILED_EXECUTION_STAGES),
         "semantic_authority": (
             "python-validated-transition-program + pinned-showdown-vocabulary"
