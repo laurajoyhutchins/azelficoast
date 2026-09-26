@@ -9,6 +9,7 @@ on:
       - "src/azelficoast/core/whole_turn_program.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
       - "scripts/probe_real_belief_trace.cjs"
+      - "experiments/opponent-policy-semantics.json"
       - "experiments/real-belief-source-fixture.json"
       - "experiments/real-belief-source-gliscor-urshifu.json"
       - "experiments/real-belief-negative-corpus.json"
