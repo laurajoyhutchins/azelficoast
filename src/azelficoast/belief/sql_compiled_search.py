@@ -24,12 +24,17 @@ from azelficoast.belief.statistics import (
     PosteriorCorrelationProfile,
     posterior_correlation_profile,
 )
+from azelficoast.core.compiled_search import (
+    compile_search_topology,
+    estimate_search_cardinality_lower_bound,
+)
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
 from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql import (
     DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
     PreparedSQLQuery,
+    explain_sql_query,
     prepare_decision_query,
 )
 
@@ -37,6 +42,8 @@ SQL_PACKED_PLAN_SCHEMA = "azelficoast.sql-packed-decision-plan"
 SQL_PACKED_PLAN_SCHEMA_VERSION = 3
 SQL_PACKED_SEARCH_SCHEMA = "azelficoast.sql-packed-partial-information-search"
 SQL_PACKED_SEARCH_SCHEMA_VERSION = 3
+SQL_AZELFICOAST_EXPLAIN_SCHEMA = "azelficoast.sql-optimizer-explain"
+SQL_AZELFICOAST_EXPLAIN_SCHEMA_VERSION = 1
 
 
 class SQLPackedLoweringError(ValueError):
@@ -218,6 +225,168 @@ def compile_packed_sql_decision_query(
         numeric_backend="jax-shared-packed-worlds",
         plan_sha256=_plan_digest(material),
     )
+
+
+def _optimizer_groups(plan: SQLPackedDecisionPlan) -> list[dict[str, Any]]:
+    """Collapse reviewed operator bindings into explicit physical fusion groups."""
+
+    groups: list[dict[str, Any]] = []
+    by_name: dict[str, dict[str, Any]] = {}
+    for binding in plan.bindings:
+        group = by_name.get(binding.fused_group)
+        if group is None:
+            group = {
+                "name": binding.fused_group,
+                "logical_operators": [],
+                "physical_implementations": [],
+            }
+            by_name[binding.fused_group] = group
+            groups.append(group)
+        group["logical_operators"].append(binding.operator.value)
+        if binding.implementation not in group["physical_implementations"]:
+            group["physical_implementations"].append(binding.implementation)
+    return groups
+
+
+def explain_sql_packed_transition_program(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    sql: str = DEFAULT_DECISION_SQL,
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+    planner_statistics: PlannerStatistics | None = None,
+) -> dict[str, Any]:
+    """Explain the reviewed SQL/JAX plan without executing the evaluator.
+
+    This is the programmatic equivalent of EXPLAIN AZELFICOAST. It parses and
+    recognizes the SQL, validates the transition topology, computes cheap and realized
+    cardinalities, and reports the reviewed physical bindings. It does not run JAX,
+    invoke the learned evaluator, choose an action, or update planner statistics.
+    """
+
+    prepared = prepare_decision_query(sql)
+    plan = compile_packed_sql_decision_query(prepared)
+
+    raw_worlds = posterior.get("worlds")
+    raw_actions = program_set.get("legal_actions")
+    if not isinstance(raw_worlds, list) or not isinstance(raw_actions, list):
+        raise SQLPackedLoweringError(
+            "SQL planning requires explicit posterior worlds and legal actions"
+        )
+
+    lower_bound = estimate_search_cardinality_lower_bound(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+    )
+    topology = compile_search_topology(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema=expected_program_schema,
+        expected_program_schema_version=expected_program_schema_version,
+    )
+
+    filter_signature = (
+        f"{plan.semantic_identity}:filter:hidden_worlds:active-positive:"
+        f"{posterior.get('schema', 'unknown')}"
+    )
+    correlation_profile: PosteriorCorrelationProfile | None = None
+    correlation_signature = "unprofiled"
+    if planner_statistics is not None:
+        correlation_profile = posterior_correlation_profile(posterior)
+        correlation_signature = correlation_profile.signature
+
+    partition_signature = (
+        f"{plan.semantic_identity}:partition:{method}:"
+        f"{program_set.get('schema', 'unknown')}:"
+        f"correlation:{correlation_signature}"
+    )
+
+    filter_estimate: CardinalityEstimate | None = None
+    partition_estimate: CardinalityEstimate | None = None
+    if planner_statistics is not None:
+        filter_estimate = planner_statistics.estimate(
+            operator=LogicalOperator.FILTER,
+            signature=filter_signature,
+            input_rows=len(raw_worlds),
+        )
+        partition_estimate = planner_statistics.estimate(
+            operator=LogicalOperator.PARTITION,
+            signature=partition_signature,
+            input_rows=filter_estimate.estimated_output_rows * len(raw_actions),
+        )
+
+    return {
+        "schema": SQL_AZELFICOAST_EXPLAIN_SCHEMA,
+        "schema_version": SQL_AZELFICOAST_EXPLAIN_SCHEMA_VERSION,
+        "sql": explain_sql_query(prepared),
+        "semantic": {
+            "logical_operators": [
+                operator.value for operator in plan.logical.operators
+            ],
+            "transition_program_digest": topology.program_digest,
+            "compiled_topology_digest": topology.topology_digest,
+            "method": method,
+        },
+        "optimizer": {
+            "groups": _optimizer_groups(plan),
+            "outcome_world_join": topology.outcome_world_join_plan.as_record(),
+            "cardinality": {
+                "lower_bound": lower_bound.as_record(),
+                "realized": {
+                    "actions": topology.action_count,
+                    "worlds": topology.world_count,
+                    "classes": topology.class_count,
+                    "chance_edges": topology.edge_count,
+                    "raw_chance_edges": (
+                        topology.outcome_world_join_plan.raw_join_rows
+                    ),
+                    "observations": len(topology.observation_keys),
+                    "successor_states": len(topology.successor_states),
+                    "leaves": topology.leaf_count,
+                    "dense_leaf_world_cells": (
+                        topology.leaf_count * topology.world_count
+                    ),
+                },
+                "forecast": {
+                    "filter": (
+                        filter_estimate.as_record()
+                        if filter_estimate is not None
+                        else None
+                    ),
+                    "partition": (
+                        partition_estimate.as_record()
+                        if partition_estimate is not None
+                        else None
+                    ),
+                },
+            },
+            "extended_statistics": (
+                correlation_profile.as_record()
+                if correlation_profile is not None
+                else None
+            ),
+        },
+        "physical": plan.as_record(),
+        "authority": {
+            "mechanics": "verified-transition-program-outside-sql",
+            "information_sets": "python-validated-compiled-topology",
+            "posterior": "caller-supplied-admitted-posterior",
+            "sql": "read-only-query-semantics",
+            "numeric_execution": "not-executed",
+        },
+        "execution": {
+            "performed": False,
+            "evaluator_calls": 0,
+            "action_selected": False,
+            "planner_statistics_mutated": False,
+        },
+    }
 
 
 def search_sql_packed_transition_program(
