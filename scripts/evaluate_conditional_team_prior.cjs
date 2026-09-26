@@ -19,13 +19,15 @@ const testTeamCount = Number(args[3] || "10000");
 if (!showdownRoot) {
   fail("usage: evaluate_conditional_team_prior.cjs SHOWDOWN_ROOT [TRAIN_TEAMS] [VALIDATION_TEAMS] [TEST_TEAMS]");
 }
-for (const entry of [
+/** @type {Array<[string, number]>} */
+const teamCounts = [
   ["TRAIN_TEAMS", trainTeamCount],
   ["VALIDATION_TEAMS", validationTeamCount],
   ["TEST_TEAMS", testTeamCount],
-]) {
-  if (!Number.isInteger(entry[1]) || entry[1] < 1) {
-    fail(entry[0] + " must be a positive integer");
+];
+for (const [label, count] of teamCounts) {
+  if (!Number.isInteger(count) || count < 1) {
+    fail(label + " must be a positive integer");
   }
 }
 
