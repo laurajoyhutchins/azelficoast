@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
-SHOWDOWN_REVISION = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]\nrevision_path = REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"\nSHOWDOWN_REVISION = revision_path.read_text(encoding="utf-8").strip()
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 DEFAULT_OUTPUT_ROOT = Path("/tmp/azelficoast-research")
 
@@ -666,7 +666,7 @@ _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
     ".github/workflows/candidate-research.yml",
 }
-_SHARED_SHOWDOWN_PATHS = {".github/actions/setup-showdown/action.yml"}
+_SHARED_SHOWDOWN_PATHS = {\n    ".github/actions/setup-showdown/action.yml",\n    "experiments/showdown-revision.txt",\n}
 
 
 def experiments_for_paths(paths: Iterable[str]) -> tuple[CandidateExperiment, ...]:
