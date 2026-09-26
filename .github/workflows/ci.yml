@@ -15,6 +15,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Azelficoast Python 3.11
+        uses: ./.github/actions/setup-python-environment
+        with:
+          python-version: "3.11"
+      - name: Type check static frontier
+        run: uv run mypy
+
   test:
     runs-on: ubuntu-latest
     steps:
@@ -25,8 +36,6 @@ jobs:
         uses: ./.github/actions/setup-python-environment
       - name: Lint
         run: uv run ruff check .
-      - name: Type check research boundaries
-        run: uv run mypy
       - name: Check Showdown probe syntax
         run: |
           node --check scripts/probe_real_belief_trace.cjs
