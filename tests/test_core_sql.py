@@ -7,19 +7,31 @@ import pytest
 
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN
 from azelficoast.core.sql import (
+    ACTION_SUMMARY_QUERY,
+    ACTION_SUMMARY_SEMANTIC_ID,
+    ACTION_SUMMARY_SQL,
+    DECISION_EXPECTED_VALUE_QUERY,
+    DECISION_MAXIMIN_QUERY,
     DECISION_QUERY_SEMANTIC_ID,
     DECISION_SQL_SURFACE_ID,
     DEFAULT_DECISION_SQL,
-    SQLDecisionQueryError,
+    MAXIMIN_SEMANTIC_ID,
+    MAXIMIN_SQL,
+    SQLQueryError,
     describe_decision_sql_surface,
     explain_decision_query,
+    explain_sql_query,
+    prepare_action_summary_query,
     prepare_decision_query,
+    prepare_maximin_query,
+    prepare_sql_query,
 )
 
 
 def test_default_decision_sql_is_admitted_by_real_sqlite_parser() -> None:
     prepared = prepare_decision_query(DEFAULT_DECISION_SQL)
 
+    assert prepared.query_class == DECISION_EXPECTED_VALUE_QUERY
     assert prepared.sql == DEFAULT_DECISION_SQL
     assert prepared.relations == (
         "action_value_terms",
@@ -49,7 +61,7 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
     assert prepared.sql_sha256 == repeated.sql_sha256
     assert explanation["schema"] == "azelficoast.core.sql-query-explain"
-    assert explanation["schema_version"] == 4
+    assert explanation["schema_version"] == 5
     assert explanation["sql_sha256"] == prepared.sql_sha256
     assert explanation["relations"] == list(prepared.relations)
     assert explanation["functions"] == ["sum"]
@@ -66,7 +78,7 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
 
 def test_sql_dsl_fails_closed_on_mutation() -> None:
-    with pytest.raises(SQLDecisionQueryError, match="not authorized"):
+    with pytest.raises(SQLQueryError, match="not authorized"):
         prepare_decision_query("DELETE FROM hidden_worlds")
 
 
@@ -76,7 +88,7 @@ def test_sql_dsl_fails_closed_on_unapproved_function() -> None:
         "random()",
     )
 
-    with pytest.raises(SQLDecisionQueryError, match="not authorized"):
+    with pytest.raises(SQLQueryError, match="not authorized"):
         prepare_decision_query(hostile)
 
 
@@ -90,7 +102,7 @@ def test_sql_dsl_requires_all_authoritative_relations() -> None:
     """
 
     with pytest.raises(
-        SQLDecisionQueryError,
+        SQLQueryError,
         match="evaluations, legal_actions, transitions",
     ):
         prepare_decision_query(incomplete)
@@ -106,14 +118,14 @@ def test_sql_dsl_requires_decision_result_shape() -> None:
     )
 
     with pytest.raises(
-        SQLDecisionQueryError,
+        SQLQueryError,
         match="exactly action_id, expected_value",
     ):
         prepare_decision_query(wrong_shape)
 
 
 def test_sql_dsl_rejects_multiple_statements() -> None:
-    with pytest.raises(SQLDecisionQueryError):
+    with pytest.raises(SQLQueryError):
         prepare_decision_query(DEFAULT_DECISION_SQL + "; SELECT 1")
 
 
@@ -179,21 +191,40 @@ def test_admitted_sql_without_reviewed_equivalence_gets_no_logical_authority() -
 
 
 
-def test_writer_surface_exposes_small_stable_relations() -> None:
+def test_writer_surface_exposes_named_query_classes() -> None:
     surface = describe_decision_sql_surface()
 
     assert surface["surface_identity"] == DECISION_SQL_SURFACE_ID
-    assert surface["relations"] == {
-        "active_worlds": {"columns": ["world_id", "weight"]},
-        "action_value_terms": {
-            "columns": ["action_id", "weight", "value"]
-        },
+    assert surface["relations"]["active_worlds"] == {
+        "columns": ["world_id", "weight"]
     }
-    assert surface["required_result_columns"] == [
-        "action_id",
-        "expected_value",
-    ]
-    assert surface["canonical_query"] == DEFAULT_DECISION_SQL
+    assert surface["relations"]["action_value_terms"] == {
+        "columns": ["action_id", "weight", "value"]
+    }
+    assert surface["relations"]["action_statistics"] == {
+        "columns": [
+            "action_id",
+            "posterior_mass",
+            "expected_value",
+            "worst_value",
+            "best_value",
+        ]
+    }
+    assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
+        "semantic_identity"
+    ] == DECISION_QUERY_SEMANTIC_ID
+    assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
+        "packed_jax_lowering"
+    ] is True
+    assert surface["query_classes"][DECISION_MAXIMIN_QUERY][
+        "semantic_identity"
+    ] == MAXIMIN_SEMANTIC_ID
+    assert surface["query_classes"][DECISION_MAXIMIN_QUERY][
+        "packed_jax_lowering"
+    ] is False
+    assert surface["query_classes"][ACTION_SUMMARY_QUERY][
+        "semantic_identity"
+    ] == ACTION_SUMMARY_SEMANTIC_ID
 
 
 def test_default_sql_is_writer_facing_instead_of_physical_join_ceremony() -> None:
@@ -260,10 +291,22 @@ def test_sqlite_program_equivalence_does_not_accept_changed_execution() -> None:
 
 
 
-def test_canonical_sql_is_a_first_class_packaged_source() -> None:
+def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     query_source = (
         files("azelficoast.queries")
         .joinpath("decision.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    maximin_source = (
+        files("azelficoast.queries")
+        .joinpath("maximin.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    summary_source = (
+        files("azelficoast.queries")
+        .joinpath("action_summary.sql")
         .read_text(encoding="utf-8")
         .strip()
     )
@@ -276,12 +319,66 @@ def test_canonical_sql_is_a_first_class_packaged_source() -> None:
     surface = describe_decision_sql_surface()
 
     assert query_source == DEFAULT_DECISION_SQL
-    assert "CREATE VIEW action_value_terms" in schema_source
-    assert surface["sources"] == {
-        "query": "azelficoast.queries/decision.sql",
-        "schema": "azelficoast.queries/decision_schema.sql",
-    }
+    assert maximin_source == MAXIMIN_SQL
+    assert summary_source == ACTION_SUMMARY_SQL
+    assert "CREATE VIEW action_statistics" in schema_source
+    assert surface["schema_source"] == (
+        "azelficoast.queries/decision_schema.sql"
+    )
     assert surface["schema_source_sha256"] == (
         "sha256:" + hashlib.sha256(schema_source.encode("utf-8")).hexdigest()
     )
-    assert surface["schema_version"] == 2
+    assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY]["source"] == (
+        "azelficoast.queries/decision.sql"
+    )
+    assert surface["query_classes"][DECISION_MAXIMIN_QUERY]["source"] == (
+        "azelficoast.queries/maximin.sql"
+    )
+    assert surface["query_classes"][ACTION_SUMMARY_QUERY]["source"] == (
+        "azelficoast.queries/action_summary.sql"
+    )
+    assert surface["schema_version"] == 3
+
+
+def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
+    prepared = prepare_action_summary_query()
+    explanation = explain_sql_query(prepared)
+
+    assert prepared.query_class == ACTION_SUMMARY_QUERY
+    assert prepared.semantic_identity == ACTION_SUMMARY_SEMANTIC_ID
+    assert prepared.equivalence_rule == "canonical-source"
+    assert prepared.equivalence_scope == "reviewed-source"
+    assert prepared.logical is None
+    assert prepared.functions == ("max", "min", "sum")
+    assert explanation["query_class"] == ACTION_SUMMARY_QUERY
+    assert explanation["logical_operators"] == []
+
+
+def test_maximin_is_distinct_policy_semantics_without_jax_authority() -> None:
+    prepared = prepare_maximin_query()
+    explanation = explain_sql_query(prepared)
+
+    assert prepared.query_class == DECISION_MAXIMIN_QUERY
+    assert prepared.semantic_identity == MAXIMIN_SEMANTIC_ID
+    assert prepared.semantic_identity != DECISION_QUERY_SEMANTIC_ID
+    assert prepared.equivalence_rule == "canonical-source"
+    assert prepared.equivalence_scope == "reviewed-source"
+    assert prepared.logical is None
+    assert explanation["query_class"] == DECISION_MAXIMIN_QUERY
+
+
+def test_named_query_contract_rejects_wrong_result_shape() -> None:
+    with pytest.raises(SQLQueryError, match="action_id, score"):
+        prepare_sql_query(
+            ACTION_SUMMARY_SQL,
+            query_class=DECISION_MAXIMIN_QUERY,
+        )
+
+
+def test_unknown_query_class_fails_closed() -> None:
+    with pytest.raises(SQLQueryError, match="unknown SQL query class"):
+        prepare_sql_query(
+            DEFAULT_DECISION_SQL,
+            query_class="decision.unknown",
+        )
+
