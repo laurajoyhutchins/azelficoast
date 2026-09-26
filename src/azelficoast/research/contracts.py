@@ -18,7 +18,7 @@ from azelficoast.core.transition import (
     ORACLE_SCHEMA_VERSION as ORACLE_SCHEMA_VERSION,
 )
 COMPUTE_RECEIPT_SCHEMA = "azelficoast.matched-search-receipt"
-COMPUTE_RECEIPT_SCHEMA_VERSION = 4
+COMPUTE_RECEIPT_SCHEMA_VERSION = 5
 COMPUTE_BUDGET_UNIT_DEFINITION = (
     "one transition_evaluation per verified whole-turn execution class consumed"
 )
@@ -1060,6 +1060,7 @@ class ComputeReceipt:
         if values["transition_program_source"] not in {
             "verified-transition-program",
             "compiled-legacy-oracle",
+            "verified-material-oracle",
         }:
             raise ResearchContractError("receipt declares an unsupported mechanics source")
         if values["transition_oracle_digest"] != values["transition_artifact_digest"]:
