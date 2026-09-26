@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.research.mechanics.gen9_attack import AttackTransitionContext
@@ -468,6 +467,3 @@ def analyze_document(document: Mapping[str, Any]) -> dict[str, object]:
         ],
     }
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
