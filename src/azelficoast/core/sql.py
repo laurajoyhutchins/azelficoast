@@ -1,21 +1,27 @@
 """Read-only SQL front end for finite partial-information decision queries.
 
-SQLite supplies the parser and query planner. Azelficoast supplies the authority:
-SQL may describe relational composition over already-admitted relations, but it does not
-implement mechanics, belief semantics, or evaluator semantics.
+SQLite supplies parsing and admission. Azelficoast owns semantic authority. A small,
+reviewed relational rewrite system recognizes SQL forms that are equivalent to the
+canonical decision query without pretending that arbitrary admitted SQL has known battle
+semantics.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import hashlib
+import itertools
+import json
 import sqlite3
 from typing import Any
 
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalPlan
 
 SQL_EXPLAIN_SCHEMA = "azelficoast.core.sql-query-explain"
-SQL_EXPLAIN_SCHEMA_VERSION = 1
+SQL_EXPLAIN_SCHEMA_VERSION = 2
+DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
+DECISION_QUERY_SEMANTIC_VERSION = 1
 
 DEFAULT_DECISION_SQL = """
 WITH active_worlds AS (
@@ -76,6 +82,45 @@ _ALLOWED_ACTIONS = frozenset(
     }
 )
 
+_DECISION_RELATIONAL_SEMANTICS = {
+    "schema": DECISION_QUERY_SEMANTIC_SCHEMA,
+    "schema_version": DECISION_QUERY_SEMANTIC_VERSION,
+    "relations": [
+        "hidden_worlds",
+        "transitions",
+        "legal_actions",
+        "evaluations",
+    ],
+    "filter": [
+        ["hidden_worlds.active", "=", 1],
+        ["hidden_worlds.weight", ">", 0],
+    ],
+    "joins": [
+        ["hidden_worlds.world_id", "=", "transitions.world_id"],
+        ["transitions.action_id", "=", "legal_actions.action_id"],
+        ["transitions.successor_id", "=", "evaluations.successor_id"],
+    ],
+    "projection": ["transitions.action_id"],
+    "aggregate": [
+        "sum",
+        ["hidden_worlds.weight", "*", "evaluations.value"],
+        "expected_value",
+    ],
+    "group_by": ["transitions.action_id"],
+    "order_by": [
+        ["expected_value", "desc"],
+        ["transitions.action_id", "asc"],
+    ],
+}
+DECISION_QUERY_SEMANTIC_ID = "sha256:" + hashlib.sha256(
+    json.dumps(
+        _DECISION_RELATIONAL_SEMANTICS,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+).hexdigest()
+
 
 class SQLDecisionQueryError(ValueError):
     """Raised when SQL cannot be admitted as a read-only decision query."""
@@ -89,7 +134,9 @@ class PreparedDecisionQuery:
     functions: tuple[str, ...]
     sqlite_version: str
     sqlite_query_plan: tuple[str, ...]
-    logical: LogicalPlan = DEFAULT_DECISION_PLAN
+    semantic_identity: str | None
+    equivalence_rule: str | None
+    logical: LogicalPlan | None
 
 
 def _sql_sha256(sql: str) -> str:
@@ -102,12 +149,210 @@ def _prepare_connection() -> sqlite3.Connection:
     return connection
 
 
+def _normalize_reviewed_sql_source(sql: str) -> str:
+    """Normalize only incidental case/whitespace outside quoted SQL tokens.
+
+    This is intentionally not an SQL parser. SQLite remains the parser. The normalizer
+    exists only so reviewed rewrite products are not sensitive to capitalization or
+    line wrapping. Quoted material is preserved byte-for-byte and therefore cannot
+    acquire equivalence through this helper.
+    """
+
+    source = sql.strip()
+    if source.endswith(";"):
+        source = source[:-1].rstrip()
+
+    output: list[str] = []
+    pending_space = False
+    quote: str | None = None
+    index = 0
+    while index < len(source):
+        character = source[index]
+        if quote is not None:
+            output.append(character)
+            if character == quote:
+                if index + 1 < len(source) and source[index + 1] == quote:
+                    output.append(source[index + 1])
+                    index += 1
+                else:
+                    quote = None
+            index += 1
+            continue
+
+        if character in {"'", '"', "`"}:
+            if pending_space and output and output[-1] != " ":
+                output.append(" ")
+            pending_space = False
+            quote = character
+            output.append(character)
+            index += 1
+            continue
+
+        if character.isspace():
+            pending_space = True
+            index += 1
+            continue
+
+        if pending_space and output and output[-1] != " ":
+            output.append(" ")
+        pending_space = False
+        output.append(character.lower())
+        index += 1
+
+    return "".join(output).strip()
+
+
+_RELATION_SOURCE = {
+    "w": "hidden_worlds AS w",
+    "t": "transitions AS t",
+    "a": "legal_actions AS a",
+    "e": "evaluations AS e",
+}
+_JOIN_EDGE = {
+    frozenset(("w", "t")): "t.world_id = w.world_id",
+    frozenset(("t", "a")): "a.action_id = t.action_id",
+    frozenset(("t", "e")): "e.successor_id = t.successor_id",
+}
+
+
+def _connected_join_orders() -> tuple[tuple[str, ...], ...]:
+    orders: list[tuple[str, ...]] = []
+    for candidate in itertools.permutations(("w", "t", "a", "e")):
+        admitted = {candidate[0]}
+        valid = True
+        for relation in candidate[1:]:
+            if not any(
+                frozenset((relation, prior)) in _JOIN_EDGE
+                for prior in admitted
+            ):
+                valid = False
+                break
+            admitted.add(relation)
+        if valid:
+            orders.append(candidate)
+    return tuple(orders)
+
+
+def _join_sql(
+    order: tuple[str, ...],
+    *,
+    world_source: str,
+) -> str:
+    sources = dict(_RELATION_SOURCE)
+    sources["w"] = world_source
+    clauses = [f"FROM {sources[order[0]]}"]
+    admitted = {order[0]}
+    for relation in order[1:]:
+        edge = next(
+            _JOIN_EDGE[frozenset((relation, prior))]
+            for prior in admitted
+            if frozenset((relation, prior)) in _JOIN_EDGE
+        )
+        clauses.append(f"JOIN {sources[relation]} ON {edge}")
+        admitted.add(relation)
+    return "\n".join(clauses)
+
+
+def _inline_decision_sql(
+    order: tuple[str, ...],
+    predicates: tuple[str, str],
+) -> str:
+    return f"""
+SELECT
+    t.action_id AS action_id,
+    SUM(w.weight * e.value) AS expected_value
+{_join_sql(order, world_source="hidden_worlds AS w")}
+WHERE {predicates[0]} AND {predicates[1]}
+GROUP BY t.action_id
+ORDER BY expected_value DESC, action_id ASC
+""".strip()
+
+
+def _cte_decision_sql(
+    order: tuple[str, ...],
+    predicates: tuple[str, str],
+) -> str:
+    return f"""
+WITH active_worlds AS (
+    SELECT world_id, weight
+    FROM hidden_worlds
+    WHERE {predicates[0]} AND {predicates[1]}
+),
+weighted_successors AS (
+    SELECT
+        t.action_id,
+        w.weight,
+        e.value
+    {_join_sql(order, world_source="active_worlds AS w")}
+)
+SELECT
+    action_id,
+    SUM(weight * value) AS expected_value
+FROM weighted_successors
+GROUP BY action_id
+ORDER BY expected_value DESC, action_id ASC
+""".strip()
+
+
+@lru_cache(maxsize=1)
+def _reviewed_equivalence_index() -> dict[str, str]:
+    """Generate the finite SQL equivalence class admitted for compiled execution.
+
+    The rules are algebraic and deliberately small:
+
+    * inner-join commutativity/associativity over the fixed join graph;
+    * conjunction commutativity for the two active-support predicates;
+    * inlining/elimination of the two non-recursive projection CTEs.
+
+    Each generated query is still parsed and authorized by SQLite before this identity
+    can be used.
+    """
+
+    predicates = (
+        "w.active = 1",
+        "w.weight > 0",
+    )
+    cte_predicates = (
+        "active = 1",
+        "weight > 0",
+    )
+    index: dict[str, str] = {
+        _normalize_reviewed_sql_source(DEFAULT_DECISION_SQL): "canonical-cte"
+    }
+    for order in _connected_join_orders():
+        for predicate_order in (predicates, tuple(reversed(predicates))):
+            source = _inline_decision_sql(order, predicate_order)
+            index.setdefault(
+                _normalize_reviewed_sql_source(source),
+                "cte-inlining+inner-join-commutativity+predicate-commutativity",
+            )
+        for predicate_order in (cte_predicates, tuple(reversed(cte_predicates))):
+            source = _cte_decision_sql(order, predicate_order)
+            index.setdefault(
+                _normalize_reviewed_sql_source(source),
+                "inner-join-commutativity+predicate-commutativity",
+            )
+    return index
+
+
+def _reviewed_decision_equivalence(sql: str) -> tuple[str, str] | None:
+    normalized = _normalize_reviewed_sql_source(sql)
+    rule = _reviewed_equivalence_index().get(normalized)
+    if rule is None:
+        return None
+    return DECISION_QUERY_SEMANTIC_ID, rule
+
+
 def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
     """Parse and admit one read-only SQL decision query.
 
     SQLite is deliberately used as the SQL parser rather than maintaining an
     Azelficoast-specific SQL grammar. The query runs only against an empty structural
     schema during admission, so mechanics and evaluation code cannot execute here.
+
+    Admission is broader than executable semantic recognition. Queries outside the
+    reviewed relational equivalence class remain inspectable, but receive no logical
+    decision-plan identity and therefore cannot be lowered into trusted execution.
     """
 
     canonical = sql.strip()
@@ -173,6 +418,11 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
                 f"decision SQL read unsupported relations: {extra_text}"
             )
 
+        equivalent = _reviewed_decision_equivalence(canonical)
+        semantic_identity = equivalent[0] if equivalent is not None else None
+        equivalence_rule = equivalent[1] if equivalent is not None else None
+        logical = DEFAULT_DECISION_PLAN if equivalent is not None else None
+
         return PreparedDecisionQuery(
             sql=canonical,
             sql_sha256=_sql_sha256(canonical),
@@ -180,13 +430,16 @@ def prepare_decision_query(sql: str) -> PreparedDecisionQuery:
             functions=tuple(sorted(functions)),
             sqlite_version=sqlite3.sqlite_version,
             sqlite_query_plan=tuple(str(row[3]) for row in query_plan_rows),
+            semantic_identity=semantic_identity,
+            equivalence_rule=equivalence_rule,
+            logical=logical,
         )
     finally:
         connection.close()
 
 
 def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
-    """Return admission evidence plus SQLite's environment-bound query outline."""
+    """Return SQL admission, semantic-recognition, and SQLite planner evidence."""
 
     return {
         "schema": SQL_EXPLAIN_SCHEMA,
@@ -194,7 +447,13 @@ def explain_decision_query(query: PreparedDecisionQuery) -> dict[str, Any]:
         "sql_sha256": query.sql_sha256,
         "relations": list(query.relations),
         "functions": list(query.functions),
-        "logical_operators": [operator.value for operator in query.logical.operators],
+        "semantic_identity": query.semantic_identity,
+        "equivalence_rule": query.equivalence_rule,
+        "logical_operators": (
+            [operator.value for operator in query.logical.operators]
+            if query.logical is not None
+            else []
+        ),
         "sqlite": {
             "version": query.sqlite_version,
             "query_plan": list(query.sqlite_query_plan),
