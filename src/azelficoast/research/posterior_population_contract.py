@@ -58,14 +58,14 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
     if treatments != ["oracle", "generator_faithful", "practical"]:
         raise PosteriorPopulationContractError("issue #69 requires the three frozen posterior strata")
     enabled = contract.get("default_enabled_treatments")
-    if enabled != ["generator_faithful", "practical"]:
+    if enabled != ["oracle", "generator_faithful", "practical"]:
         raise PosteriorPopulationContractError(
-            "default executable phase must not impersonate oracle posterior authority"
+            "issue #69 completion requires all three posterior strata"
         )
     if contract.get("search_methods") != ["determinization", "information_set"]:
         raise PosteriorPopulationContractError("matched search methods drifted")
-    if contract.get("execution_depths") != [1]:
-        raise PosteriorPopulationContractError("current receipt executor is authorized only for depth 1")
+    if contract.get("execution_depths") != [1, 2]:
+        raise PosteriorPopulationContractError("issue #69 execution must cover depths 1 and 2")
     if contract.get("required_depth_curve") != [1, 2]:
         raise PosteriorPopulationContractError("issue #69 depth-curve completion contract drifted")
 
@@ -90,6 +90,46 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
         raise PosteriorPopulationContractError("source corpus must freeze before treatments")
     if population.get("inclusion_ledger_frozen_before_treatments") is not True:
         raise PosteriorPopulationContractError("inclusion ledger must freeze before treatments")
+    source_artifact = population.get("source_artifact")
+    if not isinstance(source_artifact, Mapping):
+        raise PosteriorPopulationContractError("population source artifact is missing")
+    for field in (
+        "artifact_id",
+        "workflow_run_id",
+        "battle_count",
+        "decision_state_count",
+    ):
+        value = source_artifact.get(field)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise PosteriorPopulationContractError(
+                f"population source artifact lacks positive {field}"
+            )
+    for field in ("artifact_digest", "decisions_sha256", "corpus_sha256"):
+        value = source_artifact.get(field)
+        if field == "artifact_digest":
+            _digest(value, field="source artifact digest")
+        elif (
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+        ):
+            raise PosteriorPopulationContractError(
+                f"population source artifact lacks valid {field}"
+            )
+    if population.get("persistent_only") is not False:
+        raise PosteriorPopulationContractError(
+            "issue #69 must retain non-persistent zero-effect controls"
+        )
+    maximum = population.get("max_selected_states")
+    minimum = population.get("minimum_selected_states")
+    if (
+        not isinstance(maximum, int)
+        or isinstance(maximum, bool)
+        or maximum < int(minimum)
+    ):
+        raise PosteriorPopulationContractError(
+            "max selected states must cover the preregistered minimum"
+        )
     forbidden = population.get("forbidden_selection_fields")
     if not isinstance(forbidden, list) or not {
         "policy_disagreement", "value_bias", "regret", "battle_outcome"
@@ -110,11 +150,36 @@ def validate_contract(contract: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(oracle, Mapping):
         raise PosteriorPopulationContractError("oracle posterior authority is missing")
     if (
-        oracle.get("kind") != "exact_conditional"
+        oracle.get("kind") not in {"exact_conditional", "best_available_conditional"}
         or oracle.get("evidence_required") is not True
         or oracle.get("realized_hidden_state_used") is not False
     ):
-        raise PosteriorPopulationContractError("oracle treatment must remain exact and leakage-free")
+        raise PosteriorPopulationContractError(
+            "oracle treatment must be explicitly conditional and leakage-free"
+        )
+    if oracle.get("kind") == "best_available_conditional":
+        dense = oracle.get("oracle_generator_rounds")
+        reference = oracle.get("generator_faithful_rounds")
+        if (
+            not isinstance(dense, int)
+            or isinstance(dense, bool)
+            or not isinstance(reference, int)
+            or isinstance(reference, bool)
+            or dense <= reference
+            or reference < 1
+        ):
+            raise PosteriorPopulationContractError(
+                "best-available conditional authority requires a denser oracle sweep"
+            )
+        if oracle.get("support_must_match_generator_faithful") is not True:
+            raise PosteriorPopulationContractError(
+                "conditional strata must share hidden support"
+            )
+        schedule = oracle.get("generator_seed_schedule")
+        if not isinstance(schedule, str) or not schedule:
+            raise PosteriorPopulationContractError("oracle authority lacks seed schedule")
+        if oracle.get("generator_seed_start") != 0:
+            raise PosteriorPopulationContractError("oracle seed sweep must start at zero")
 
     return dict(contract)
 
@@ -184,9 +249,13 @@ def compile_execution_plan(
     if "oracle" in enabled:
         authority = bindings.get("oracle_authority")
         if not isinstance(authority, Mapping):
-            raise PosteriorPopulationContractError("oracle stratum lacks exact authority binding")
-        if authority.get("kind") != "exact_conditional":
-            raise PosteriorPopulationContractError("oracle authority must be exact_conditional")
+            raise PosteriorPopulationContractError(
+                "oracle stratum lacks conditional authority binding"
+            )
+        if authority.get("kind") != checked["oracle_authority"]["kind"]:
+            raise PosteriorPopulationContractError(
+                "oracle authority differs from the frozen contract"
+            )
         _digest(authority.get("evidence_digest"), field="oracle authority evidence digest")
         if authority.get("realized_hidden_state_used") is not False:
             raise PosteriorPopulationContractError("oracle authority may not use realized hidden state")
@@ -209,6 +278,7 @@ def compile_execution_plan(
         "cluster_unit": checked["inference"]["cluster_unit"],
         "showdown_commit": _showdown_revision(),
         "evaluator": dict(evaluator),
+        "chance_treatment": "shared_frozen_horizon_complete_oracle",
         "inference": {
             "bootstrap_replicates": checked["inference"]["bootstrap_replicates"],
             "bootstrap_seed": checked["inference"]["bootstrap_seed"],
@@ -257,4 +327,6 @@ def contract_readiness(contract: Mapping[str, Any]) -> dict[str, Any]:
         "minimum_selected_states": int(checked["population"]["minimum_selected_states"]),
         "showdown_commit": _showdown_revision(),
         "oracle_authority_required": True,
+        "oracle_authority_kind": checked["oracle_authority"]["kind"],
+        "source_artifact_id": checked["population"]["source_artifact"]["artifact_id"],
     }
