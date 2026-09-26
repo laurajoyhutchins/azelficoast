@@ -131,6 +131,11 @@ GROUP BY action_id
 ORDER BY expected_value DESC, action_id ASC;
 ```
 
+The canonical query is a first-class SQL source at
+`src/azelficoast/queries/decision.sql`, and the admission/view schema lives beside it in
+`decision_schema.sql`. Python loads those packaged resources rather than carrying a
+second embedded copy of the SQL.
+
 The exposed writer relations are:
 
 ```text

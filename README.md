@@ -148,7 +148,7 @@ In less database-shaped English:
 
 > Do less work early, keep reusable intermediate results, and spend compute only on distinctions that can still change the answer.
 
-The SQL layer is not allowed to mutate battle authority. It is a query language for asking questions of the decision state.
+The SQL layer is not allowed to mutate battle authority. It is a query language for asking questions of the decision state. The canonical query is a real SQL file at `src/azelficoast/queries/decision.sql`; `docs/sql-writing.md` describes the writer surface and equivalence rules.
 
 Yes, the joke at the top of the README is becoming architecture.
 

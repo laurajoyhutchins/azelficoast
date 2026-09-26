@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import lru_cache
 import hashlib
+from importlib.resources import files
 import itertools
 import json
 import sqlite3
@@ -23,54 +24,27 @@ SQL_EXPLAIN_SCHEMA_VERSION = 4
 DECISION_QUERY_SEMANTIC_SCHEMA = "azelficoast.core.decision-query-semantics"
 DECISION_QUERY_SEMANTIC_VERSION = 1
 DECISION_SQL_SURFACE_SCHEMA = "azelficoast.core.decision-sql-surface"
-DECISION_SQL_SURFACE_VERSION = 1
+DECISION_SQL_SURFACE_VERSION = 2
 
-DEFAULT_DECISION_SQL = """
-SELECT
-    action_id,
-    SUM(weight * value) AS expected_value
-FROM action_value_terms
-GROUP BY action_id
-ORDER BY expected_value DESC, action_id ASC
-""".strip()
+_SQL_RESOURCE_PACKAGE = "azelficoast.queries"
+_DECISION_SQL_RESOURCE = "decision.sql"
+_DECISION_SCHEMA_RESOURCE = "decision_schema.sql"
 
-_SCHEMA = """
-CREATE TABLE hidden_worlds (
-    world_id INTEGER PRIMARY KEY,
-    weight REAL NOT NULL,
-    active INTEGER NOT NULL CHECK (active IN (0, 1))
-);
-CREATE TABLE legal_actions (
-    action_id INTEGER PRIMARY KEY
-);
-CREATE TABLE transitions (
-    world_id INTEGER NOT NULL,
-    action_id INTEGER NOT NULL,
-    successor_id INTEGER NOT NULL
-);
-CREATE TABLE evaluations (
-    successor_id INTEGER PRIMARY KEY,
-    value REAL NOT NULL
-);
 
-CREATE VIEW active_worlds AS
-SELECT world_id, weight
-FROM hidden_worlds
-WHERE active = 1 AND weight > 0;
+def _read_sql_resource(name: str) -> str:
+    return (
+        files(_SQL_RESOURCE_PACKAGE)
+        .joinpath(name)
+        .read_text(encoding="utf-8")
+        .strip()
+    )
 
-CREATE VIEW action_value_terms AS
-SELECT
-    t.action_id AS action_id,
-    w.weight AS weight,
-    e.value AS value
-FROM active_worlds AS w
-JOIN transitions AS t
-  ON t.world_id = w.world_id
-JOIN legal_actions AS a
-  ON a.action_id = t.action_id
-JOIN evaluations AS e
-  ON e.successor_id = t.successor_id;
-"""
+
+DEFAULT_DECISION_SQL = _read_sql_resource(_DECISION_SQL_RESOURCE)
+_SCHEMA = _read_sql_resource(_DECISION_SCHEMA_RESOURCE)
+_SCHEMA_SOURCE_SHA256 = "sha256:" + hashlib.sha256(
+    _SCHEMA.encode("utf-8")
+).hexdigest()
 
 _REQUIRED_RELATIONS = frozenset(
     {"hidden_worlds", "legal_actions", "transitions", "evaluations"}
@@ -139,6 +113,11 @@ _DECISION_SQL_SURFACE = {
     },
     "required_result_columns": ["action_id", "expected_value"],
     "canonical_query": DEFAULT_DECISION_SQL,
+    "schema_source_sha256": _SCHEMA_SOURCE_SHA256,
+    "sources": {
+        "query": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SQL_RESOURCE}",
+        "schema": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+    },
 }
 DECISION_SQL_SURFACE_ID = "sha256:" + hashlib.sha256(
     json.dumps(
@@ -163,6 +142,11 @@ def describe_decision_sql_surface() -> dict[str, Any]:
         },
         "required_result_columns": ["action_id", "expected_value"],
         "canonical_query": DEFAULT_DECISION_SQL,
+        "schema_source_sha256": _SCHEMA_SOURCE_SHA256,
+        "sources": {
+            "query": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SQL_RESOURCE}",
+            "schema": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+        },
     }
 
 
