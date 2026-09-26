@@ -265,11 +265,14 @@ function sha256(value) {
 }
 
 function sha256PythonCanonical(value) {
-  const encoded = JSON.stringify(stable(value)).replace(
-    /[^\x00-\x7f]/g,
-    character =>
-      "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0")
-  );
+  const encoded = JSON.stringify(stable(value))
+    .split("")
+    .map(character =>
+      character.charCodeAt(0) > 0x7f
+        ? "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0")
+        : character
+    )
+    .join("");
   return crypto.createHash("sha256").update(encoded).digest("hex");
 }
 
@@ -1498,6 +1501,7 @@ const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
   Battle,
   State,
   actualCommit,
+  sourceFixtureId: fixture.fixture_id,
   publicRootDependencySchema: PUBLIC_ROOT_DEPENDENCY_SCHEMA,
   publicBattleCandidates: PUBLIC_BATTLE_CANDIDATES,
   publicPokemonCandidates: PUBLIC_POKEMON_CANDIDATES,

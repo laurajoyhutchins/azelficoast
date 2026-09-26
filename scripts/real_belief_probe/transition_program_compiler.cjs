@@ -10,6 +10,7 @@ function createTransitionProgramCompiler({
   Battle,
   State,
   actualCommit,
+  sourceFixtureId,
   publicRootDependencySchema,
   publicBattleCandidates,
   publicPokemonCandidates,
@@ -770,7 +771,7 @@ function compileLazyWholeTurnPrograms(
     });
     const effectSignature = "sha256:" + sha256({
       showdown_commit: actualCommit,
-      source_fixture_id: fixture.fixture_id,
+      source_fixture_id: sourceFixtureId,
       opponent_policy: OPPONENT_POLICY,
       action,
       dependency_fields: dependencyFields,
@@ -832,7 +833,7 @@ function compileLazyWholeTurnPrograms(
   return {
     schema: "azelficoast.core.transition-program-set",
     schema_version: 1,
-    source_fixture_id: fixture.fixture_id,
+    source_fixture_id: sourceFixtureId,
     showdown_commit: actualCommit,
     world_ids: worlds.map(world => world.world_id).sort(),
     legal_actions: legalActions,

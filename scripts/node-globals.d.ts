@@ -12,3 +12,8 @@ declare const require: AzelficoastNodeRequire;
 
 declare function clearImmediate(handle: any): void;
 declare function setImmediate(callback: (...args: any[]) => void, ...args: any[]): any;
+
+declare module "node:*" {
+  const value: any;
+  export = value;
+}
