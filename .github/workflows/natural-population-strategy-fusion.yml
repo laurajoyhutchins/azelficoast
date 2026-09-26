@@ -23,6 +23,7 @@ on:
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - ".github/actions/setup-showdown/action.yml"
+      - "showdown/revision.json"
   workflow_dispatch:
 
 permissions:
