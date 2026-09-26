@@ -88,7 +88,7 @@ def run_state(
     source: Mapping[str, Any],
     manifest: Mapping[str, Any],
     population_index: int,
-    transition_artifact: Mapping[str, Any],
+    oracle: Mapping[str, Any],
     evaluator: Any,
 ) -> list[dict[str, Any]]:
     """Run every preregistered posterior/depth cell for one selected state."""
@@ -101,12 +101,12 @@ def run_state(
 
     selection = _selection(manifest, population_index=population_index)
     state = _state_from_source(source=source, selection=selection, plan=checked_plan)
-    if transition_artifact.get("source_fixture_id") != state["fixture_id"]:
-        raise MatchedPopulationRunError("transition artifact belongs to another selected state")
+    if oracle.get("source_fixture_id") != state["fixture_id"]:
+        raise MatchedPopulationRunError("oracle belongs to another selected state")
 
     results: list[dict[str, Any]] = []
     for treatment in checked_plan["posterior_treatments"]:
-        posterior = build_posterior(transition_artifact, treatment=str(treatment))
+        posterior = build_posterior(oracle, treatment=str(treatment))
         for depth in checked_plan["depths"]:
             packet = freeze_packet(
                 plan=checked_plan,
@@ -119,7 +119,7 @@ def run_state(
                 execute_method(
                     packet=packet,
                     posterior=posterior,
-                    transition_program=transition_artifact,
+                    oracle=oracle,
                     method=method,
                     evaluator=evaluator,
                 )
