@@ -5,6 +5,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - "experiments/opponent-policy-semantics.json"
       - "experiments/natural-depth-regret-plan.json"
       - "src/azelficoast/research/depth_population.py"
       - "src/azelficoast/research/depth.py"

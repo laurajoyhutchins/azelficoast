@@ -118,44 +118,21 @@ jobs:
     name: certify exact head
     runs-on: ubuntu-latest
     steps:
-      - name: Require selected exact evidence
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+
+      - name: Validate and emit exact-head certificate
         env:
           SELECTED_COUNT: ${{ needs.plan.outputs.count }}
           EXACT_RESULT: ${{ needs.exact.result }}
           ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           MATRIX: ${{ needs.plan.outputs.matrix }}
-        run: |
-          set -euo pipefail
-          if [[ "${SELECTED_COUNT}" != "0" && "${EXACT_RESULT}" != "success" ]]; then
-            echo "candidate research failed: exact jobs=${EXACT_RESULT}" >&2
-            exit 1
-          fi
-          if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]; then
-            echo "accelerator static check failed: ${ACCELERATOR_STATIC_RESULT}" >&2
-            exit 1
-          fi
-
-          mkdir -p /tmp/candidate-research-certificate
-          python - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          matrix = json.loads(os.environ["MATRIX"])
-          certificate = {
-              "schema": "azelficoast.candidate-research-certificate",
-              "git_sha": os.environ["HEAD_SHA"],
-              "selected_experiments": [
-                  entry["experiment"] for entry in matrix["include"]
-              ],
-              "passed": True,
-          }
-          Path("/tmp/candidate-research-certificate/certificate.json").write_text(
-              json.dumps(certificate, indent=2, sort_keys=True) + "\n",
-              encoding="utf-8",
-          )
-          PY
+        run: uv run python -m azelficoast.research.ci certify
 
       - uses: actions/upload-artifact@v4
         with:
