@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -270,26 +269,3 @@ def analyze_file(
         expected_showdown_commit=expected_showdown_commit,
     )
 
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    parser.add_argument(
-        "--expected-showdown-commit",
-        default=PINNED_SHOWDOWN_COMMIT,
-    )
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    result = analyze_file(
-        args.fixtures,
-        expected_showdown_commit=args.expected_showdown_commit,
-    )
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
