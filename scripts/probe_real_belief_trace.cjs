@@ -1418,15 +1418,31 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
 
 const {matched, itemCounts, variants} = generatorVariants();
 const mechanicsProjectionCount = mechanicsProjectionVariantCount(variants);
+const referenceGeneratorRounds =
+  source.expected_generator_rounds == null
+    ? null
+    : Number(source.expected_generator_rounds);
+const authorizedGeneratorRounds = Array.isArray(source.authorized_generator_rounds)
+  ? source.authorized_generator_rounds.map(Number)
+  : referenceGeneratorRounds == null
+    ? [GENERATOR_ROUNDS]
+    : [referenceGeneratorRounds];
 if (
-  source.expected_generator_rounds != null &&
-  Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
+  authorizedGeneratorRounds.some(
+    value => !Number.isSafeInteger(value) || value < 1
+  ) ||
+  !authorizedGeneratorRounds.includes(GENERATOR_ROUNDS)
 ) {
   fail(
-    `expected generator rounds ${source.expected_generator_rounds}, probe uses ${GENERATOR_ROUNDS}`
+    "generator sweep is not authorized by frozen source: " +
+    JSON.stringify(authorizedGeneratorRounds) +
+    ", got " + GENERATOR_ROUNDS
   );
 }
-if (source.expected_item_counts != null) {
+if (
+  source.expected_item_counts != null &&
+  referenceGeneratorRounds === GENERATOR_ROUNDS
+) {
   const expectedCounts = stable(source.expected_item_counts);
   const observedCounts = stable(itemCounts);
   if (JSON.stringify(expectedCounts) !== JSON.stringify(observedCounts)) {
