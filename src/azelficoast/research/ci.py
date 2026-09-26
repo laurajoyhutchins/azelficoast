@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib
 import hashlib
 import json
 import os
@@ -31,7 +32,8 @@ class Generator:
 class ModuleRun:
     module: str
     output: str
-    input: str | None = None
+    input: str | None
+    entrypoint: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +65,7 @@ def _spec(
     artifact: str,
     generator: tuple[str, str] | None = None,
     tests: tuple[str, ...] = (),
-    modules: tuple[tuple[str, str, str | None], ...],
+    modules: tuple[tuple[str, str, str | None, str], ...],
     checks: tuple[Check, ...] = (),
     simulator: bool = True,
     showdown: bool = True,
@@ -104,6 +106,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.adaptive_execution_experiment",
                 "adaptive-execution-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
             ),
         ),
         checks=(
@@ -152,6 +155,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.attack_transition_experiment",
                 "attack-transition-experiment.json",
                 "showdown-attack-fixtures.json",
+                "run_experiment",
             ),
         ),
         checks=(
@@ -194,6 +198,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.class_native_belief_experiment",
                 "class-native-belief-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
             ),
         ),
         checks=(
@@ -232,11 +237,13 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.verification.showdown_damage_corpus",
                 "showdown-gen9-damage-analysis.json",
                 "showdown-gen9-damage-fixtures.json",
+                "analyze_file",
             ),
             (
                 "azelficoast.research.experiments.jax_gen9_damage_experiment",
                 "gen9-damage-jax-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
             ),
         ),
         checks=(
@@ -288,11 +295,13 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.verification.showdown_damage_corpus",
                 "showdown-gen9-damage-analysis.json",
                 "showdown-gen9-damage-fixtures.json",
+                "analyze_file",
             ),
             (
                 "azelficoast.research.experiments.native_damage_experiment",
                 "native-damage-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
             ),
         ),
         checks=(
@@ -319,6 +328,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.jax_simulator_experiment",
                 "jax-simulator-experiment.json",
                 None,
+                "run_experiment",
             ),
         ),
         checks=(
@@ -353,6 +363,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.compiled_search_experiment",
                 "compiled-search-topology-experiment.json",
                 None,
+                "run_experiment",
             ),
         ),
         checks=(
@@ -395,6 +406,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.verification.showdown_transition_corpus",
                 "showdown-transition-analysis.json",
                 "showdown-transition-fixtures.json",
+                "analyze_file",
             ),
         ),
         checks=(
@@ -441,6 +453,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.ordered_attack_experiment",
                 "ordered-attack-experiment.json",
                 "showdown-ordered-attack-fixtures.json",
+                "run_experiment",
             ),
         ),
     ),
@@ -466,8 +479,10 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.two_attack_turn_experiment",
                 "two-attack-turn-experiment.json",
                 "showdown-two-attack-turn-fixtures.json",
+                "run_experiment",
             ),
         ),
+        allow_nonzero_module_results=True,
     ),
     _spec(
         "stateful-protect",
@@ -488,6 +503,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.stateful_protect_experiment",
                 "stateful-protect-result.json",
                 "stateful-protect-fixtures.json",
+                "analyze_document",
             ),
         ),
     ),
@@ -510,6 +526,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.switch_hazard_experiment",
                 "switch-hazard-result.json",
                 "switch-hazard-fixtures.json",
+                "analyze_document",
             ),
         ),
     ),
@@ -537,6 +554,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.switch_intimidate_experiment",
                 "switch-intimidate-result.json",
                 "switch-intimidate-fixtures.json",
+                "analyze_document",
             ),
         ),
     ),
@@ -559,6 +577,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.experiments.voluntary_switch_experiment",
                 "voluntary-switch-result.json",
                 "voluntary-switch-fixtures.json",
+                "analyze_document",
             ),
         ),
     ),
@@ -593,6 +612,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.policy_sweep",
                 "policy-parameter-sweep.json",
                 None,
+                "run_default_plan",
             ),
         ),
         checks=(
@@ -702,6 +722,42 @@ def _run(
             print(stdout.read_text(encoding="utf-8"), end="", flush=True)
     return process.returncode
 
+
+def _execute_module(module: ModuleRun, work: Path) -> int:
+    entrypoint = getattr(importlib.import_module(module.module), module.entrypoint, None)
+    if not callable(entrypoint):
+        raise CandidateExperimentError(
+            f"{module.module} lacks callable entrypoint {module.entrypoint!r}"
+        )
+
+    if module.entrypoint == "analyze_document":
+        if module.input is None:
+            raise CandidateExperimentError(
+                f"{module.module}:{module.entrypoint} requires an input artifact"
+            )
+        argument = json.loads((work / module.input).read_text(encoding="utf-8"))
+        if not isinstance(argument, Mapping):
+            raise CandidateExperimentError(f"{module.input} must contain a JSON object")
+        result = entrypoint(argument)
+    elif module.input is None:
+        result = entrypoint()
+    else:
+        result = entrypoint(work / module.input)
+
+    if not isinstance(result, Mapping):
+        raise CandidateExperimentError(
+            f"{module.module}:{module.entrypoint} returned a non-object result"
+        )
+    passed = result.get("passed")
+    if passed is not None and not isinstance(passed, bool):
+        raise CandidateExperimentError(
+            f"{module.module}:{module.entrypoint} returned non-boolean passed"
+        )
+
+    output = work / module.output
+    output.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
+    print(output.read_text(encoding="utf-8"), end="", flush=True)
+    return 1 if passed is False else 0
 
 def _read_path(record: object, path: Sequence[str | int]) -> object:
     value = record
@@ -834,14 +890,11 @@ def run_experiment(
         _run((sys.executable, "-m", "pytest", *experiment.tests))
 
     for module in experiment.modules:
-        command = [sys.executable, "-m", module.module]
-        if module.input is not None:
-            command.append(str(work / module.input))
-        _run(
-            command,
-            stdout=work / module.output,
-            check=not experiment.allow_nonzero_module_results,
-        )
+        returncode = _execute_module(module, work)
+        if returncode != 0 and not experiment.allow_nonzero_module_results:
+            raise CandidateExperimentError(
+                f"{experiment.name} module {module.module} failed"
+            )
 
     for check in experiment.checks:
         _check(check, work)
