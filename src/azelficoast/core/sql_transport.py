@@ -69,7 +69,7 @@ INFORMATION_SET_TRANSPORT_PLAN = LogicalPlan(
     )
 )
 
-_INFORMATION_SET_TRANSPORT_SEMANTICS = {
+_INFORMATION_SET_TRANSPORT_SEMANTICS: dict[str, Any] = {
     "schema": SQL_TRANSPORT_SEMANTIC_SCHEMA,
     "schema_version": SQL_TRANSPORT_SEMANTIC_VERSION,
     "authority_boundary": "content-addressed compiled search topology supplied by caller",
@@ -404,7 +404,6 @@ def _transport_information_set_mass_rows_sql(
         sqlite_query_plan=tuple(str(row[3]) for row in query_plan_rows),
         sqlite_program_sha256=_sqlite_program_sha256(program_rows),
     )
-
 
 
 def transport_information_set_mass_sql(
