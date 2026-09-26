@@ -381,7 +381,11 @@ def test_policy_sql_gets_source_derived_semantic_identity() -> None:
     assert maximin.equivalence_rule == "policy-source"
     assert maximin.equivalence_scope == "source-bound"
     assert maximin.logical is None
-    assert maximin.direct_relations == ("action_statistics",)
+    assert maximin.writer_relations == (
+        "action_statistics",
+        "action_value_terms",
+        "active_worlds",
+    )
     assert risk_adjusted.semantic_identity == policy_semantic_identity(
         RISK_ADJUSTED_SQL
     )
