@@ -562,6 +562,56 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             ),
         ),
     ),
+    _spec(
+        "sql-policy-parameter-sweep",
+        paths=(
+            "src/azelficoast/core/sql.py",
+            "src/azelficoast/queries/risk_adjusted.sql",
+            "src/azelficoast/research/policy_sweep.py",
+            "src/azelficoast/research/plans/risk_adjusted_policy_sweep.json",
+            "src/azelficoast/research/fixtures/policy_action_statistics.json",
+            "tests/test_core_sql.py",
+            "tests/test_policy_sweep.py",
+            "docs/sql-writing.md",
+        ),
+        artifact="sql-policy-parameter-sweep-evidence",
+        tests=("tests/test_policy_sweep.py",),
+        modules=(
+            (
+                "azelficoast.research.policy_sweep",
+                "policy-parameter-sweep.json",
+                None,
+            ),
+        ),
+        checks=(
+            Check(
+                "policy-parameter-sweep.json",
+                ("passed",),
+                "eq",
+                True,
+            ),
+            Check(
+                "policy-parameter-sweep.json",
+                ("grid", "point_count"),
+                "eq",
+                5,
+            ),
+            Check(
+                "policy-parameter-sweep.json",
+                ("matched_evidence", "result_count"),
+                "eq",
+                20,
+            ),
+            Check(
+                "policy-parameter-sweep.json",
+                ("fixture_summaries", 0, "policy_changes_across_grid"),
+                "eq",
+                True,
+            ),
+        ),
+        simulator=False,
+        showdown=False,
+    ),
 )
 
 _BY_NAME = {experiment.name: experiment for experiment in EXPERIMENTS}
