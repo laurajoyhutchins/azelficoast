@@ -100,7 +100,7 @@ def _load_trace_records(paths: Sequence[str | Path]) -> list[dict[str, Any]]:
 
 def _terminal_outcomes(
     trace_paths: Sequence[str | Path],
-) -> dict[tuple[str, str, str | None], dict[str, Any]]:
+) -> dict[tuple[str, str], dict[str, Any]]:
     terminals: dict[tuple[str, str], dict[str, Any]] = {}
     for record in _load_trace_records(trace_paths):
         if record.get("kind") != "terminal":
@@ -155,7 +155,7 @@ def _load_settled_targets(
     packet_paths: Sequence[str | Path],
     receipt_paths: Sequence[str | Path],
     posterior_paths: Sequence[str | Path],
-) -> dict[tuple[str, str], dict[str, Any]]:
+) -> dict[tuple[str, str, str | None], dict[str, Any]]:
     packets = _load_documents(packet_paths, kind="matched-search packet")
     receipts = _load_documents(receipt_paths, kind="matched-search receipt")
     posteriors = _load_posteriors(posterior_paths)
