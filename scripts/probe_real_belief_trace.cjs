@@ -6,6 +6,7 @@ const {performance} = require("node:perf_hooks");
 const fs = require("node:fs");
 const path = require("node:path");
 const {execFileSync} = require("node:child_process");
+const {writeJsonStream} = require("./json_stream_writer.cjs");
 
 function fail(message) {
   process.stderr.write(`${message}\n`);
@@ -3211,7 +3212,7 @@ const factoredHidden = benchFactor
 const declared = Object.fromEntries(
   legalActions.map(action => [action, declaredReads(action)])
 );
-process.stdout.write(JSON.stringify({
+void writeJsonStream({
   schema: "azelficoast.core.transition-oracle",
   schema_version: 1,
   source_fixture_id: fixture.fixture_id,
@@ -3269,4 +3270,8 @@ process.stdout.write(JSON.stringify({
   worlds: outputWorlds,
   legal_actions: legalActions,
   transitions,
-}, null, 2) + "\n");
+}).catch(error => {
+  process.stderr.write(String(error.stack || error) + "\n");
+  process.exitCode = 1;
+});
+
