@@ -182,7 +182,8 @@ and `risk_adjusted.sql` composes the same relation differently:
 WITH scored AS (
     SELECT
         action_id,
-        expected_value - 0.25 * (expected_value - worst_value) AS score
+        expected_value
+            - :risk_aversion * (expected_value - worst_value) AS score
     FROM action_statistics
 )
 SELECT
@@ -194,7 +195,39 @@ FROM scored;
 Neither policy needs a new Python query class. Its semantic identity is derived from the
 normalized policy source, writer-surface identity, result contract, and system-owned
 ranking contract. Comments, whitespace, case, and a trailing semicolon do not create a
-new identity; a changed coefficient or expression does.
+new identity; changing the SQL expression does.
+
+### Policy parameters
+
+Policies may use named SQLite parameters such as `:risk_aversion`. Parameter values are
+bound separately from policy semantics:
+
+```python
+prepare_policy_query(
+    RISK_ADJUSTED_SQL,
+    parameters={"risk_aversion": 0.25},
+)
+```
+
+The policy SQL keeps one semantic identity across a parameter sweep. Exact bindings get
+their own deterministic evidence identity, and the prepared query derives a
+`bound_semantic_identity` from the policy identity plus those bindings.
+
+```text
+risk_adjusted.sql
+      |
+      +--> policy semantic identity
+      |
+      +-- risk_aversion = 0.25 --> binding identity A --> bound identity A
+      |
+      +-- risk_aversion = 0.75 --> binding identity B --> bound identity B
+```
+
+Only named parameters are supported. Bindings must match the parameters in the parsed
+SQLite program exactly. Values are restricted to finite SQLite integers and reals;
+booleans, NaN, infinities, missing bindings, extra bindings, and positional parameters
+fail closed. Integer and real values remain distinct in evidence, so `1` and `1.0`
+cannot collapse accidentally.
 
 Policies deliberately have no packed/JAX execution authority yet. They can be parsed,
 authorized, identified, explained, compared, and reviewed as decision semantics without

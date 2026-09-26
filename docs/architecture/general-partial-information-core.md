@@ -254,9 +254,25 @@ packed/JAX   no physical lowering yet
 ```
 
 Maximin and risk-adjusted policies are therefore examples of the same source-derived
-policy language, not separate Python-side semantic classes. Editing a coefficient or
-expression creates a new policy identity automatically; comments, whitespace, case, and
-a trailing semicolon do not.
+policy language, not separate Python-side semantic classes. Structural SQL changes
+create a new policy identity automatically; comments, whitespace, case, and a trailing
+semicolon do not.
+
+Policy coefficients can instead be named SQLite parameters. The source keeps one policy
+semantic identity across a sweep, while exact finite integer/real bindings receive a
+separate binding identity. The prepared-query evidence derives a bound semantic identity
+from both:
+
+```text
+policy SQL identity
+      |
+      +-- parameters {risk_aversion: 0.25} --> bound identity A
+      |
+      +-- parameters {risk_aversion: 0.75} --> bound identity B
+```
+
+The parameter set is recovered from SQLite's parsed VDBE program rather than from a
+second Azelficoast SQL parser, and provided bindings must match it exactly.
 
 The semantic identity, rather than exact SQL spelling, keys any reviewed physical
 lowering and planner statistics. A policy may be parsed, authorized, identified, and
