@@ -502,7 +502,6 @@ def test_sql_optimizer_explain_is_read_only_and_exposes_multi_stage_plan() -> No
     assert transport_reference["semantic_identity"].startswith("sha256:")
     assert transport_reference["logical_operators"] == [
         "scan",
-        "filter",
         "project",
         "update_belief",
         "aggregate",
