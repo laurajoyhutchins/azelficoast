@@ -92,9 +92,9 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
 
 
 def test_contract_registry_change_selects_every_contract() -> None:
-    assert _names(("src/azelficoast/research/experiment_contracts.py",)) == {
-        experiment.name for experiment in EXPERIMENTS
-    }
+    expected = {experiment.name for experiment in EXPERIMENTS}
+    assert _names(("src/azelficoast/research/experiment_contracts.py",)) == expected
+    assert _names(("experiments/candidate-research-contracts.json",)) == expected
 
 
 def test_repository_showdown_revision_selects_only_showdown_consumers() -> None:
