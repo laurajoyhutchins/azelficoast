@@ -24,6 +24,7 @@ from azelficoast.belief.sql_compiled_search import (
     search_sql_packed_transition_program,
 )
 from azelficoast.core.compiled_search import compile_search_topology
+from azelficoast.core.planning import LogicalOperator
 from azelficoast.core.search import search_transition_program
 from azelficoast.core.statistics import PlannerStatistics
 from azelficoast.core.sql import DEFAULT_DECISION_SQL, prepare_decision_query
@@ -529,10 +530,7 @@ def test_sql_planner_statistics_do_not_change_query_semantics() -> None:
     statistics = PlannerStatistics()
     for _ in range(25):
         statistics.observe(
-            operator=__import__(
-                "azelficoast.core.planning",
-                fromlist=["LogicalOperator"],
-            ).LogicalOperator.FILTER,
+            operator=LogicalOperator.FILTER,
             signature=(
                 "sha256:"
                 + hashlib.sha256(DEFAULT_DECISION_SQL.encode("utf-8")).hexdigest()
