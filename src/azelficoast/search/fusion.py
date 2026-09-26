@@ -6,7 +6,7 @@ import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from azelficoast.live.corpus import DecisionFixture, load_corpus
 from azelficoast.live.belief import build_probe_source
@@ -66,7 +66,7 @@ def _plan(path: str | Path) -> dict[str, Any]:
 
 def _weighted_mean(
     worlds: Sequence[Mapping[str, Any]],
-    value,
+    value: Callable[[Mapping[str, Any]], float],
 ) -> float:
     weighted = 0.0
     total = 0

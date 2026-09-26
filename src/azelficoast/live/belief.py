@@ -324,7 +324,14 @@ def public_belief_result(
         )
 
     public = trace.get("public_belief")
-    action = public.get("chosen_action") if isinstance(public, Mapping) else None
+    if not isinstance(public, Mapping):
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="analyzer-returned-nonlegal-action",
+            diagnostics={"analyzed_action": None},
+        )
+    action = public.get("chosen_action")
     if not isinstance(action, str) or action not in set(legal_actions):
         return LiveDecisionResult(
             action=None,
@@ -334,6 +341,7 @@ def public_belief_result(
         )
 
     determinization = trace.get("determinization")
+    public_root_values = public.get("root_values")
     return LiveDecisionResult(
         action=action,
         status="selected",
@@ -361,8 +369,8 @@ def public_belief_result(
             ),
             "public_belief_value": public.get("value"),
             "public_belief_root_values": (
-                dict(public.get("root_values"))
-                if isinstance(public.get("root_values"), Mapping)
+                dict(public_root_values)
+                if isinstance(public_root_values, Mapping)
                 else None
             ),
             "public_belief_search_horizons": trace.get(
@@ -392,7 +400,7 @@ def learned_route_result(
         "search_gate": gate_record,
     }
     try:
-        spec = getattr(evaluator, "spec")
+        spec = evaluator.spec
         inputs = build_evaluator_input(
             public_state=fixture.state,
             posterior=posterior,
@@ -790,6 +798,8 @@ class PinnedShowdownBeliefPolicy:
                 "selection_basis": "one-shot-worker",
             }
             document = self._probe_document(source, transition_program_only=True)
+        if not isinstance(document, Mapping):
+            raise LiveBeliefPolicyError("transition-program probe output is not an object")
         if (
             document.get("schema") != PROGRAM_SET_SCHEMA
             or document.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION

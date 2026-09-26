@@ -167,6 +167,7 @@ def aggregate_realized_support(
             raise PosteriorValidityError("support score has invalid Brier score")
         if not isinstance(support_size, int) or isinstance(support_size, bool) or support_size < 1:
             raise PosteriorValidityError("support score has invalid support size")
+        normalized_log_loss: float | None = None
         if covered:
             if (
                 not isinstance(log_loss, (int, float))
@@ -175,6 +176,7 @@ def aggregate_realized_support(
                 or float(log_loss) < 0.0
             ):
                 raise PosteriorValidityError("covered score must contain finite log loss")
+            normalized_log_loss = float(log_loss)
         elif log_loss is not None:
             raise PosteriorValidityError("omitted realized state must not report finite log loss")
         normalized.append(
@@ -183,12 +185,19 @@ def aggregate_realized_support(
                 "realized_state_in_support": covered,
                 "assigned_mass": float(mass),
                 "brier_score": float(brier),
-                "log_loss_if_covered": float(log_loss) if covered else None,
+                "log_loss_if_covered": normalized_log_loss,
                 "support_size": support_size,
             }
         )
 
     covered_rows = [row for row in normalized if row["realized_state_in_support"]]
+    covered_log_losses = [
+        log_loss
+        for row in covered_rows
+        if (log_loss := row["log_loss_if_covered"]) is not None
+    ]
+    if len(covered_log_losses) != len(covered_rows):
+        raise PosteriorValidityError("covered support score is missing log loss")
     return {
         "case_count": len(normalized),
         "realized_support_coverage_rate": len(covered_rows) / len(normalized),
@@ -196,8 +205,8 @@ def aggregate_realized_support(
         "mean_assigned_mass": sum(row["assigned_mass"] for row in normalized) / len(normalized),
         "mean_brier_score": sum(row["brier_score"] for row in normalized) / len(normalized),
         "mean_log_loss_if_covered": (
-            sum(float(row["log_loss_if_covered"]) for row in covered_rows) / len(covered_rows)
-            if covered_rows
+            sum(covered_log_losses) / len(covered_log_losses)
+            if covered_log_losses
             else None
         ),
         "mean_support_size": sum(row["support_size"] for row in normalized) / len(normalized),
