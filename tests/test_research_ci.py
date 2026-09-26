@@ -5,10 +5,13 @@ from pathlib import Path
 import sys
 import types
 
+import pytest
+
 from azelficoast.research.ci import (
     EXPERIMENTS,
     ModuleRun,
     _execute_module,
+    candidate_certificate,
     experiments_for_paths,
     matrix_for,
 )
@@ -144,3 +147,41 @@ def test_callable_module_contract_executes_and_serializes(tmp_path, monkeypatch)
     ) == 1
     assert json.loads((tmp_path / "path.json").read_text())["path"] == fixture.name
     assert json.loads((tmp_path / "document.json").read_text())["fixture"] == 7
+
+
+def test_candidate_certificate_is_owned_by_python_and_fails_closed() -> None:
+    matrix = {
+        "include": [
+            {
+                "experiment": "contract",
+                "artifact_name": "contract-evidence",
+            }
+        ]
+    }
+    certificate = candidate_certificate(
+        head_sha="a" * 40,
+        matrix=matrix,
+        selected_count=1,
+        exact_result="success",
+        accelerator_static_result="success",
+    )
+    assert certificate == {
+        "schema": "azelficoast.candidate-research-certificate",
+        "git_sha": "a" * 40,
+        "selected_experiments": ["contract"],
+        "passed": True,
+    }
+
+    for exact_result, static_result in (
+        ("failure", "success"),
+        ("success", "failure"),
+        ("skipped", "success"),
+    ):
+        with pytest.raises(ValueError):
+            candidate_certificate(
+                head_sha="a" * 40,
+                matrix=matrix,
+                selected_count=1,
+                exact_result=exact_result,
+                accelerator_static_result=static_result,
+            )

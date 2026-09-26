@@ -37,6 +37,41 @@ class CandidateExperimentError(RuntimeError):
     """Raised when candidate research evidence cannot be admitted."""
 
 
+def candidate_certificate(
+    *,
+    head_sha: str,
+    matrix: Mapping[str, object],
+    selected_count: int,
+    exact_result: str,
+    accelerator_static_result: str,
+) -> dict[str, object]:
+    """Validate exact-head evidence and build its canonical certificate."""
+    entries = matrix.get("include")
+    if not isinstance(entries, list) or any(
+        not isinstance(entry, Mapping) or not isinstance(entry.get("experiment"), str)
+        for entry in entries
+    ):
+        raise ValueError("candidate matrix must contain named experiment entries")
+    if selected_count != len(entries) or selected_count < 0:
+        raise ValueError("candidate selected count does not match its matrix")
+    if len(head_sha) != 40 or any(char not in "0123456789abcdef" for char in head_sha):
+        raise ValueError("candidate head SHA must be a full lowercase Git SHA")
+    if accelerator_static_result != "success":
+        raise ValueError(
+            f"accelerator static check failed: {accelerator_static_result}"
+        )
+    allowed_exact_results = {"success"} if selected_count else {"success", "skipped"}
+    if exact_result not in allowed_exact_results:
+        raise ValueError(f"candidate exact evidence failed: {exact_result}")
+
+    return {
+        "schema": "azelficoast.candidate-research-certificate",
+        "git_sha": head_sha,
+        "selected_experiments": [entry["experiment"] for entry in entries],
+        "passed": True,
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class Generator:
     script: str
@@ -597,6 +632,53 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
     ),
     _spec(
+        "posterior-stratified-population",
+        paths=(
+            "experiments/posterior-stratified-population-contract.json",
+            "showdown/revision.json",
+            "src/azelficoast/research/posterior_population_contract.py",
+            "src/azelficoast/research/matched_population_run.py",
+            "src/azelficoast/research/matched_comparison.py",
+            "src/azelficoast/research/matched_population.py",
+            "src/azelficoast/research/matched_search.py",
+            "src/azelficoast/belief/treatments.py",
+            "src/azelficoast/research/experiments/posterior_stratified_population.py",
+            "tests/test_posterior_population_contract.py",
+        ),
+        artifact="posterior-stratified-population-contract-evidence",
+        tests=("tests/test_posterior_population_contract.py",),
+        modules=(
+            (
+                "azelficoast.research.experiments.posterior_stratified_population",
+                "posterior-stratified-population-contract.json",
+                None,
+                "run_experiment",
+            ),
+        ),
+        checks=(
+            Check(
+                "posterior-stratified-population-contract.json",
+                ("passed",),
+                "eq",
+                True,
+            ),
+            Check(
+                "posterior-stratified-population-contract.json",
+                ("minimum_selected_states",),
+                "ge",
+                100,
+            ),
+            Check(
+                "posterior-stratified-population-contract.json",
+                ("oracle_authority_required",),
+                "eq",
+                True,
+            ),
+        ),
+        simulator=False,
+        showdown=False,
+    ),
+    _spec(
         "candidate-research-contract",
         paths=(
             "src/azelficoast/research/ci.py",
@@ -666,7 +748,10 @@ _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
     ".github/workflows/candidate-research.yml",
 }
-_SHARED_SHOWDOWN_PATHS = {".github/actions/setup-showdown/action.yml"}
+_SHARED_SHOWDOWN_PATHS = {
+    ".github/actions/setup-showdown/action.yml",
+    "showdown/revision.json",
+}
 
 
 def experiments_for_paths(paths: Iterable[str]) -> tuple[CandidateExperiment, ...]:
@@ -923,6 +1008,8 @@ def _parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("experiment", choices=tuple(_BY_NAME))
     run.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
+
+    commands.add_parser("certify")
     return parser
 
 
@@ -948,6 +1035,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 matrix_for(selected),
                 separators=(",", ":"),
             )
+        )
+        return 0
+
+    if args.command == "certify":
+        try:
+            certificate = candidate_certificate(
+                head_sha=os.environ["HEAD_SHA"],
+                matrix=json.loads(os.environ["MATRIX"]),
+                selected_count=int(os.environ["SELECTED_COUNT"]),
+                exact_result=os.environ["EXACT_RESULT"],
+                accelerator_static_result=os.environ["ACCELERATOR_STATIC_RESULT"],
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise CandidateExperimentError(str(error)) from error
+        destination = Path(
+            os.environ.get(
+                "CERTIFICATE_PATH",
+                "/tmp/candidate-research-certificate/certificate.json",
+            )
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(
+            json.dumps(certificate, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
         )
         return 0
 
