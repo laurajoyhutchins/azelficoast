@@ -38,6 +38,7 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "src/azelficoast/belief/battle_promotion.py",
         "src/azelficoast/belief/competence.py",
         "src/azelficoast/belief/coverage.py",
+        "src/azelficoast/belief/evaluator.py",
         "src/azelficoast/belief/joint_posterior.py",
         "src/azelficoast/belief/statistics.py",
         "src/azelficoast/belief/status_move_prior.py",
