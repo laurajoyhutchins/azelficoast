@@ -29,6 +29,7 @@ def test_default_decision_sql_is_admitted_by_real_sqlite_parser() -> None:
     assert prepared.functions == ("sum",)
     assert prepared.semantic_identity == DECISION_QUERY_SEMANTIC_ID
     assert prepared.equivalence_rule == "writer-view"
+    assert prepared.equivalence_scope == "reviewed-relational"
     assert prepared.sql_surface_identity == DECISION_SQL_SURFACE_ID
     assert prepared.logical == DEFAULT_DECISION_PLAN
     assert prepared.sqlite_version
@@ -45,18 +46,20 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
     assert prepared.sql_sha256 == repeated.sql_sha256
     assert explanation["schema"] == "azelficoast.core.sql-query-explain"
-    assert explanation["schema_version"] == 3
+    assert explanation["schema_version"] == 4
     assert explanation["sql_sha256"] == prepared.sql_sha256
     assert explanation["relations"] == list(prepared.relations)
     assert explanation["functions"] == ["sum"]
     assert explanation["semantic_identity"] == DECISION_QUERY_SEMANTIC_ID
     assert explanation["equivalence_rule"] == "writer-view"
+    assert explanation["equivalence_scope"] == "reviewed-relational"
     assert explanation["sql_surface_identity"] == DECISION_SQL_SURFACE_ID
     assert explanation["logical_operators"] == [
         operator.value for operator in DEFAULT_DECISION_PLAN.operators
     ]
     assert explanation["sqlite"]["version"] == prepared.sqlite_version
     assert explanation["sqlite"]["query_plan"] == list(prepared.sqlite_query_plan)
+    assert explanation["sqlite"]["program_sha256"] == prepared.sqlite_program_sha256
 
 
 def test_sql_dsl_fails_closed_on_mutation() -> None:
@@ -137,6 +140,7 @@ def test_relational_rewrites_share_one_decision_semantic_identity() -> None:
     assert rewritten.equivalence_rule == (
         "cte-inlining+inner-join-commutativity+predicate-commutativity"
     )
+    assert rewritten.equivalence_scope == "reviewed-relational"
 
 
 def test_relational_equivalence_ignores_incidental_case_and_whitespace() -> None:
@@ -163,9 +167,11 @@ def test_admitted_sql_without_reviewed_equivalence_gets_no_logical_authority() -
 
     assert prepared.semantic_identity is None
     assert prepared.equivalence_rule is None
+    assert prepared.equivalence_scope is None
     assert prepared.logical is None
     assert explanation["semantic_identity"] is None
     assert explanation["equivalence_rule"] is None
+    assert explanation["equivalence_scope"] is None
     assert explanation["logical_operators"] == []
 
 
@@ -211,3 +217,40 @@ def test_writer_comments_do_not_change_decision_semantics() -> None:
     assert prepared.sql_sha256 != canonical.sql_sha256
     assert prepared.semantic_identity == DECISION_QUERY_SEMANTIC_ID
     assert prepared.equivalence_rule == "writer-view"
+
+
+
+PROGRAM_EQUIVALENT_DECISION_SQL = """
+SELECT
+    terms.action_id AS action_id,
+    SUM((terms.weight * terms.value)) AS expected_value
+FROM action_value_terms AS terms
+GROUP BY terms.action_id
+ORDER BY 2 DESC, 1 ASC
+""".strip()
+
+
+def test_sqlite_program_equivalence_accepts_natural_writer_variants() -> None:
+    canonical = prepare_decision_query(DEFAULT_DECISION_SQL)
+    variant = prepare_decision_query(PROGRAM_EQUIVALENT_DECISION_SQL)
+
+    assert variant.sql_sha256 != canonical.sql_sha256
+    assert variant.semantic_identity == DECISION_QUERY_SEMANTIC_ID
+    assert variant.logical == DEFAULT_DECISION_PLAN
+    assert variant.equivalence_rule == "sqlite-program-equivalence"
+    assert variant.equivalence_scope == "sqlite-version-bound"
+    assert variant.sqlite_program_sha256 == canonical.sqlite_program_sha256
+
+
+def test_sqlite_program_equivalence_does_not_accept_changed_execution() -> None:
+    changed = DEFAULT_DECISION_SQL.replace(
+        "SUM(weight * value)",
+        "SUM(weight * value) + 0",
+    )
+
+    prepared = prepare_decision_query(changed)
+
+    assert prepared.semantic_identity is None
+    assert prepared.logical is None
+    assert prepared.equivalence_rule is None
+    assert prepared.equivalence_scope is None
