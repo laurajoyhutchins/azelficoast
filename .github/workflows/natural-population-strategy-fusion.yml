@@ -5,6 +5,8 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - "experiments/opponent-policy-semantics.json"
+      - "experiments/showdown-revision.txt"
       - "experiments/natural-population-strategy-fusion-plan.json"
       - "src/azelficoast/research/population.py"
       - "src/azelficoast/research/natural_disagreements.py"
