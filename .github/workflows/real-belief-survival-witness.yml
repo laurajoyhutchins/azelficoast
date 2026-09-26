@@ -7,6 +7,7 @@ on:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "showdown/revision.json"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
@@ -87,9 +88,10 @@ jobs:
           assert trace["source_fixture_id"] == (
               "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2"
           ), trace
-          assert trace["showdown_commit"] == (
-              "a5df8274e85b0889bf2a9b3422a08b39732374fc"
-          ), trace
+          expected_showdown = json.loads(
+              Path("showdown/revision.json").read_text(encoding="utf-8")
+          )["commit"]
+          assert trace["showdown_commit"] == expected_showdown, trace
           assert trace["experiment_valid"] is True, trace
           assert trace["world_count"] >= 2, trace
           assert trace["legal_action_count"] == 11, trace

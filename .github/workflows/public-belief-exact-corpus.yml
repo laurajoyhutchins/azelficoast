@@ -6,6 +6,8 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
+      - ".github/actions/setup-showdown/action.yml"
+      - "showdown/revision.json"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
@@ -92,9 +94,10 @@ jobs:
           assert fixture is not None, fixture_id
           assert candidate is not None, fixture_id
           assert candidate["current_speed_fork"] is True, candidate
-          assert candidate["showdown_commit"] == (
-              "a5df8274e85b0889bf2a9b3422a08b39732374fc"
-          ), candidate
+          expected_showdown = json.loads(
+              Path("showdown/revision.json").read_text(encoding="utf-8")
+          )["commit"]
+          assert candidate["showdown_commit"] == expected_showdown, candidate
 
           latest_tera = None
           p2_active = None
