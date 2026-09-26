@@ -34,7 +34,6 @@ class ModuleRun:
     output: str
     input: str | None = None
     entrypoint: str | None = None
-    input_kind: str = "path"
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,7 +107,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "adaptive-execution-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
         checks=(
@@ -158,7 +156,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "attack-transition-experiment.json",
                 "showdown-attack-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
         checks=(
@@ -202,7 +199,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "class-native-belief-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
         checks=(
@@ -247,7 +243,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "gen9-damage-jax-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
         checks=(
@@ -305,7 +300,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "native-damage-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
         checks=(
@@ -333,7 +327,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "jax-simulator-experiment.json",
                 None,
                 "run_experiment",
-                "none",
             ),
         ),
         checks=(
@@ -457,7 +450,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "ordered-attack-experiment.json",
                 "showdown-ordered-attack-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
     ),
@@ -484,7 +476,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "two-attack-turn-experiment.json",
                 "showdown-two-attack-turn-fixtures.json",
                 "run_experiment",
-                "path",
             ),
         ),
     ),
@@ -508,7 +499,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "stateful-protect-result.json",
                 "stateful-protect-fixtures.json",
                 "analyze_document",
-                "json",
             ),
         ),
     ),
@@ -532,7 +522,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "switch-hazard-result.json",
                 "switch-hazard-fixtures.json",
                 "analyze_document",
-                "json",
             ),
         ),
     ),
@@ -561,7 +550,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "switch-intimidate-result.json",
                 "switch-intimidate-fixtures.json",
                 "analyze_document",
-                "json",
             ),
         ),
     ),
@@ -585,7 +573,6 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "voluntary-switch-result.json",
                 "voluntary-switch-fixtures.json",
                 "analyze_document",
-                "json",
             ),
         ),
     ),
@@ -738,40 +725,25 @@ def _execute_module(module: ModuleRun, work: Path) -> int:
             command.append(str(work / module.input))
         return _run(command, stdout=output, check=False)
 
-    imported = importlib.import_module(module.module)
-    entrypoint = getattr(imported, module.entrypoint, None)
+    entrypoint = getattr(importlib.import_module(module.module), module.entrypoint, None)
     if not callable(entrypoint):
         raise CandidateExperimentError(
             f"{module.module} lacks callable entrypoint {module.entrypoint!r}"
         )
 
-    if module.input_kind == "none":
-        if module.input is not None:
+    if module.entrypoint == "analyze_document":
+        if module.input is None:
             raise CandidateExperimentError(
-                f"{module.module}:{module.entrypoint} forbids an input artifact"
+                f"{module.module}:{module.entrypoint} requires an input artifact"
             )
+        argument = json.loads((work / module.input).read_text(encoding="utf-8"))
+        if not isinstance(argument, Mapping):
+            raise CandidateExperimentError(f"{module.input} must contain a JSON object")
+        result = entrypoint(argument)
+    elif module.input is None:
         result = entrypoint()
-    elif module.input_kind == "path":
-        if module.input is None:
-            raise CandidateExperimentError(
-                f"{module.module}:{module.entrypoint} requires an input artifact"
-            )
-        result = entrypoint(work / module.input)
-    elif module.input_kind == "json":
-        if module.input is None:
-            raise CandidateExperimentError(
-                f"{module.module}:{module.entrypoint} requires an input artifact"
-            )
-        document = json.loads((work / module.input).read_text(encoding="utf-8"))
-        if not isinstance(document, Mapping):
-            raise CandidateExperimentError(
-                f"{module.input} must contain a JSON object"
-            )
-        result = entrypoint(document)
     else:
-        raise CandidateExperimentError(
-            f"unknown input kind {module.input_kind!r} for {module.module}"
-        )
+        result = entrypoint(work / module.input)
 
     if not isinstance(result, Mapping):
         raise CandidateExperimentError(
@@ -782,14 +754,9 @@ def _execute_module(module: ModuleRun, work: Path) -> int:
         raise CandidateExperimentError(
             f"{module.module}:{module.entrypoint} returned non-boolean passed"
         )
-
-    output.write_text(
-        json.dumps(result, sort_keys=True) + "\n",
-        encoding="utf-8",
-    )
+    output.write_text(json.dumps(result, sort_keys=True) + "\n", encoding="utf-8")
     print(output.read_text(encoding="utf-8"), end="", flush=True)
     return 1 if passed is False else 0
-
 
 def _read_path(record: object, path: Sequence[str | int]) -> object:
     value = record
