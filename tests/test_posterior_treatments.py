@@ -115,7 +115,7 @@ def test_practical_preserves_item_mass_but_discards_within_item_frequency() -> N
 def test_oracle_treatment_fails_closed_on_sampled_generator_reconstruction() -> None:
     with pytest.raises(
         PosteriorTreatmentError,
-        match="requires exact_conditional",
+        match="requires exact or best-available conditional authority",
     ):
         oracle_posterior(_oracle())
 
@@ -135,6 +135,7 @@ def test_oracle_treatment_requires_explicit_exact_conditional_evidence() -> None
     reconstruction["exact_conditional_evidence"] = {
         "generator_model": "enumerated-test-model",
         "conditioned_public_history_digest": "abc",
+        "realized_hidden_state_used": False,
     }
     posterior = oracle_posterior(oracle)
     assert posterior["treatment"] == "oracle"
@@ -174,3 +175,55 @@ def test_support_preserving_prior_stress_treatments() -> None:
         abs(world["weight"] - weight / total) < 1e-12
         for world, weight in zip(sharpened["worlds"], expected, strict=True)
     )
+
+
+def test_generator_faithful_uses_certified_reference_weights() -> None:
+    oracle = copy.deepcopy(_oracle())
+    reconstruction = oracle["reconstruction"]
+    assert isinstance(reconstruction, dict)
+    reconstruction["generator_rounds"] = 65536
+    reconstruction["generator_matches"] = 64000
+    reconstruction["generator_faithful_reference"] = {
+        "generator_rounds": 2048,
+        "generator_matches": 2000,
+        "generator_seed_schedule": "diagonal-counter-[i,i,i,i]",
+        "generator_seed_start": 0,
+        "world_weights": [
+            {"world_id": "band-a", "weight": 0.20},
+            {"world_id": "band-b", "weight": 0.20},
+            {"world_id": "scarf-a", "weight": 0.20},
+            {"world_id": "scarf-b", "weight": 0.40},
+        ],
+        "evidence_digest": "sha256:" + "f" * 64,
+    }
+
+    posterior = generator_faithful_posterior(oracle)
+    assert [world["weight"] for world in posterior["worlds"]] == [
+        0.20,
+        0.20,
+        0.20,
+        0.40,
+    ]
+    assert posterior["construction"]["generator_rounds"] == 2048
+
+
+def test_best_available_oracle_keeps_dense_conditional_mass() -> None:
+    oracle = copy.deepcopy(_oracle())
+    reconstruction = oracle["reconstruction"]
+    assert isinstance(reconstruction, dict)
+    reconstruction["posterior_authority"] = "best_available_conditional"
+    reconstruction["best_available_conditional_evidence"] = {
+        "authority_kind": "best_available_conditional",
+        "exact": False,
+        "realized_hidden_state_used": False,
+        "evidence_digest": "sha256:" + "e" * 64,
+    }
+
+    posterior = oracle_posterior(oracle)
+    assert posterior["construction"]["kind"] == "best-available-conditional"
+    assert [world["weight"] for world in posterior["worlds"]] == [
+        0.45,
+        0.15,
+        0.10,
+        0.30,
+    ]
