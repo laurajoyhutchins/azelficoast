@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/research/verification/replay_worlds.py"
       - "showdown/research/belief/sample_showdown_worlds.cjs"

@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - "experiments/opponent-policy-semantics.json"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
@@ -102,7 +103,7 @@ jobs:
 
       - name: Verify negative corpus and mining result
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
