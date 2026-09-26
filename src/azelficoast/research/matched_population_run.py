@@ -240,6 +240,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     raw_evaluator = plan.get("evaluator")
     if not isinstance(raw_evaluator, Mapping):
         raise MatchedPopulationRunError("matched plan lacks evaluator identity")
+    evaluator: Any | None
     if raw_evaluator.get("schema") == "azelficoast.material-utility-evaluator":
         evaluator = None
     else:
