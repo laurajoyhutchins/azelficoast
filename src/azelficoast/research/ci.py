@@ -732,7 +732,16 @@ def _execute_module(module: ModuleRun, work: Path) -> int:
             f"{module.module} lacks callable entrypoint {module.entrypoint!r}"
         )
 
-    if module.input is None:
+    if module.entrypoint == "analyze_document":
+        if module.input is None:
+            raise CandidateExperimentError(
+                f"{module.module}:{module.entrypoint} requires an input artifact"
+            )
+        argument = json.loads((work / module.input).read_text(encoding="utf-8"))
+        if not isinstance(argument, Mapping):
+            raise CandidateExperimentError(f"{module.input} must contain a JSON object")
+        result = entrypoint(argument)
+    elif module.input is None:
         result = entrypoint()
     else:
         result = entrypoint(work / module.input)
