@@ -719,13 +719,22 @@ def _read_path(record: object, path: Sequence[str | int]) -> object:
     return value
 
 
+def _numeric_check_value(value: object, *, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise CandidateExperimentError(f"{label} must be numeric")
+    return float(value)
+
+
 def _check(check: Check, work: Path) -> None:
     document = json.loads((work / check.output).read_text(encoding="utf-8"))
     actual = _read_path(document, check.path)
     if check.operator == "eq":
         passed = actual == check.expected
     elif check.operator == "ge":
-        passed = float(actual) >= float(check.expected)
+        passed = _numeric_check_value(actual, label="actual check value") >= _numeric_check_value(
+            check.expected,
+            label="expected check value",
+        )
     elif check.operator == "prefix":
         passed = isinstance(actual, str) and actual.startswith(str(check.expected))
     else:
