@@ -9,7 +9,7 @@ import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence
+from typing import Any, Callable, Iterable, Mapping, Protocol, Sequence, cast
 
 from poke_env.player import Player
 
@@ -129,7 +129,7 @@ def load_policy(spec: str) -> FixturePolicy:
         raise CorpusError(f"policy {spec!r} must expose a string name")
     if not callable(getattr(candidate, "choose", None)):
         raise CorpusError(f"policy {spec!r} must expose choose(fixture)")
-    return candidate
+    return cast(FixturePolicy, candidate)
 
 
 def _load_trace_records(paths: Sequence[Path]) -> list[dict[str, Any]]:
@@ -331,7 +331,7 @@ def build_fixtures(
                 ),
             )
         )
-        protocol_prefix = tuple(
+        normalized_protocol_prefix = tuple(
             tuple(tuple(str(field) for field in message) for message in batch)
             for batch in raw["protocol_prefix"]
         )
@@ -339,7 +339,7 @@ def build_fixtures(
             DecisionFixture(
                 fixture_id=fixture_id,
                 state=raw["state"],
-                protocol_prefix=protocol_prefix,
+                protocol_prefix=normalized_protocol_prefix,
                 control_decisions=controls,
             )
         )
