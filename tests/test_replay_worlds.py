@@ -59,6 +59,8 @@ def _sample() -> dict[str, object]:
             "teamDetails": {},
             "isLead": False,
             "isDoubles": False,
+            "publicLevel": None,
+            "publicAbility": None,
         },
         "rounds": 8,
         "matched": 8,
@@ -190,6 +192,33 @@ def test_world_sample_must_be_bound_to_historical_showdown_revision(tmp_path) ->
     path.write_text(json.dumps(sample), encoding="utf-8")
 
     with pytest.raises(ReplayError, match="not bound"):
+        load_world_sample(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("isLead", True),
+        ("isDoubles", True),
+        ("publicLevel", 82),
+        ("publicAbility", "blaze"),
+    ],
+)
+def test_world_sample_rejects_generator_context_drift(
+    tmp_path,
+    field: str,
+    value: object,
+) -> None:
+    import json
+
+    sample = _sample()
+    context = dict(sample["generator_context"])
+    context[field] = value
+    sample["generator_context"] = context
+    path = tmp_path / "sample.json"
+    path.write_text(json.dumps(sample), encoding="utf-8")
+
+    with pytest.raises(ReplayError, match="unexpected generator context"):
         load_world_sample(path)
 
 
