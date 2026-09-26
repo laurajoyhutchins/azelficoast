@@ -119,30 +119,51 @@ an opaque target signature.
 ### SQL as a decision-query DSL
 
 The relational planner now has an intentionally small executable SQL front end. The
-initial query is ordinary SQL over four admitted relations:
+writer-facing surface is deliberately smaller than the engine-facing schema. Ordinary
+decision SQL starts from the read-only `action_value_terms` relation:
 
 ```sql
-WITH active_worlds AS (
-    SELECT world_id, weight
-    FROM hidden_worlds
-    WHERE active = 1 AND weight > 0
-),
-weighted_successors AS (
-    SELECT t.action_id, w.weight, e.value
-    FROM active_worlds AS w
-    JOIN transitions AS t ON t.world_id = w.world_id
-    JOIN legal_actions AS a ON a.action_id = t.action_id
-    JOIN evaluations AS e ON e.successor_id = t.successor_id
-)
-SELECT action_id, SUM(weight * value) AS expected_value
-FROM weighted_successors
+SELECT
+    action_id,
+    SUM(weight * value) AS expected_value
+FROM action_value_terms
 GROUP BY action_id
 ORDER BY expected_value DESC, action_id ASC;
 ```
 
+The exposed writer relations are:
+
+```text
+active_worlds(world_id, weight)
+
+action_value_terms(action_id, weight, value)
+```
+
+They are real SQLite views over the authoritative base relations:
+
+```text
+hidden_worlds
+     |
+     | active = 1 AND weight > 0
+     v
+active_worlds
+     |
+     +-- transitions
+     +-- legal_actions
+     +-- evaluations
+     |
+     v
+action_value_terms
+```
+
+This keeps join plumbing out of ordinary query authoring without hiding the decision
+calculation itself. The writer still chooses projection, aggregation, grouping, and
+ordering in SQL. The exact view surface has its own content identity and can be exposed
+to editors or future completion tooling with `describe_decision_sql_surface()`.
+
 This is deliberately not a second mechanics engine. Trusted machinery still owns the
 contents and identities of hidden worlds, legal actions, transitions, and evaluations.
-SQL is allowed to describe relational composition over those admitted facts.
+The views only project already-admitted facts into a more useful relational vocabulary.
 
 Admission uses Python's standard-library SQLite parser and authorizer. Only read-only
 `SELECT` access and an explicit aggregate-function surface are accepted; mutation,
