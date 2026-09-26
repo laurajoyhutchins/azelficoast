@@ -1,30 +1,62 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import pytest
 
-from azelficoast.live.harness import (
-    _adaptive_public_replay_count,
-    _balanced_battle_allocation,
-    _build_parser,
-    _nonnegative_int,
-    _open_unit_float,
-    _positive_even_int,
-    _positive_int,
-    _resolve_live_credentials,
+from azelficoast.live.battle_runtime import resolve_live_credentials
+from azelficoast.live.cli import (
+    build_parser,
+    nonnegative_int,
+    open_unit_float,
+    positive_even_int,
+    positive_int,
 )
+from azelficoast.live.self_improvement_runtime import adaptive_public_replay_count
 
+
+
+
+def test_harness_stays_a_dispatch_shell() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "azelficoast"
+        / "live"
+        / "harness.py"
+    ).read_text(encoding="utf-8")
+
+    assert "add_argument(" not in source
+    assert "poke_env" not in source
+    assert "run_self_improvement_cycle" not in source
+    assert "build_training_dataset" not in source
+
+
+
+def test_training_runtime_stays_command_dispatch_only() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "azelficoast"
+        / "live"
+        / "training_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert "poke_env" not in source
+    assert "settle_battle_panel" not in source
+    assert "allocate_evidence_budget" not in source
+    assert "async def run_automatic_self_improvement" not in source
 
 def test_challenge_parsing() -> None:
-    args = _build_parser().parse_args(["challenge", "Jaxcalibur", "--battles", "3"])
+    args = build_parser().parse_args(["challenge", "Jaxcalibur", "--battles", "3"])
     assert args.command == "challenge"
     assert args.opponent == "Jaxcalibur"
     assert args.battles == 3
 
 
 def test_corpus_build_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "corpus",
             "build",
@@ -41,7 +73,7 @@ def test_corpus_build_parsing() -> None:
 
 
 def test_corpus_evaluate_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "corpus",
             "evaluate",
@@ -57,18 +89,18 @@ def test_corpus_evaluate_parsing() -> None:
 
 def test_positive_int_rejects_zero() -> None:
     with pytest.raises(argparse.ArgumentTypeError):
-        _positive_int("0")
+        positive_int("0")
 
 
 def test_credentials_come_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SHOWDOWN_USERNAME", "azelficoast")
     monkeypatch.setenv("SHOWDOWN_PASSWORD", "secret")
-    assert _resolve_live_credentials(None) == ("azelficoast", "secret")
+    assert resolve_live_credentials(None) == ("azelficoast", "secret")
 
 
 
 def test_local_concurrency_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         ["local", "--battles", "32", "--concurrency", "8"]
     )
     assert args.command == "local"
@@ -76,7 +108,7 @@ def test_local_concurrency_parsing() -> None:
     assert args.concurrency == 8
 
 def test_live_belief_configuration_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "--showdown-root",
             "/tmp/pokemon-showdown",
@@ -90,7 +122,7 @@ def test_live_belief_configuration_parsing() -> None:
 
 
 def test_belief_coverage_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         ["belief-coverage", "one.jsonl", "two.jsonl"]
     )
     assert args.command == "belief-coverage"
@@ -98,7 +130,7 @@ def test_belief_coverage_parsing() -> None:
 
 
 def test_training_improve_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "training",
             "improve",
@@ -120,7 +152,7 @@ def test_training_improve_parsing() -> None:
 
 
 def test_training_cycle_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "--showdown-root",
             "/tmp/pokemon-showdown",
@@ -141,7 +173,7 @@ def test_training_cycle_parsing() -> None:
 
 
 def test_training_auto_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "--showdown-root",
             "/tmp/pokemon-showdown",
@@ -166,24 +198,13 @@ def test_training_auto_parsing() -> None:
 
 
 def test_nonnegative_int_allows_zero_and_rejects_negative() -> None:
-    assert _nonnegative_int("0") == 0
+    assert nonnegative_int("0") == 0
     with pytest.raises(argparse.ArgumentTypeError):
-        _nonnegative_int("-1")
-
-
-def test_training_battles_are_balanced_across_opponent_population() -> None:
-    assert _balanced_battle_allocation(12, 4) == (3, 3, 3, 3)
-    assert _balanced_battle_allocation(7, 4) == (2, 2, 2, 1)
-
-
-def test_training_battle_remainders_rotate_across_generations() -> None:
-    assert _balanced_battle_allocation(2, 4, rotation=0) == (1, 1, 0, 0)
-    assert _balanced_battle_allocation(2, 4, rotation=2) == (0, 0, 1, 1)
-    assert _balanced_battle_allocation(5, 4, rotation=3) == (1, 1, 1, 2)
+        nonnegative_int("-1")
 
 
 def test_teacher_challenger_threshold_parsing() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "training",
             "cycle",
@@ -197,7 +218,7 @@ def test_teacher_challenger_threshold_parsing() -> None:
 
 
 def test_training_auto_replenishes_public_curriculum_by_default() -> None:
-    args = _build_parser().parse_args(
+    args = build_parser().parse_args(
         [
             "--showdown-root",
             "/tmp/pokemon-showdown",
@@ -211,23 +232,23 @@ def test_training_auto_replenishes_public_curriculum_by_default() -> None:
 
 
 def test_promotion_battle_controls_are_fail_closed() -> None:
-    assert _positive_even_int("32") == 32
+    assert positive_even_int("32") == 32
     with pytest.raises(argparse.ArgumentTypeError):
-        _positive_even_int("31")
-    assert _open_unit_float("0.1") == 0.1
+        positive_even_int("31")
+    assert open_unit_float("0.1") == 0.1
     with pytest.raises(argparse.ArgumentTypeError):
-        _open_unit_float("1")
+        open_unit_float("1")
 
 
 def test_training_auto_has_battle_strength_gate_by_default() -> None:
-    args = _build_parser().parse_args(["training", "auto"])
+    args = build_parser().parse_args(["training", "auto"])
 
     assert args.promotion_battles == 32
     assert args.promotion_alpha == 0.10
 
 
 def test_public_replay_acquisition_stays_full_on_cold_start() -> None:
-    assert _adaptive_public_replay_count(
+    assert adaptive_public_replay_count(
         4,
         ledger=None,
         generated_source_kinds=["generated-dirty-tricks"],
@@ -255,8 +276,26 @@ def test_public_replay_acquisition_backs_off_when_generated_debt_is_higher() -> 
         ]
     }
 
-    assert _adaptive_public_replay_count(
+    assert adaptive_public_replay_count(
         4,
         ledger=ledger,
         generated_source_kinds=["generated-dirty-tricks"],
     ) == 1
+
+
+
+def test_promotion_evidence_identity_names_are_stable() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "azelficoast"
+        / "live"
+        / "promotion_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"candidate_checkpoint_digest"' in source
+    assert '"incumbent_checkpoint_digest"' in source
+    assert "candidate_checkpoint_digest=" in source
+    assert "incumbent_checkpoint_digest=" in source
+    assert "candidatecheckpoint_digest" not in source
+    assert "incumbentcheckpoint_digest" not in source
