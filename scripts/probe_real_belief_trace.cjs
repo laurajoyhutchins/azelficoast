@@ -1479,7 +1479,7 @@ const outputWorlds = worlds.map(world => ({
 }));
 
 if (posteriorOnly) {
-  void writeJsonStream({
+  process.stdout.write(JSON.stringify({
     schema: "azelficoast.live-belief-posterior",
     schema_version: 1,
     source_fixture_id: fixture.fixture_id,
@@ -1508,11 +1508,8 @@ if (posteriorOnly) {
     },
     legal_actions: legalActions,
     worlds: outputWorlds,
-  }).catch(error => {
-    process.stderr.write(String(error.stack || error) + "\n");
-    process.exitCode = 1;
-  });
-  return;
+  }, null, 2) + "\n");
+  process.exit(0);
 }
 const {createTransitionProgramCompiler} = require(
   path.join(path.dirname(process.argv[1]), "real_belief_probe", "transition_program_compiler.cjs")
@@ -1548,11 +1545,10 @@ const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
 });
 
 if (transitionProgramOnly) {
-  void writeJsonStream(compileLazyWholeTurnPrograms()).catch(error => {
-    process.stderr.write(String(error.stack || error) + "\n");
-    process.exitCode = 1;
-  });
-  return;
+  process.stdout.write(
+    JSON.stringify(compileLazyWholeTurnPrograms(), null, 2) + "\n"
+  );
+  process.exit(0);
 }
 
 
