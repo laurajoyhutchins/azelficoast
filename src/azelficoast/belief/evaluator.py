@@ -230,7 +230,7 @@ def evaluator_identity(
     }
 
 
-def _require_jax():
+def _require_jax() -> tuple[Any, Any]:
     try:
         import jax
         import jax.numpy as jnp
