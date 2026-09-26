@@ -45,27 +45,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
-    for command in sorted(COMMANDS):
-        commands.add_parser(command)
-
-    matrix = commands.add_parser("matrix")
-    matrix.add_argument(
-        "suite",
-        choices=("exhausted-bench", "public-belief-exact"),
-    )
-
-    exhausted = commands.add_parser("exhausted-bench")
-    exhausted.add_argument("name", choices=tuple(belief.EXHAUSTED_FIXTURES))
-
-    public = commands.add_parser("public-belief-exact")
-    public.add_argument("name", choices=tuple(belief.PUBLIC_BELIEF_FIXTURES))
-
-    population_shard = commands.add_parser("natural-population-shard")
-    population_shard.add_argument("shard", type=int, choices=range(8))
-
-    depth_shard = commands.add_parser("natural-depth-shard")
-    depth_shard.add_argument("shard", type=int, choices=range(6))
-
     plan = commands.add_parser("plan")
     plan.add_argument("--base", default="")
     plan.add_argument("--head", default="")
@@ -110,10 +89,16 @@ def _run_study_unit(study_name: str, unit: str) -> None:
         belief.public_belief_exact(unit)
         return
     if contract.kind == "natural-population-shard":
-        population.natural_population_shard(int(unit))
+        population.natural_population_shard(
+            int(unit),
+            shard_count=len(contract.units),
+        )
         return
     if contract.kind == "natural-depth-shard":
-        population.natural_depth_shard(int(unit))
+        population.natural_depth_shard(
+            int(unit),
+            shard_count=len(contract.units),
+        )
         return
     raise HostedResearchContractError(
         f"{study_name} uses unknown execution kind {contract.kind!r}"
@@ -154,22 +139,7 @@ def _aggregate(study_name: str) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
-    if args.command == "matrix":
-        cases = (
-            belief.EXHAUSTED_FIXTURES
-            if args.suite == "exhausted-bench"
-            else belief.PUBLIC_BELIEF_FIXTURES
-        )
-        print(json.dumps({"include": [{"name": name} for name in cases]}))
-    elif args.command == "exhausted-bench":
-        belief.exhausted_bench(args.name)
-    elif args.command == "public-belief-exact":
-        belief.public_belief_exact(args.name)
-    elif args.command == "natural-population-shard":
-        population.natural_population_shard(args.shard)
-    elif args.command == "natural-depth-shard":
-        population.natural_depth_shard(args.shard)
-    elif args.command == "plan":
+    if args.command == "plan":
         selected = select_studies(
             base=args.base,
             head=args.head,
@@ -191,7 +161,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     elif args.command == "aggregate":
         _aggregate(args.study)
     else:
-        COMMANDS[args.command]()
+        raise HostedResearchContractError(
+            f"unknown hosted research command {args.command!r}"
+        )
     return 0
 
 
