@@ -147,6 +147,16 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
     assert checked == ["ci.yml", "research.yml", "training.yml"]
 
 
+def test_evidence_setup_runs_after_python_environment() -> None:
+    for workflow in ("ci.yml", "research.yml"):
+        source = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+        if "uses: ./.github/actions/setup-research-evidence" not in source:
+            continue
+        assert source.index("uses: ./.github/actions/setup-python-environment") < source.index(
+            "uses: ./.github/actions/setup-research-evidence"
+        )
+
+
 def test_training_workflow_observes_replay_bridge_changes() -> None:
     source = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
     assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
