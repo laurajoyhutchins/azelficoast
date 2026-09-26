@@ -236,6 +236,16 @@ def test_research_workflow_calls_only_generic_research_entrypoints() -> None:
         assert f"azelficoast.research.hosted {operation}" not in source
 
 
+def test_hosted_aggregates_are_not_blocked_by_unrelated_matrix_failure() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    aggregate = source[source.index("  hosted-aggregate:\n") :]
+
+    assert "needs.hosted-run.result != 'cancelled'" in aggregate
+    assert "needs.hosted-run.result == 'success'" not in aggregate
+    assert "pattern: ${{ matrix.download_pattern }}" in aggregate
+    assert "if-no-files-found: ${{ matrix.if_no_files }}" in aggregate
+
+
 def test_candidate_research_emits_one_exact_head_certificate() -> None:
     source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
 
