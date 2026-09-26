@@ -10,11 +10,110 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
+from typing import Sequence
 
 
 class ExecutionPath(str, Enum):
     DIRECT = "direct"
     PROJECTED = "projected"
+
+
+@dataclass(frozen=True)
+class LocalityEvidence:
+    """Observed reuse evidence with a deterministic smoothed hit estimate."""
+
+    hits: int
+    misses: int
+    prior_hits: float = 1.0
+    prior_misses: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.hits < 0 or self.misses < 0:
+            raise ValueError("locality counts must be non-negative")
+        if (
+            not isfinite(self.prior_hits)
+            or not isfinite(self.prior_misses)
+            or self.prior_hits <= 0
+            or self.prior_misses <= 0
+        ):
+            raise ValueError("locality priors must be finite and positive")
+
+    @property
+    def attempts(self) -> int:
+        return self.hits + self.misses
+
+    @property
+    def hit_probability(self) -> float:
+        return (self.hits + self.prior_hits) / (
+            self.attempts + self.prior_hits + self.prior_misses
+        )
+
+
+@dataclass(frozen=True)
+class CacheTierCost:
+    """One optional physical reuse tier in a fallback execution route."""
+
+    name: str
+    locality: LocalityEvidence
+    hit_cost_ms: float
+    miss_cost_ms: float
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("cache tier name must be non-empty")
+        for value in (self.hit_cost_ms, self.miss_cost_ms):
+            if not isfinite(value) or value < 0:
+                raise ValueError("cache tier costs must be finite and non-negative")
+
+
+@dataclass(frozen=True)
+class CacheRouteEstimate:
+    """Expected physical cost for an ordered cache route and terminal fallback."""
+
+    tier_names: tuple[str, ...]
+    expected_ms: float
+    fallback_ms: float
+    remaining_miss_probability: float
+    hit_probabilities: tuple[float, ...]
+
+
+def estimate_cache_route(
+    tiers: Sequence[CacheTierCost],
+    *,
+    fallback_ms: float,
+) -> CacheRouteEstimate:
+    """Estimate an ordered cache route from measured locality and latency.
+
+    Each tier is attempted only after every prior tier misses. A hit terminates the route.
+    The terminal fallback is exact work such as a fresh simulator execution or an already
+    verified compiled kernel.
+    """
+
+    if not isfinite(fallback_ms) or fallback_ms < 0:
+        raise ValueError("fallback cost must be finite and non-negative")
+    if len({tier.name for tier in tiers}) != len(tiers):
+        raise ValueError("cache tier names must be unique")
+
+    expected = 0.0
+    remaining = 1.0
+    probabilities: list[float] = []
+    for tier in tiers:
+        probability = tier.locality.hit_probability
+        probabilities.append(probability)
+        expected += remaining * (
+            probability * tier.hit_cost_ms
+            + (1.0 - probability) * tier.miss_cost_ms
+        )
+        remaining *= 1.0 - probability
+
+    expected += remaining * fallback_ms
+    return CacheRouteEstimate(
+        tier_names=tuple(tier.name for tier in tiers),
+        expected_ms=expected,
+        fallback_ms=fallback_ms,
+        remaining_miss_probability=remaining,
+        hit_probabilities=tuple(probabilities),
+    )
 
 
 @dataclass(frozen=True)

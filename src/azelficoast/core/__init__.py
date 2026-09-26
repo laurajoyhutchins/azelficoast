@@ -10,11 +10,15 @@ from azelficoast.core.contracts import (
     TransitionOracleProducer,
 )
 from azelficoast.core.costing import (
+    CacheRouteEstimate,
+    CacheTierCost,
     ExecutionCostProfile,
     ExecutionDecision,
     ExecutionFeatures,
     ExecutionPath,
+    LocalityEvidence,
     choose_execution_path,
+    estimate_cache_route,
 )
 from azelficoast.core.decision_relevance import (
     CERTIFICATE_SCHEMA,
@@ -35,12 +39,18 @@ from azelficoast.core.program import (
 from azelficoast.core.memo import MemoKey, MemoStats, SemanticMemo
 from azelficoast.core.planning import (
     DEFAULT_DECISION_PLAN,
+    OPERATOR_PLAN_EXPLAIN_SCHEMA,
+    OPERATOR_PLAN_EXPLAIN_SCHEMA_VERSION,
     PLAN_EXPLAIN_SCHEMA,
     PLAN_EXPLAIN_SCHEMA_VERSION,
     LogicalOperator,
     LogicalPlan,
+    OperatorImplementation,
+    OperatorPhysicalPlan,
     PhysicalPlan,
+    choose_operator_implementation,
     choose_physical_plan,
+    explain_operator_plan,
     explain_physical_plan,
 )
 from azelficoast.core.search import (
@@ -60,15 +70,22 @@ from azelficoast.core.transition import (
 )
 
 __all__ = [
+    "CacheRouteEstimate",
+    "CacheTierCost",
     "DEFAULT_DECISION_PLAN",
     "ExecutionCostProfile",
     "ExecutionDecision",
     "ExecutionFeatures",
     "ExecutionPath",
+    "LocalityEvidence",
     "LogicalOperator",
+    "OPERATOR_PLAN_EXPLAIN_SCHEMA",
+    "OPERATOR_PLAN_EXPLAIN_SCHEMA_VERSION",
     "MemoKey",
     "MemoStats",
     "LogicalPlan",
+    "OperatorImplementation",
+    "OperatorPhysicalPlan",
     "PLAN_EXPLAIN_SCHEMA",
     "PLAN_EXPLAIN_SCHEMA_VERSION",
     "PhysicalPlan",
@@ -94,8 +111,11 @@ __all__ = [
     "VERIFICATION_SCHEMA_VERSION",
     "canonical_json",
     "choose_execution_path",
+    "choose_operator_implementation",
     "choose_physical_plan",
     "decision_relevance_quotient",
+    "estimate_cache_route",
+    "explain_operator_plan",
     "explain_physical_plan",
     "program_for_action",
     "search_transition_program",

@@ -1,11 +1,21 @@
 from __future__ import annotations
 
-from azelficoast.core.costing import ExecutionCostProfile, ExecutionFeatures, ExecutionPath
+from azelficoast.core.costing import (
+    CacheTierCost,
+    ExecutionCostProfile,
+    ExecutionFeatures,
+    ExecutionPath,
+    LocalityEvidence,
+    estimate_cache_route,
+)
 from azelficoast.core.planning import (
     DEFAULT_DECISION_PLAN,
     LogicalOperator,
     LogicalPlan,
+    OperatorImplementation,
+    choose_operator_implementation,
     choose_physical_plan,
+    explain_operator_plan,
     explain_physical_plan,
 )
 
@@ -96,3 +106,109 @@ def test_custom_logical_plan_does_not_change_physical_cost_semantics() -> None:
 
     assert planned.logical is logical
     assert planned.decision.path is ExecutionPath.PROJECTED
+
+
+def test_cache_route_estimate_uses_smoothed_locality_and_fallback_cost() -> None:
+    exact = CacheTierCost(
+        name="exact-cache",
+        locality=LocalityEvidence(hits=8, misses=2),
+        hit_cost_ms=0.03,
+        miss_cost_ms=0.01,
+    )
+    projected = CacheTierCost(
+        name="projected-delta",
+        locality=LocalityEvidence(hits=3, misses=1),
+        hit_cost_ms=0.08,
+        miss_cost_ms=0.02,
+    )
+
+    estimate = estimate_cache_route((exact, projected), fallback_ms=2.0)
+
+    assert estimate.tier_names == ("exact-cache", "projected-delta")
+    assert 0.0 < estimate.remaining_miss_probability < 1.0
+    assert estimate.expected_ms < 2.0
+
+
+def test_operator_planner_compares_only_semantically_equivalent_candidates() -> None:
+    candidates = (
+        OperatorImplementation(
+            operator=LogicalOperator.TRANSITION,
+            name="fresh-showdown",
+            semantic_signature="sha256:turn",
+            predicted_ms=2.4,
+            evidence={"kind": "fresh"},
+        ),
+        OperatorImplementation(
+            operator=LogicalOperator.TRANSITION,
+            name="exact-cache",
+            semantic_signature="sha256:turn",
+            predicted_ms=0.2,
+            evidence={"kind": "cache"},
+        ),
+        OperatorImplementation(
+            operator=LogicalOperator.TRANSITION,
+            name="compiled-mechanics",
+            semantic_signature="sha256:turn",
+            predicted_ms=0.6,
+            evidence={"kind": "verified-compiled"},
+        ),
+    )
+
+    plan = choose_operator_implementation(candidates)
+    explanation = explain_operator_plan(plan)
+
+    assert plan.selected.name == "exact-cache"
+    assert explanation["logical_operator"] == "transition"
+    assert explanation["selected_implementation"] == "exact-cache"
+    assert [row["name"] for row in explanation["candidates"]] == [
+        "fresh-showdown",
+        "exact-cache",
+        "compiled-mechanics",
+    ]
+
+
+def test_operator_planner_keeps_jax_on_evaluate_operator() -> None:
+    plan = choose_operator_implementation(
+        (
+            OperatorImplementation(
+                operator=LogicalOperator.EVALUATE,
+                name="jax-batch",
+                semantic_signature="sha256:evaluator",
+                predicted_ms=0.4,
+                evidence={"batch": 64},
+            ),
+            OperatorImplementation(
+                operator=LogicalOperator.EVALUATE,
+                name="scalar-evaluator",
+                semantic_signature="sha256:evaluator",
+                predicted_ms=3.0,
+                evidence={"batch": 1},
+            ),
+        )
+    )
+
+    assert plan.selected.name == "jax-batch"
+
+
+def test_operator_planner_rejects_cross_operator_or_semantic_comparisons() -> None:
+    transition = OperatorImplementation(
+        operator=LogicalOperator.TRANSITION,
+        name="fresh",
+        semantic_signature="sha256:turn-a",
+        predicted_ms=1.0,
+        evidence={},
+    )
+    evaluate = OperatorImplementation(
+        operator=LogicalOperator.EVALUATE,
+        name="jax",
+        semantic_signature="sha256:value",
+        predicted_ms=0.5,
+        evidence={},
+    )
+
+    try:
+        choose_operator_implementation((transition, evaluate))
+    except ValueError as error:
+        assert "one logical operator" in str(error)
+    else:
+        raise AssertionError("cross-operator candidates must be rejected")

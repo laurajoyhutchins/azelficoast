@@ -111,6 +111,46 @@ The two caches have separate limits:
 while `AZELFICOAST_SHOWDOWN_PUBLIC_PROJECTION_CACHE_ENTRIES` controls traced projection
 reuse. Both default to 512 entries.
 
+### Physical planning is per logical operator
+
+The core planner does not compare heterogeneous work merely because every path is fast.
+It chooses among semantically equivalent implementations of one logical operator at a
+time. A transition implementation competes with other exact transition implementations;
+a learned evaluator implementation competes with other evaluator implementations.
+
+For live Showdown transitions, the persistent policy now feeds measured locality and
+latency back into the planner. The first uncertain search turn exercises the complete
+exact-cache -> projected-delta -> fresh-Showdown route to obtain measurements. Later
+turns compare three physical routes:
+
+```text
+fresh Showdown
+
+exact cache
+  -> fresh Showdown on miss
+
+exact cache
+  -> projected-delta cache on miss
+  -> fresh Showdown on miss
+```
+
+Hit probabilities use smoothed observed hit/miss counts. Hit, miss, and fresh execution
+latencies are measured separately inside the persistent worker. If the planner selects a
+route that stops consulting a cache, the full route is sampled again every sixteen
+program compilations so locality changes can be detected rather than freezing an old
+cost decision forever.
+
+Compiled mechanics can enter the same `TRANSITION` candidate set only when an adapter
+has an independently verified binding for the current effect signature. JAX belongs to
+the `EVALUATE` operator and is compared only with semantically equivalent evaluator
+implementations. An unavailable implementation is not assigned an optimistic cost; it
+simply is not a candidate.
+
+The planner's prediction changes execution machinery, never semantic authority. Every
+selected transition route still terminates in exact work, cached entries retain their
+existing dependency/effect fences, and fresh pinned Showdown remains the terminal
+fallback.
+
 ### The owned compiler owns small exact integer kernels
 
 The custom compiler is deliberately a tiny lowering from an explicitly supported Python

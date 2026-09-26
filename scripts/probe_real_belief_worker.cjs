@@ -18,7 +18,7 @@ const probePath = path.join(__dirname, "probe_real_belief_trace.cjs");
 const probeSource = fs.readFileSync(probePath, "utf8");
 const probeScript = new vm.Script(probeSource, {filename: probePath});
 const transitionScript = new vm.Script(
-  "JSON.stringify(compileLazyWholeTurnPrograms())",
+  "JSON.stringify(compileLazyWholeTurnPrograms(globalThis.__azelficoastTransitionCacheMode))",
   {filename: "azelficoast-transition-program.vm.js"}
 );
 const generatorCacheDir = fs.mkdtempSync(
@@ -183,13 +183,17 @@ function createSession(sessionKey, source) {
   return document;
 }
 
-function compileTransitionProgram(sessionKey) {
+function compileTransitionProgram(sessionKey, cacheMode) {
+  if (!["fresh", "exact", "projection"].includes(cacheMode)) {
+    throw new Error("unknown transition cache mode");
+  }
   const session = sessions.get(sessionKey);
   if (!session) {
     throw new Error("posterior session is unavailable; reconstruct before exact search");
   }
   let encoded;
   try {
+    session.context.__azelficoastTransitionCacheMode = cacheMode;
     encoded = transitionScript.runInContext(session.context);
   } finally {
     sessions.delete(sessionKey);
@@ -225,7 +229,13 @@ async function handle(request) {
     return {id, ok: true, document: createSession(session, request.source)};
   }
   if (op === "transition_program") {
-    return {id, ok: true, document: compileTransitionProgram(session)};
+    const cacheMode =
+      typeof request.cache_mode === "string" ? request.cache_mode : "projection";
+    return {
+      id,
+      ok: true,
+      document: compileTransitionProgram(session, cacheMode),
+    };
   }
   if (op === "release") {
     return {id, ok: true, released: releaseSession(session)};

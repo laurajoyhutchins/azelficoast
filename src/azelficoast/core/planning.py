@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
+from math import isfinite
+from typing import Any, Mapping, Sequence
 
 from azelficoast.core.costing import (
     ExecutionCostProfile,
@@ -20,6 +21,8 @@ from azelficoast.core.costing import (
 
 PLAN_EXPLAIN_SCHEMA = "azelficoast.core.execution-plan-explain"
 PLAN_EXPLAIN_SCHEMA_VERSION = 1
+OPERATOR_PLAN_EXPLAIN_SCHEMA = "azelficoast.core.operator-plan-explain"
+OPERATOR_PLAN_EXPLAIN_SCHEMA_VERSION = 1
 
 
 class LogicalOperator(str, Enum):
@@ -63,6 +66,81 @@ class PhysicalPlan:
     logical: LogicalPlan
     features: ExecutionFeatures
     decision: ExecutionDecision
+
+
+@dataclass(frozen=True)
+class OperatorImplementation:
+    """One exact implementation candidate for one logical operator."""
+
+    operator: LogicalOperator
+    name: str
+    semantic_signature: str
+    predicted_ms: float
+    evidence: Mapping[str, Any]
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("physical implementation name must be non-empty")
+        if not self.semantic_signature:
+            raise ValueError("physical implementation semantic signature must be non-empty")
+        if not isfinite(self.predicted_ms) or self.predicted_ms < 0:
+            raise ValueError("physical implementation cost must be finite and non-negative")
+
+
+@dataclass(frozen=True)
+class OperatorPhysicalPlan:
+    """Chosen exact implementation for one logical operator."""
+
+    operator: LogicalOperator
+    semantic_signature: str
+    candidates: tuple[OperatorImplementation, ...]
+    selected: OperatorImplementation
+
+
+def choose_operator_implementation(
+    candidates: Sequence[OperatorImplementation],
+) -> OperatorPhysicalPlan:
+    """Choose the lowest-cost exact implementation with deterministic tie-breaking."""
+
+    rows = tuple(candidates)
+    if not rows:
+        raise ValueError("at least one physical implementation is required")
+    operator = rows[0].operator
+    signature = rows[0].semantic_signature
+    for candidate in rows:
+        if candidate.operator is not operator:
+            raise ValueError("physical candidates must implement one logical operator")
+        if candidate.semantic_signature != signature:
+            raise ValueError("physical candidates must share one semantic signature")
+
+    selected = min(rows, key=lambda candidate: (candidate.predicted_ms, candidate.name))
+    return OperatorPhysicalPlan(
+        operator=operator,
+        semantic_signature=signature,
+        candidates=rows,
+        selected=selected,
+    )
+
+
+def explain_operator_plan(plan: OperatorPhysicalPlan) -> dict[str, Any]:
+    """Return deterministic planner evidence for one logical operator."""
+
+    return {
+        "schema": OPERATOR_PLAN_EXPLAIN_SCHEMA,
+        "schema_version": OPERATOR_PLAN_EXPLAIN_SCHEMA_VERSION,
+        "logical_operator": plan.operator.value,
+        "semantic_signature": plan.semantic_signature,
+        "candidates": [
+            {
+                "name": candidate.name,
+                "predicted_ms": candidate.predicted_ms,
+                "evidence": dict(candidate.evidence),
+            }
+            for candidate in plan.candidates
+        ],
+        "selected_implementation": plan.selected.name,
+        "selected_predicted_ms": plan.selected.predicted_ms,
+    }
 
 
 def choose_physical_plan(

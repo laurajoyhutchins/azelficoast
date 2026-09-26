@@ -129,6 +129,7 @@ class PersistentShowdownProbe:
         session: str,
         timeout_seconds: float,
         source: Mapping[str, Any] | None = None,
+        cache_mode: str | None = None,
     ) -> Mapping[str, Any]:
         if timeout_seconds <= 0:
             raise ValueError("probe timeout must be positive")
@@ -145,6 +146,8 @@ class PersistentShowdownProbe:
             }
             if source is not None:
                 payload["source"] = dict(source)
+            if cache_mode is not None:
+                payload["cache_mode"] = cache_mode
 
             try:
                 process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
@@ -219,6 +222,7 @@ class PersistentShowdownProbe:
         source: Mapping[str, Any],
         *,
         timeout_seconds: float,
+        cache_mode: str = "projection",
     ) -> Mapping[str, Any]:
         """Compile the TransitionProgram from the retained posterior context."""
 
@@ -227,6 +231,7 @@ class PersistentShowdownProbe:
             op="transition_program",
             session=session,
             timeout_seconds=timeout_seconds,
+            cache_mode=cache_mode,
         )
         document = response.get("document")
         if not isinstance(document, Mapping):

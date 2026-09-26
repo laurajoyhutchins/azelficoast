@@ -15,6 +15,7 @@ from poke_env.data import GenData
 
 from azelficoast.belief.evaluator import build_evaluator_input
 from azelficoast.live.corpus import DecisionFixture
+from azelficoast.live.execution_planning import TransitionRouteHistory
 from azelficoast.live.showdown_probe import (
     PersistentShowdownProbe,
     ShowdownProbeRuntimeError,
@@ -574,6 +575,12 @@ def transition_program_belief_result(
             "transition_execution_cache_misses": producer_diagnostics.get(
                 "transition_execution_cache_misses"
             ),
+            "transition_cache_mode": producer_diagnostics.get(
+                "transition_cache_mode"
+            ),
+            "physical_cost_observations": producer_diagnostics.get(
+                "physical_cost_observations"
+            ),
             "fresh_showdown_turn_executions": producer_diagnostics.get(
                 "fresh_showdown_turn_executions"
             ),
@@ -653,6 +660,8 @@ class PinnedShowdownBeliefPolicy:
             if self._configuration_error is None and learned_evaluator is not None
             else None
         )
+        self._transition_route_history = TransitionRouteHistory()
+        self._last_transition_route_plan: Mapping[str, Any] = {}
 
     def _validate_showdown_root(self) -> str | None:
         try:
@@ -743,11 +752,44 @@ class PinnedShowdownBeliefPolicy:
         source: Mapping[str, Any],
     ) -> Mapping[str, Any]:
         runtime = getattr(self, "_probe_runtime", None)
-        document = (
-            runtime.transition_program(source, timeout_seconds=self.timeout_seconds)
-            if runtime is not None
-            else self._probe_document(source, transition_program_only=True)
-        )
+        if runtime is not None:
+            history = getattr(self, "_transition_route_history", None)
+            if history is None:
+                history = TransitionRouteHistory()
+                self._transition_route_history = history
+            semantic_material = {
+                "showdown_commit": PINNED_SHOWDOWN_COMMIT,
+                "source_fixture_id": source.get("fixture_id"),
+                "legal_actions": source.get("fixture", {})
+                .get("state", {})
+                .get("legal_actions"),
+                "opponent_policy": source.get("opponent_policy"),
+            }
+            semantic_signature = "sha256:" + hashlib.sha256(
+                _canonical_json(semantic_material).encode("utf-8")
+            ).hexdigest()
+            cache_mode, plan = history.plan(
+                semantic_signature=semantic_signature
+            )
+            self._last_transition_route_plan = plan
+            document = runtime.transition_program(
+                source,
+                timeout_seconds=self.timeout_seconds,
+                cache_mode=cache_mode,
+            )
+            producer = document.get("producer")
+            if isinstance(producer, Mapping):
+                history.observe(producer)
+        else:
+            self._last_transition_route_plan = {
+                "schema": "azelficoast.live-transition-route-plan",
+                "schema_version": 1,
+                "logical_operator": "transition",
+                "selected_implementation": "showdown:fresh",
+                "cache_mode": "fresh",
+                "selection_basis": "one-shot-worker",
+            }
+            document = self._probe_document(source, transition_program_only=True)
         if (
             document.get("schema") != PROGRAM_SET_SCHEMA
             or document.get("schema_version") != PROGRAM_SET_SCHEMA_VERSION
@@ -863,6 +905,9 @@ class PinnedShowdownBeliefPolicy:
                         diagnostics={
                             **dict(route.diagnostics),
                             **dict(searched.diagnostics),
+                            "transition_physical_plan": dict(
+                                getattr(self, "_last_transition_route_plan", {})
+                            ),
                         },
                     )
                 program_failure = {
