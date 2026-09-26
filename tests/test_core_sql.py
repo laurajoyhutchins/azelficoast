@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+from importlib.resources import files
+
 import pytest
 
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN
@@ -254,3 +257,31 @@ def test_sqlite_program_equivalence_does_not_accept_changed_execution() -> None:
     assert prepared.logical is None
     assert prepared.equivalence_rule is None
     assert prepared.equivalence_scope is None
+
+
+
+def test_canonical_sql_is_a_first_class_packaged_source() -> None:
+    query_source = (
+        files("azelficoast.queries")
+        .joinpath("decision.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    schema_source = (
+        files("azelficoast.queries")
+        .joinpath("decision_schema.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
+    surface = describe_decision_sql_surface()
+
+    assert query_source == DEFAULT_DECISION_SQL
+    assert "CREATE VIEW action_value_terms" in schema_source
+    assert surface["sources"] == {
+        "query": "azelficoast.queries/decision.sql",
+        "schema": "azelficoast.queries/decision_schema.sql",
+    }
+    assert surface["schema_source_sha256"] == (
+        "sha256:" + hashlib.sha256(schema_source.encode("utf-8")).hexdigest()
+    )
+    assert surface["schema_version"] == 2
