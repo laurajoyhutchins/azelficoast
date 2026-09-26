@@ -46,14 +46,14 @@ function* jsonTokens(
         yield "[]";
         return;
       }
-      yield pretty ? "[\\n" : "[";
+      yield pretty ? "[\n" : "[";
       for (let index = 0; index < value.length; index += 1) {
-        if (index > 0) yield pretty ? ",\\n" : ",";
+        if (index > 0) yield pretty ? ",\n" : ",";
         if (pretty) yield "  ".repeat(depth + 1);
         yield* jsonTokens(value[index], depth + 1, true, ancestors, pretty);
       }
       if (pretty) {
-        yield "\\n";
+        yield "\n";
         yield "  ".repeat(depth);
       }
       yield "]";
@@ -73,9 +73,9 @@ function* jsonTokens(
       yield "{}";
       return;
     }
-    yield pretty ? "{\\n" : "{";
+    yield pretty ? "{\n" : "{";
     for (let index = 0; index < entries.length; index += 1) {
-      if (index > 0) yield pretty ? ",\\n" : ",";
+      if (index > 0) yield pretty ? ",\n" : ",";
       const [key, entryValue] = entries[index];
       if (pretty) yield "  ".repeat(depth + 1);
       yield JSON.stringify(key);
@@ -83,7 +83,7 @@ function* jsonTokens(
       yield* jsonTokens(entryValue, depth + 1, false, ancestors, pretty, true);
     }
     if (pretty) {
-      yield "\\n";
+      yield "\n";
       yield "  ".repeat(depth);
     }
     yield "}";
@@ -120,7 +120,7 @@ async function writeJsonStream(
     bufferedBytes += tokenBytes;
     if (bufferedBytes >= chunkBytes) await flush();
   }
-  chunks.push("\\n");
+  chunks.push("\n");
   await flush();
 }
 
