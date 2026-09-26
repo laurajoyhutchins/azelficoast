@@ -461,3 +461,8 @@ This remains bounded evidence rather than a competitive-play claim. The opponent
 fixed to the observed locked move, the continuation horizon is one further decision, utility is
 material-only, and hidden support is an empirical Showdown-generator support rather than a full
 analytical posterior.
+
+The observed-locked-move response is an explicit instance of transition-oracle opponent-policy
+semantics version 1 (`experiments/opponent-policy-semantics.json`), not the general search-time
+bounded response described in `docs/search-architecture.md`. New oracle outputs record the
+semantics version and normalized policy alongside their mechanics metadata.
