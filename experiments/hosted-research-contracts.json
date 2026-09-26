@@ -148,9 +148,7 @@
     "live-belief-coverage": {
       "paths": [
         "src/azelficoast/belief/coverage.py",
-        "src/azelficoast/live/belief.py",
-        "src/azelficoast/live/harness.py",
-        "src/azelficoast/live/instrumentation.py",
+        "src/azelficoast/live/**",
         "tests/test_belief_coverage.py",
         "tests/test_harness.py"
       ],
@@ -377,7 +375,7 @@
     },
     "protect-continuation-experiment": {
       "paths": [
-        "src/azelficoast/live/harness.py",
+        "src/azelficoast/live/**",
         "src/azelficoast/research/protect_continuations.py",
         "src/azelficoast/research/natural_disagreements.py",
         "tests/test_harness.py",
