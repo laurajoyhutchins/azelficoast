@@ -129,3 +129,29 @@ def test_hosted_cli_exposes_only_generic_execution_commands() -> None:
         assert command not in source
     for command in ("plan", "run-unit", "prepare-aggregate", "aggregate"):
         assert f'commands.add_parser("{command}")' in source
+
+
+def test_population_runner_derives_frozen_values_from_plan_contracts() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (
+        root
+        / "src"
+        / "azelficoast"
+        / "research"
+        / "hosted"
+        / "population.py"
+    ).read_text(encoding="utf-8")
+
+    assert "DEPTH_SELECTION_RUN_ID" not in source
+    assert "DEPTH_SELECTION_DIGEST" not in source
+    assert "POPULATION_PLAN_PATH" in source
+    assert "DEPTH_PLAN_PATH" in source
+    assert "_treatment_environment" in source
+    assert "shard_count=len(contract.units)" in (
+        root
+        / "src"
+        / "azelficoast"
+        / "research"
+        / "hosted"
+        / "__main__.py"
+    ).read_text(encoding="utf-8")
