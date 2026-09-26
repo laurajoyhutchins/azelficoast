@@ -630,7 +630,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
 _BY_NAME = {experiment.name: experiment for experiment in EXPERIMENTS}
 _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
-    ".github/workflows/candidate-research.yml",
+    ".github/workflows/research.yml",
     "src/azelficoast/research/ci.py",
     "src/azelficoast/research/experiment_contracts.py",
 }
