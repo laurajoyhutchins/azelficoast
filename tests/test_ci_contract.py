@@ -288,3 +288,15 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "src/azelficoast/belief/showdown_packing.py" in source
     assert "src/azelficoast/belief/packed_evaluator.py" in source
     assert "src/azelficoast/belief/compiled_search.py" in source
+
+
+def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
+    action = (ROOT / ".github" / "actions" / "setup-showdown" / "action.yml").read_text(encoding="utf-8")
+    revision = (ROOT / "experiments" / "showdown-revision.txt").read_text(encoding="utf-8").strip()
+    runner = (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(encoding="utf-8")
+
+    assert len(revision) == 40
+    assert revision in (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(encoding="utf-8")
+    assert "default: a5df8274e85b0889bf2a9b3422a08b39732374fc" not in action
+    assert "steps.revision.outputs.sha" in action
+    assert "revision_path = REPOSITORY_ROOT / \"experiments\" / \"showdown-revision.txt\"" in runner
