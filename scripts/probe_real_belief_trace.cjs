@@ -1275,7 +1275,7 @@ function continuationValues(rootSnapshot) {
   };
 }
 
-function declaredReads(action) {
+function declaredReads(action, transitions) {
   const reads = new Set();
   for (const transition of transitions) {
     if (transition.action !== action) continue;
