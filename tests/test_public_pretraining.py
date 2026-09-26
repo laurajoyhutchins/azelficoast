@@ -230,6 +230,13 @@ def test_public_posterior_source_reuses_generator_population_cache(
         }
         assert all("--generator-cache-dir" in call for call in node_calls)
         assert all(str(cache_root) in call for call in node_calls)
+        expected_script = (
+            Path(public_pretraining.__file__).resolve().parents[3]
+            / "showdown"
+            / "runtime"
+            / "probe_real_belief_trace.cjs"
+        )
+        assert all(Path(call[1]) == expected_script for call in node_calls)
     finally:
         source.close()
 
