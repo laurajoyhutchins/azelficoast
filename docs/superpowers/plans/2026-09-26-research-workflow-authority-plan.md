@@ -35,7 +35,6 @@
 **Files:**
 - Modify: `tests/test_ci_contract.py`
 - Modify: `tests/test_research_ci.py`
-- Modify: `tests/test_replay_worlds.py`
 
 **Interfaces:**
 - Consumes: existing `WORKFLOWS`, experiment registry, Showdown revision, and candidate certificate helpers.
@@ -48,18 +47,18 @@
 ### Task 2: Recut hosted contracts onto latest main
 
 **Files:**
-- Create: `.github/actions/setup-showdown/action.yml` updates and `experiments/showdown-revision.txt`
+- Modify: `.github/actions/setup-showdown/action.yml`
+- Create: `experiments/showdown-revision.txt`
 - Create: `src/azelficoast/research/hosted/{__init__.py,__main__.py,common.py,belief.py,mechanics.py,population.py}`
 - Modify: all 22 workflow files listed in PR #118
 - Modify: `src/azelficoast/research/ci.py`
-- Modify: `src/azelficoast/research/verification/replay_worlds.py`
-- Modify: the three test files in Task 1
+- Modify: the two test files in Task 1
 
 **Interfaces:**
 - Consumes: failing tests from Task 1 and current-main versions of every overlapping file.
 - Produces: `python -m azelficoast.research.hosted <command>` as the workflow boundary; repository-owned revision/evidence/fixture authority; candidate certificate generation in Python.
 
-- [ ] **Step 1: Port the 28 non-overlapping #118 files from its reviewed head and merge the six overlapping files against current main**, preserving current-main changes in `.github/workflows/candidate-research.yml`, `src/azelficoast/research/ci.py`, `src/azelficoast/research/verification/replay_worlds.py`, `tests/test_ci_contract.py`, `tests/test_replay_worlds.py`, and `tests/test_research_ci.py`.
+- [ ] **Step 1: Port the 28 non-overlapping #118 files from its reviewed head and merge the six overlapping files against current main**, preserving current-main changes in `.github/workflows/candidate-research.yml`, `src/azelficoast/research/ci.py`, `tests/test_ci_contract.py`, and `tests/test_research_ci.py`. Do not port the stale replay-context normalizer; current main already makes the optional context fields explicit.
 - [ ] **Step 2: Move workflow-embedded selections, parameters, assertions, and digests into hosted Python contracts**; retain only runner topology, setup, hosted invocation, and artifact transport in YAML.
 - [ ] **Step 3: Run targeted authority tests** with `uv run pytest tests/test_ci_contract.py tests/test_research_ci.py tests/test_replay_worlds.py -q`. Expected: all pass and each workflow invokes its hosted command.
 - [ ] **Step 4: Run the complete pytest suite** with `uv run pytest -q`. Expected: all tests pass; no scientific parameter or source digest remains in workflow YAML.
