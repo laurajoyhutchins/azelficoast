@@ -9,9 +9,9 @@ on:
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
-      - "scripts/evaluate_conditional_team_prior.cjs"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
+      - "showdown/research/belief/evaluate_conditional_team_prior.cjs"
       - "tests/test_real_belief_trace.py"
       - ".github/workflows/factored-hidden-bench-prior.yml"
   workflow_dispatch:
@@ -100,7 +100,7 @@ jobs:
 
       - name: Rebuild validated conditional team prior
         run: |
-          node scripts/evaluate_conditional_team_prior.cjs \
+          node showdown/research/belief/evaluate_conditional_team_prior.cjs \
             /tmp/pokemon-showdown 80000 10000 10000 \
             > /tmp/conditional-team-prior.json
 
@@ -129,7 +129,7 @@ jobs:
 
       - name: Generate factored Staraptor transition oracle
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/source.json \
             --bench-prior /tmp/conditional-team-prior.json \

@@ -44,7 +44,7 @@ class PersistentShowdownProbe:
         self._request_id = 0
 
     def _worker_script(self) -> Path:
-        return Path(__file__).resolve().parents[3] / "scripts" / "probe_real_belief_worker.cjs"
+        return Path(__file__).resolve().parents[3] / "showdown" / "runtime" / "probe_real_belief_worker.cjs"
 
     @staticmethod
     def _drain_stdout(stream: TextIO, responses: queue.Queue[str | None]) -> None:

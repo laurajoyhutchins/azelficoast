@@ -7,7 +7,7 @@ on:
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
-      - "scripts/enumerate_team_completion_support.cjs"
+      - "showdown/research/belief/enumerate_team_completion_support.cjs"
       - ".github/workflows/opponent-team-completion-support.yml"
   workflow_dispatch:
 
@@ -73,10 +73,10 @@ jobs:
 
       - name: Enumerate species-level sixth-slot support
         run: |
-          node scripts/enumerate_team_completion_support.cjs \
+          node showdown/research/belief/enumerate_team_completion_support.cjs \
             /tmp/pokemon-showdown /tmp/turn12.json \
             | tee /tmp/turn12-support.json
-          node scripts/enumerate_team_completion_support.cjs \
+          node showdown/research/belief/enumerate_team_completion_support.cjs \
             /tmp/pokemon-showdown /tmp/turn13.json \
             | tee /tmp/turn13-support.json
 

@@ -8,7 +8,7 @@ on:
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
-      - "scripts/policy_boundary_refinement_experiment.py"
+      - "src/azelficoast/research/experiments/policy_boundary_refinement_experiment.py"
       - "experiments/policy-boundary-refinement-results.json"
       - ".github/workflows/policy-boundary-refinement-experiment.yml"
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
 
       - name: Run policy-boundary refinement experiment
         run: |
-          python scripts/policy_boundary_refinement_experiment.py \
+          python src/azelficoast/research/experiments/policy_boundary_refinement_experiment.py \
             /tmp/azelficoast-evidence/policy-boundary/case-01.json \
             /tmp/azelficoast-evidence/policy-boundary/case-02.json \
             /tmp/azelficoast-evidence/policy-boundary/case-03.json \

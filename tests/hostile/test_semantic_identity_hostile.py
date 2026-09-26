@@ -64,7 +64,7 @@ def test_frozen_cross_language_semantic_identity() -> None:
     if node is None:
         pytest.skip("Node is required for the cross-language identity half")
     result = subprocess.run(
-        [node, "scripts/semantic_identity.cjs"],
+        [node, "showdown/shared/semantic_identity.cjs"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -90,7 +90,7 @@ def test_cross_language_numeric_canonicalization(number: int | float) -> None:
     if node is None:
         pytest.skip("Node is required for the cross-language identity half")
     result = subprocess.run(
-        [node, "scripts/semantic_identity.cjs"],
+        [node, "showdown/shared/semantic_identity.cjs"],
         cwd=ROOT,
         check=True,
         capture_output=True,

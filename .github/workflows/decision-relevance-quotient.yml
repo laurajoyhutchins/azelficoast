@@ -10,8 +10,8 @@ on:
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - "src/azelficoast/core/decision_relevance.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/live/belief.py"
@@ -48,12 +48,12 @@ jobs:
 
       - name: Rebuild exact natural oracles
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/azelficoast-evidence/status-source.json \
             > /tmp/status-oracle.json
 
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             experiments/real-belief-source-tinkaton-zapdosgalar-mid.json \
             > /tmp/fusion-oracle.json

@@ -8,8 +8,8 @@ on:
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/core/whole_turn_program.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - "experiments/real-belief-source-fixture.json"
       - "experiments/real-belief-source-gliscor-urshifu.json"
       - "experiments/real-belief-negative-corpus.json"
@@ -54,11 +54,11 @@ jobs:
 
       - name: Generate real hidden-world transition oracle
         run: |
-          node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             experiments/real-belief-source-gliscor-urshifu.json             > /tmp/real-belief-transition-oracle.json
+          node showdown/runtime/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             experiments/real-belief-source-gliscor-urshifu.json             > /tmp/real-belief-transition-oracle.json
 
       - name: Generate lazy whole-turn transition program
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             experiments/real-belief-source-gliscor-urshifu.json \
             --transition-program-only \

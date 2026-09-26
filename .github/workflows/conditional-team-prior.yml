@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
-      - "scripts/evaluate_conditional_team_prior.cjs"
+      - "showdown/research/belief/evaluate_conditional_team_prior.cjs"
       - ".github/workflows/conditional-team-prior.yml"
   workflow_dispatch:
 
@@ -36,7 +36,7 @@ jobs:
 
       - name: Train and evaluate hidden-slot prior
         run: |
-          node scripts/evaluate_conditional_team_prior.cjs \
+          node showdown/research/belief/evaluate_conditional_team_prior.cjs \
             /tmp/pokemon-showdown \
             80000 10000 10000 \
             | tee /tmp/conditional-team-prior.json

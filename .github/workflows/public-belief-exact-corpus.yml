@@ -14,8 +14,8 @@ on:
       - "src/azelficoast/core/program.py"
       - "src/azelficoast/core/transition.py"
       - "src/azelficoast/core/whole_turn_program.py"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - "tests/hostile/test_transition_program_hostile.py"
       - ".github/workflows/public-belief-exact-corpus.yml"
   workflow_dispatch:
@@ -211,7 +211,7 @@ jobs:
       - name: Generate exact mechanics oracle
         if: steps.extract.outputs.supported == 'true'
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/candidate-source.json \
             > /tmp/candidate-oracle.json
@@ -219,7 +219,7 @@ jobs:
       - name: Generate lazy transition program
         if: steps.extract.outputs.supported == 'true'
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/candidate-source.json \
             --transition-program-only \

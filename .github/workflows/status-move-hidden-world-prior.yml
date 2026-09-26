@@ -6,7 +6,7 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - "experiments/status-move-prior-selection.json"
-      - "scripts/sample_showdown_worlds.cjs"
+      - "showdown/research/belief/sample_showdown_worlds.cjs"
       - "src/azelficoast/belief/status_move_prior.py"
       - "tests/test_status_move_prior.py"
       - ".github/workflows/status-move-hidden-world-prior.yml"

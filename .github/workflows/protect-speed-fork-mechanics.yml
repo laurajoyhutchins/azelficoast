@@ -5,7 +5,7 @@ on:
     types: [ready_for_review]
     paths:
       - "experiments/protect-speed-forks.json"
-      - "scripts/probe_protect_speed_forks.cjs"
+      - "showdown/research/mechanics/probe_protect_speed_forks.cjs"
       - ".github/workflows/protect-speed-fork-mechanics.yml"
   workflow_dispatch:
 
@@ -37,7 +37,7 @@ jobs:
 
       - name: Probe frozen speed forks
         run: |
-          node scripts/probe_protect_speed_forks.cjs             /tmp/pokemon-showdown             experiments/protect-speed-forks.json             | tee /tmp/protect-speed-fork-mechanics.json
+          node showdown/research/mechanics/probe_protect_speed_forks.cjs             /tmp/pokemon-showdown             experiments/protect-speed-forks.json             | tee /tmp/protect-speed-fork-mechanics.json
 
       - name: Check preregistered mechanics
         run: |

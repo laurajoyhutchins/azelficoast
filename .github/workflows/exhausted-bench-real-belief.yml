@@ -8,8 +8,8 @@ on:
       - ".github/actions/setup-research-evidence/action.yml"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - ".github/workflows/exhausted-bench-real-belief.yml"
   workflow_dispatch:
 
@@ -149,7 +149,7 @@ jobs:
 
       - name: Generate exact oracle
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/source.json \
             > /tmp/oracle.json

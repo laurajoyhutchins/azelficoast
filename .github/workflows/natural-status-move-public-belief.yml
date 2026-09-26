@@ -10,8 +10,8 @@ on:
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "experiments/natural-status-move-treatment.json"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - ".github/workflows/natural-status-move-public-belief.yml"
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
 
       - name: Execute exact status-move oracle
         run: |
-          node scripts/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             /tmp/azelficoast-evidence/status-source.json             > /tmp/status-oracle.json
+          node showdown/runtime/probe_real_belief_trace.cjs             /tmp/pokemon-showdown             /tmp/azelficoast-evidence/status-source.json             > /tmp/status-oracle.json
 
           uv run python -m azelficoast.research.verification.real_belief_trace             /tmp/status-oracle.json             > /tmp/status-trace.json
 

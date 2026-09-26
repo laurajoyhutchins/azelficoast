@@ -6,7 +6,7 @@ on:
     paths:
       - ".github/actions/setup-python-environment/action.yml"
       - "src/azelficoast/research/verification/replay_worlds.py"
-      - "scripts/sample_showdown_worlds.cjs"
+      - "showdown/research/belief/sample_showdown_worlds.cjs"
       - "tests/test_replay_worlds.py"
       - ".github/workflows/replay-world-experiment.yml"
   workflow_dispatch:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Sample worlds after Close Combat reveal
         run: |
-          node scripts/sample_showdown_worlds.cjs \
+          node showdown/research/belief/sample_showdown_worlds.cjs \
             /tmp/pokemon-showdown infernape closecombat 65536 \
             > /tmp/infernape-closecombat.json
           cat /tmp/infernape-closecombat.json
@@ -84,7 +84,7 @@ jobs:
 
       - name: Later-move prior control
         run: |
-          node scripts/sample_showdown_worlds.cjs \
+          node showdown/research/belief/sample_showdown_worlds.cjs \
             /tmp/pokemon-showdown infernape closecombat,flareblitz 65536 \
             > /tmp/infernape-closecombat-flareblitz.json
           uv run python - <<'PY'

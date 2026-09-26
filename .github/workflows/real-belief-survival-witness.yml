@@ -11,8 +11,8 @@ on:
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - ".github/workflows/real-belief-survival-witness.yml"
   workflow_dispatch:
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: Generate exact hidden-world oracle
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/azelficoast-evidence/survival-source.json \
             > /tmp/tropius-chiyu-oracle.json

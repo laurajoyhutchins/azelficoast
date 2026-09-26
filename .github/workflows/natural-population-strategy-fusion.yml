@@ -11,10 +11,10 @@ on:
       - "src/azelficoast/search/fusion.py"
       - "src/azelficoast/live/belief.py"
       - "src/azelficoast/research/verification/real_belief_trace.py"
-      - "scripts/sample_showdown_worlds.cjs"
-      - "scripts/screen_public_belief_speed_forks.cjs"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/research/belief/sample_showdown_worlds.cjs"
+      - "showdown/research/belief/screen_public_belief_speed_forks.cjs"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - "tests/test_population_study.py"
       - "tests/test_natural_disagreements.py"
       - ".github/workflows/natural-population-strategy-fusion.yml"
@@ -91,7 +91,7 @@ jobs:
           while IFS=$'\t' read -r index filename; do
             test -n "$index" || continue
             source="/tmp/azelficoast-evidence/population/selected/$filename"
-            node scripts/probe_real_belief_trace.cjs \
+            node showdown/runtime/probe_real_belief_trace.cjs \
               /tmp/pokemon-showdown \
               "$source" \
               > /tmp/oracle.json
