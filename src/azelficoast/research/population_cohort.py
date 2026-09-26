@@ -204,8 +204,11 @@ def freeze_population(
     admission = plan["admissibility"]
     if candidates_document.get("schema") != "azelficoast.natural-fusion-candidates":
         raise PopulationStudyError("unexpected candidate discovery schema")
-    if candidates_document.get("persistent_only") is not True:
-        raise PopulationStudyError("candidate discovery must be persistent-only")
+    expected_persistent_only = bool(admission.get("persistent_only", True))
+    if candidates_document.get("persistent_only") is not expected_persistent_only:
+        raise PopulationStudyError(
+            "candidate discovery persistent-only mode differs from the frozen plan"
+        )
     if mechanics_document.get("schema") != "azelficoast.public-belief-speed-fork-mechanics":
         raise PopulationStudyError("unexpected mechanics-screen schema")
     if mechanics_document.get("showdown_commit") != plan["showdown_commit"]:
