@@ -42,6 +42,9 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+
       - name: Select affected candidate experiments
         id: plan
         env:
@@ -54,7 +57,7 @@ jobs:
           else
             matrix="$(uv run python src/azelficoast/research/ci.py plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
-          count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
+          count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
           echo "count=${count}" >> "${GITHUB_OUTPUT}"
           echo "selected=${matrix}"
