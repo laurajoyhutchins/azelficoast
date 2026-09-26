@@ -766,3 +766,149 @@ def predict_packed_values(
     if not np.all(np.isfinite(values)):
         raise BeliefEvaluatorError("packed batched value head returned non-finite values")
     return tuple(float(value) for value in values)
+
+
+
+_SHARED_WORLD_FRONTIER_VALUE_FUNCTION: Any | None = None
+
+
+def _shared_world_frontier_value_function() -> Any:
+    """JIT one frontier whose leaves reweight the same packed hidden worlds."""
+
+    global _SHARED_WORLD_FRONTIER_VALUE_FUNCTION
+    if _SHARED_WORLD_FRONTIER_VALUE_FUNCTION is None:
+        jax, jnp = _require_jax()
+
+        def evaluate(
+            params: Mapping[str, Any],
+            public: Any,
+            weights: Any,
+            species_num: Any,
+            species_forme: Any,
+            level: Any,
+            ability_num: Any,
+            item_num: Any,
+            move_num: Any,
+            move_mask: Any,
+            tera_type: Any,
+            nature: Any,
+            role: Any,
+            gender: Any,
+            evs: Any,
+            ivs: Any,
+            was_lead: Any,
+            team_mask: Any,
+        ) -> Any:
+            def one(public_row: Any, weight_row: Any) -> Any:
+                trunk = _packed_belief_trunk(
+                    jnp,
+                    params,
+                    public_row,
+                    weight_row,
+                    species_num,
+                    species_forme,
+                    level,
+                    ability_num,
+                    item_num,
+                    move_num,
+                    move_mask,
+                    tera_type,
+                    nature,
+                    role,
+                    gender,
+                    evs,
+                    ivs,
+                    was_lead,
+                    team_mask,
+                )
+                return _value_from_trunk(jnp, params, trunk)
+
+            return jax.vmap(one)(public, weights)
+
+        _SHARED_WORLD_FRONTIER_VALUE_FUNCTION = jax.jit(evaluate)
+    return _SHARED_WORLD_FRONTIER_VALUE_FUNCTION
+
+
+def predict_packed_shared_world_values(
+    params: Mapping[str, Any],
+    packed: PackedJointPosterior,
+    *,
+    public_features: Sequence[Sequence[float]],
+    leaf_world_weights: Any,
+    expected_vocabulary_sha256: str | None = None,
+) -> tuple[float, ...]:
+    """Evaluate many successor beliefs without duplicating hidden-world tensors.
+
+    All leaves share one immutable packed world tensor. Only public-state features and
+    posterior weights vary across the frontier. This is the numerical shape produced by
+    compiled information-set transport.
+    """
+
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError(
+            "NumPy is required for shared-world packed frontier inference"
+        ) from error
+
+    if (
+        expected_vocabulary_sha256 is not None
+        and packed.vocabulary_sha256 != expected_vocabulary_sha256
+    ):
+        raise BeliefEvaluatorError(
+            "packed frontier and evaluator vocabulary identities differ"
+        )
+
+    public = np.asarray(public_features, dtype=np.float32)
+    weights = np.asarray(leaf_world_weights, dtype=np.float32)
+    if public.ndim != 2 or public.shape[0] == 0:
+        raise BeliefEvaluatorError(
+            "packed frontier public features must be a non-empty matrix"
+        )
+    if weights.ndim != 2 or weights.shape != (public.shape[0], packed.world_count):
+        raise BeliefEvaluatorError(
+            "packed frontier posterior-weight matrix has the wrong shape"
+        )
+    if not np.all(np.isfinite(public)):
+        raise BeliefEvaluatorError("packed frontier public features must be finite")
+    if not np.all(np.isfinite(weights)) or np.any(weights < 0.0):
+        raise BeliefEvaluatorError(
+            "packed frontier posterior weights must be finite and non-negative"
+        )
+    row_mass = weights.sum(axis=1, dtype=np.float64)
+    if not np.allclose(row_mass, np.ones(len(row_mass)), atol=1e-6, rtol=0):
+        raise BeliefEvaluatorError(
+            "packed frontier posterior weights must normalize per leaf"
+        )
+
+    arrays = packed.as_numpy()
+    team_mask = np.ones(
+        (packed.world_count, packed.team_size),
+        dtype=np.bool_,
+    )
+    raw = _shared_world_frontier_value_function()(
+        params,
+        public,
+        weights,
+        arrays["species_num"].astype(np.int32, copy=False),
+        arrays["species_forme"].astype(np.int32, copy=False),
+        arrays["level"].astype(np.int32, copy=False),
+        arrays["ability_num"].astype(np.int32, copy=False),
+        arrays["item_num"].astype(np.int32, copy=False),
+        arrays["move_num"].astype(np.int32, copy=False),
+        arrays["move_mask"].astype(np.bool_, copy=False),
+        arrays["tera_type"].astype(np.int32, copy=False),
+        arrays["nature"].astype(np.int32, copy=False),
+        arrays["role"].astype(np.int32, copy=False),
+        arrays["gender"].astype(np.int32, copy=False),
+        arrays["evs"].astype(np.int32, copy=False),
+        arrays["ivs"].astype(np.int32, copy=False),
+        arrays["was_lead"].astype(np.bool_, copy=False),
+        team_mask,
+    )
+    values = np.asarray(raw, dtype=np.float64)
+    if values.shape != (public.shape[0],) or not np.all(np.isfinite(values)):
+        raise BeliefEvaluatorError(
+            "shared-world packed frontier evaluator returned invalid values"
+        )
+    return tuple(float(value) for value in values)

@@ -72,3 +72,15 @@ def test_host_performance_does_not_override_semantic_candidate_certification() -
         for experiment in EXPERIMENTS
         if experiment.name != "attack-transition"
     )
+
+
+
+def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
+    selected = experiments_for_paths(
+        ("src/azelficoast/core/compiled_search.py",)
+    )
+    assert [experiment.name for experiment in selected] == [
+        "compiled-search-topology"
+    ]
+    assert selected[0].simulator is True
+    assert selected[0].showdown is False

@@ -16,7 +16,7 @@ import numpy as np
 
 import azelficoast.research.mechanics.gen9_damage as gen9_damage
 import azelficoast.research.mechanics.gen9_two_attack_turn as gen9_two_attack_turn
-from azelficoast.research.adaptive_execution import ExecutionPath
+from azelficoast.core.costing import ExecutionPath
 from azelficoast.research.adaptive_execution_experiment import (
     _evaluate,
     _execution_target_signature,
