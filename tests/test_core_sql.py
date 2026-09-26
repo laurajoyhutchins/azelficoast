@@ -18,6 +18,8 @@ from azelficoast.core.sql import (
     RISK_ADJUSTED_SQL,
     MAXIMIN_SQL,
     SQLQueryError,
+    bound_semantic_identity,
+    parameter_bindings_identity,
     describe_decision_sql_surface,
     explain_decision_query,
     explain_sql_query,
@@ -62,7 +64,7 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
     assert prepared.sql_sha256 == repeated.sql_sha256
     assert explanation["schema"] == "azelficoast.core.sql-query-explain"
-    assert explanation["schema_version"] == 6
+    assert explanation["schema_version"] == 7
     assert explanation["sql_sha256"] == prepared.sql_sha256
     assert explanation["relations"] == list(prepared.relations)
     assert explanation["functions"] == ["sum"]
@@ -351,10 +353,16 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
         "maximin": "azelficoast.queries/maximin.sql",
         "risk_adjusted": "azelficoast.queries/risk_adjusted.sql",
     }
+    assert surface["policy_parameters"] == {
+        "style": "named",
+        "value_types": ["integer", "real"],
+        "binding_schema": "azelficoast.core.sql-parameter-bindings",
+        "binding_schema_version": 1,
+    }
     assert surface["query_classes"][ACTION_SUMMARY_QUERY]["source"] == (
         "azelficoast.queries/action_summary.sql"
     )
-    assert surface["schema_version"] == 4
+    assert surface["schema_version"] == 5
 
 
 def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
@@ -373,7 +381,10 @@ def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
 
 def test_policy_sql_gets_source_derived_semantic_identity() -> None:
     maximin = prepare_policy_query(MAXIMIN_SQL)
-    risk_adjusted = prepare_policy_query(RISK_ADJUSTED_SQL)
+    risk_adjusted = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
 
     assert maximin.query_class == DECISION_POLICY_QUERY
     assert maximin.semantic_identity == policy_semantic_identity(MAXIMIN_SQL)
@@ -402,7 +413,10 @@ def test_policy_identity_ignores_incidental_presentation() -> None:
 
 
 def test_policy_ranking_is_system_owned_and_deterministic() -> None:
-    prepared = prepare_policy_query(RISK_ADJUSTED_SQL)
+    prepared = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
     explanation = explain_sql_query(prepared)
 
     assert prepared.execution_sql != prepared.sql
@@ -435,6 +449,153 @@ def test_policy_writer_must_use_action_statistics_surface() -> None:
 def test_policy_contract_rejects_wrong_result_shape() -> None:
     with pytest.raises(SQLQueryError, match="action_id, score"):
         prepare_policy_query(ACTION_SUMMARY_SQL)
+
+
+def test_policy_parameter_values_are_separate_from_policy_semantics() -> None:
+    low = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
+    high = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.75},
+    )
+
+    assert low.semantic_identity == high.semantic_identity
+    assert low.semantic_identity == policy_semantic_identity(RISK_ADJUSTED_SQL)
+    assert low.parameter_names == high.parameter_names == ("risk_aversion",)
+    assert low.parameter_bindings_identity != high.parameter_bindings_identity
+    assert low.bound_semantic_identity != high.bound_semantic_identity
+    assert low.bound_semantic_identity == bound_semantic_identity(
+        low.semantic_identity,
+        low.parameter_bindings_identity,
+        has_bindings=True,
+    )
+
+
+def test_policy_parameter_evidence_preserves_exact_numeric_type() -> None:
+    integer = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 1},
+    )
+    real = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 1.0},
+    )
+
+    assert integer.semantic_identity == real.semantic_identity
+    assert integer.parameter_bindings[0].value_type == "integer"
+    assert integer.parameter_bindings[0].canonical_value == "1"
+    assert real.parameter_bindings[0].value_type == "real"
+    assert real.parameter_bindings[0].canonical_value == float(1).hex()
+    assert integer.parameter_bindings_identity != real.parameter_bindings_identity
+
+
+def test_explain_binds_policy_parameters_without_hiding_source_identity() -> None:
+    prepared = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
+    explanation = explain_sql_query(prepared)
+
+    assert explanation["schema_version"] == 7
+    assert explanation["semantic_identity"] == prepared.semantic_identity
+    assert explanation["bound_semantic_identity"] == (
+        prepared.bound_semantic_identity
+    )
+    assert explanation["parameter_names"] == ["risk_aversion"]
+    assert explanation["parameter_bindings"] == [
+        {
+            "name": "risk_aversion",
+            "value_type": "real",
+            "canonical_value": float(0.25).hex(),
+        }
+    ]
+    assert explanation["parameter_bindings_identity"] == (
+        prepared.parameter_bindings_identity
+    )
+
+
+def test_parameter_bindings_are_exact_and_fail_closed() -> None:
+    with pytest.raises(SQLQueryError, match="binding parameter"):
+        prepare_policy_query(RISK_ADJUSTED_SQL)
+
+    with pytest.raises(SQLQueryError, match="must match query parameters exactly"):
+        prepare_policy_query(
+            MAXIMIN_SQL,
+            parameters={"unused": 1},
+        )
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
+def test_policy_parameters_reject_ambiguous_numeric_values(value: object) -> None:
+    with pytest.raises(SQLQueryError):
+        prepare_policy_query(
+            RISK_ADJUSTED_SQL,
+            parameters={"risk_aversion": value},  # type: ignore[arg-type]
+        )
+
+
+def test_parameter_binding_identity_is_order_independent() -> None:
+    first = prepare_policy_query(
+        """
+        SELECT
+            action_id,
+            expected_value - :risk * (expected_value - worst_value)
+                + :bonus AS score
+        FROM action_statistics
+        """,
+        parameters={"risk": 0.25, "bonus": 1},
+    )
+    second = prepare_policy_query(
+        """
+        SELECT
+            action_id,
+            expected_value - :risk * (expected_value - worst_value)
+                + :bonus AS score
+        FROM action_statistics
+        """,
+        parameters={"bonus": 1, "risk": 0.25},
+    )
+
+    assert first.parameter_bindings_identity == second.parameter_bindings_identity
+    assert first.bound_semantic_identity == second.bound_semantic_identity
+    assert first.parameter_names == ("bonus", "risk")
+
+
+def test_parameter_name_case_is_part_of_policy_source_identity() -> None:
+    lower_sql = """
+    SELECT
+        action_id,
+        expected_value - :risk * (expected_value - worst_value) AS score
+    FROM action_statistics
+    """
+    upper_sql = lower_sql.replace(":risk", ":Risk")
+
+    lower = prepare_policy_query(lower_sql, parameters={"risk": 0.25})
+    upper = prepare_policy_query(upper_sql, parameters={"Risk": 0.25})
+
+    assert lower.semantic_identity != upper.semantic_identity
+    assert lower.bound_semantic_identity != upper.bound_semantic_identity
+
+
+def test_unparameterized_query_keeps_semantic_identity_as_bound_identity() -> None:
+    prepared = prepare_policy_query(MAXIMIN_SQL)
+
+    assert prepared.parameter_names == ()
+    assert prepared.parameter_bindings == ()
+    assert prepared.bound_semantic_identity == prepared.semantic_identity
+
+
+def test_parameter_bindings_identity_matches_prepared_evidence() -> None:
+    prepared = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
+
+    assert prepared.parameter_bindings_identity == parameter_bindings_identity(
+        prepared.parameter_bindings
+    )
 
 
 def test_unknown_query_class_fails_closed() -> None:
