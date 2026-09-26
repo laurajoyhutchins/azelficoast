@@ -98,9 +98,25 @@ action_statistics(
 The packaged `action_summary.sql` query returns those metrics directly. It is admitted
 as its own semantic class but is not a live decision policy.
 
-### `decision.maximin`
+### `decision.policy`
 
-The first intentionally different policy is written as ordinary SQL with a named CTE:
+Policies are now source-derived rather than registered one at a time in Python. A policy
+is ordinary read-only SQL that directly reads `action_statistics` and returns exactly:
+
+```text
+action_id
+score
+```
+
+Azelficoast owns the final ranking wrapper:
+
+```sql
+ORDER BY score DESC, action_id ASC
+```
+
+so every policy has deterministic tie breaking without repeating ranking boilerplate.
+
+For example, `maximin.sql` is just a policy body:
 
 ```sql
 WITH policy AS (
@@ -112,17 +128,32 @@ WITH policy AS (
 SELECT
     action_id,
     score
-FROM policy
-ORDER BY score DESC, action_id ASC;
+FROM policy;
 ```
 
-This means "prefer the action with the best worst evaluated outcome." It has a distinct
-semantic identity from expected value.
+and `risk_adjusted.sql` composes the same relation differently:
 
-Azelficoast deliberately does **not** lower this policy to packed/JAX execution yet.
-Admission proves that the SQL belongs to the reviewed maximin query class; execution
-authority is a separate concern. Attempting to feed maximin semantics into the
-expected-value packed lowerer still fails closed.
+```sql
+WITH scored AS (
+    SELECT
+        action_id,
+        expected_value - 0.25 * (expected_value - worst_value) AS score
+    FROM action_statistics
+)
+SELECT
+    action_id,
+    score
+FROM scored;
+```
+
+Neither policy needs a new Python query class. Its semantic identity is derived from the
+normalized policy source, writer-surface identity, result contract, and system-owned
+ranking contract. Comments, whitespace, case, and a trailing semicolon do not create a
+new identity; a changed coefficient or expression does.
+
+Policies deliberately have no packed/JAX execution authority yet. They can be parsed,
+authorized, identified, explained, compared, and reviewed as decision semantics without
+silently becoming the live battle policy.
 
 That separation is the point of the named-query layer:
 
@@ -130,13 +161,16 @@ That separation is the point of the named-query layer:
 SQL source
    |
    v
-named query class
+query class / policy source
    |
    +--> semantic identity
    |
    +--> result contract
    |
+   +--> deterministic ranking contract
+   |
    +--> optional physical lowering
 ```
 
-Adding a useful query does not silently grant it live battle authority.
+Adding or editing a useful policy does not require Python registration and does not
+silently grant it live battle authority.
