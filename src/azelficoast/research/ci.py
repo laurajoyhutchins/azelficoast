@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import fnmatch
+import importlib
 import hashlib
 import json
 import os
@@ -32,6 +33,8 @@ class ModuleRun:
     module: str
     output: str
     input: str | None = None
+    entrypoint: str | None = None
+    input_kind: str = "path"
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +66,7 @@ def _spec(
     artifact: str,
     generator: tuple[str, str] | None = None,
     tests: tuple[str, ...] = (),
-    modules: tuple[tuple[str, str, str | None], ...],
+    modules: tuple[tuple[object, ...], ...],
     checks: tuple[Check, ...] = (),
     simulator: bool = True,
     showdown: bool = True,
@@ -104,6 +107,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.adaptive_execution_experiment",
                 "adaptive-execution-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
         checks=(
@@ -152,6 +157,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.attack_transition_experiment",
                 "attack-transition-experiment.json",
                 "showdown-attack-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
         checks=(
@@ -194,6 +201,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.class_native_belief_experiment",
                 "class-native-belief-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
         checks=(
@@ -237,6 +246,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.jax_gen9_damage_experiment",
                 "gen9-damage-jax-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
         checks=(
@@ -293,6 +304,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.native_damage_experiment",
                 "native-damage-experiment.json",
                 "showdown-gen9-damage-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
         checks=(
@@ -319,6 +332,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.jax_simulator_experiment",
                 "jax-simulator-experiment.json",
                 None,
+                "run_experiment",
+                "none",
             ),
         ),
         checks=(
@@ -441,6 +456,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.ordered_attack_experiment",
                 "ordered-attack-experiment.json",
                 "showdown-ordered-attack-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
     ),
@@ -466,6 +483,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.two_attack_turn_experiment",
                 "two-attack-turn-experiment.json",
                 "showdown-two-attack-turn-fixtures.json",
+                "run_experiment",
+                "path",
             ),
         ),
     ),
@@ -488,6 +507,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.stateful_protect_experiment",
                 "stateful-protect-result.json",
                 "stateful-protect-fixtures.json",
+                "analyze_document",
+                "json",
             ),
         ),
     ),
@@ -510,6 +531,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.switch_hazard_experiment",
                 "switch-hazard-result.json",
                 "switch-hazard-fixtures.json",
+                "analyze_document",
+                "json",
             ),
         ),
     ),
@@ -537,6 +560,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.switch_intimidate_experiment",
                 "switch-intimidate-result.json",
                 "switch-intimidate-fixtures.json",
+                "analyze_document",
+                "json",
             ),
         ),
     ),
@@ -559,6 +584,8 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
                 "azelficoast.research.voluntary_switch_experiment",
                 "voluntary-switch-result.json",
                 "voluntary-switch-fixtures.json",
+                "analyze_document",
+                "json",
             ),
         ),
     ),
@@ -703,6 +730,67 @@ def _run(
     return process.returncode
 
 
+def _execute_module(module: ModuleRun, work: Path) -> int:
+    output = work / module.output
+    if module.entrypoint is None:
+        command = [sys.executable, "-m", module.module]
+        if module.input is not None:
+            command.append(str(work / module.input))
+        return _run(command, stdout=output, check=False)
+
+    imported = importlib.import_module(module.module)
+    entrypoint = getattr(imported, module.entrypoint, None)
+    if not callable(entrypoint):
+        raise CandidateExperimentError(
+            f"{module.module} lacks callable entrypoint {module.entrypoint!r}"
+        )
+
+    if module.input_kind == "none":
+        if module.input is not None:
+            raise CandidateExperimentError(
+                f"{module.module}:{module.entrypoint} forbids an input artifact"
+            )
+        result = entrypoint()
+    elif module.input_kind == "path":
+        if module.input is None:
+            raise CandidateExperimentError(
+                f"{module.module}:{module.entrypoint} requires an input artifact"
+            )
+        result = entrypoint(work / module.input)
+    elif module.input_kind == "json":
+        if module.input is None:
+            raise CandidateExperimentError(
+                f"{module.module}:{module.entrypoint} requires an input artifact"
+            )
+        document = json.loads((work / module.input).read_text(encoding="utf-8"))
+        if not isinstance(document, Mapping):
+            raise CandidateExperimentError(
+                f"{module.input} must contain a JSON object"
+            )
+        result = entrypoint(document)
+    else:
+        raise CandidateExperimentError(
+            f"unknown input kind {module.input_kind!r} for {module.module}"
+        )
+
+    if not isinstance(result, Mapping):
+        raise CandidateExperimentError(
+            f"{module.module}:{module.entrypoint} returned a non-object result"
+        )
+    passed = result.get("passed")
+    if passed is not None and not isinstance(passed, bool):
+        raise CandidateExperimentError(
+            f"{module.module}:{module.entrypoint} returned non-boolean passed"
+        )
+
+    output.write_text(
+        json.dumps(result, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(output.read_text(encoding="utf-8"), end="", flush=True)
+    return 1 if passed is False else 0
+
+
 def _read_path(record: object, path: Sequence[str | int]) -> object:
     value = record
     for component in path:
@@ -825,14 +913,11 @@ def run_experiment(
         _run((sys.executable, "-m", "pytest", *experiment.tests))
 
     for module in experiment.modules:
-        command = [sys.executable, "-m", module.module]
-        if module.input is not None:
-            command.append(str(work / module.input))
-        _run(
-            command,
-            stdout=work / module.output,
-            check=not experiment.allow_nonzero_module_results,
-        )
+        returncode = _execute_module(module, work)
+        if returncode != 0 and not experiment.allow_nonzero_module_results:
+            raise CandidateExperimentError(
+                f"{experiment.name} module {module.module} failed"
+            )
 
     for check in experiment.checks:
         _check(check, work)
