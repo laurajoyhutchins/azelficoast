@@ -236,6 +236,13 @@ def compile_packed_sql_decision_query(
 ) -> SQLPackedDecisionPlan:
     """Lower one reviewed decision SQL semantic class into packed/JAX machinery."""
 
+    if query.semantic_identity not in {
+        DECISION_QUERY_SEMANTIC_ID,
+        DECISION_BEST_ACTION_SEMANTIC_ID,
+    }:
+        raise SQLPackedLoweringError(
+            "admitted SQL has no reviewed packed/JAX semantic identity"
+        )
     if query.equivalence_rule is None or query.equivalence_scope is None:
         raise SQLPackedLoweringError(
             "admitted SQL lacks reviewed equivalence evidence"
