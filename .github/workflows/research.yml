@@ -203,7 +203,7 @@ jobs:
 
   hosted-aggregate:
     needs: [hosted-plan, hosted-run]
-    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-run.result == 'success'
+    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-run.result != 'cancelled'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.hosted-plan.outputs.aggregate_matrix) }}
