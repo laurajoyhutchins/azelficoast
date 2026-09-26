@@ -96,6 +96,7 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
     assert selected[0].simulator is True
     assert selected[0].showdown is False
 
+
 def test_candidate_certificate_is_owned_by_python_and_fails_closed() -> None:
     matrix = {"include": [{"experiment": "contract", "artifact_name": "contract-evidence"}]}
     certificate = candidate_certificate(
