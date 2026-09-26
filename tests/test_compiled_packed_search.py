@@ -27,12 +27,30 @@ from azelficoast.core.compiled_search import compile_search_topology
 from azelficoast.core.planning import LogicalOperator
 from azelficoast.core.search import search_transition_program
 from azelficoast.core.statistics import PlannerStatistics
-from azelficoast.core.sql import DEFAULT_DECISION_SQL, prepare_decision_query
+from azelficoast.core.sql import (
+    DECISION_QUERY_SEMANTIC_ID,
+    DEFAULT_DECISION_SQL,
+    prepare_decision_query,
+)
 
 
 def _digest(value: object) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+EQUIVALENT_INLINE_DECISION_SQL = """
+SELECT
+    t.action_id AS action_id,
+    SUM(w.weight * e.value) AS expected_value
+FROM evaluations AS e
+JOIN transitions AS t ON e.successor_id = t.successor_id
+JOIN hidden_worlds AS w ON t.world_id = w.world_id
+JOIN legal_actions AS a ON a.action_id = t.action_id
+WHERE w.weight > 0 AND w.active = 1
+GROUP BY t.action_id
+ORDER BY expected_value DESC, action_id ASC
+""".strip()
 
 
 def _vocabulary() -> ShowdownVocabulary:
@@ -390,6 +408,7 @@ def test_sql_decision_query_lowers_to_current_packed_jax_physical_plan() -> None
     assert plan.bindings[-2].implementation == "predict_packed_shared_world_values"
     assert plan.bindings[-1].implementation == "reduce_compiled_root_values"
     assert plan.numeric_backend == "jax-shared-packed-worlds"
+    assert plan.semantic_identity == DECISION_QUERY_SEMANTIC_ID
     assert plan.plan_sha256.startswith("sha256:")
 
 
@@ -402,7 +421,7 @@ def test_sql_packed_lowering_fails_closed_for_unreviewed_semantic_change() -> No
 
     with pytest.raises(
         SQLPackedLoweringError,
-        match="no reviewed packed/JAX lowering",
+        match="no reviewed packed/JAX semantic identity",
     ):
         compile_packed_sql_decision_query(prepared)
 
@@ -532,8 +551,7 @@ def test_sql_planner_statistics_do_not_change_query_semantics() -> None:
         statistics.observe(
             operator=LogicalOperator.FILTER,
             signature=(
-                "sha256:"
-                + hashlib.sha256(DEFAULT_DECISION_SQL.encode("utf-8")).hexdigest()
+                DECISION_QUERY_SEMANTIC_ID
                 + ":filter:hidden_worlds:active-positive:"
                 + "azelficoast.joint-random-battle-posterior"
             ),
@@ -569,3 +587,70 @@ def test_sql_planner_statistics_do_not_change_query_semantics() -> None:
         abs=1e-6,
     )
     assert forecasted["compiled_topology_digest"] == baseline["compiled_topology_digest"]
+
+
+
+def test_equivalent_sql_rewrites_share_one_packed_physical_plan_identity() -> None:
+    canonical = compile_packed_sql_decision_query(
+        prepare_decision_query(DEFAULT_DECISION_SQL)
+    )
+    rewritten = compile_packed_sql_decision_query(
+        prepare_decision_query(EQUIVALENT_INLINE_DECISION_SQL)
+    )
+
+    assert rewritten.sql_sha256 != canonical.sql_sha256
+    assert rewritten.semantic_identity == canonical.semantic_identity
+    assert rewritten.semantic_identity == DECISION_QUERY_SEMANTIC_ID
+    assert rewritten.plan_sha256 == canonical.plan_sha256
+    assert rewritten.physical_execution_stages == canonical.physical_execution_stages
+
+
+def test_equivalent_sql_executes_through_same_packed_jax_plan_and_statistics() -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=16,
+        action_width=8,
+        embedding_width=6,
+        member_hidden_width=9,
+        world_hidden_width=10,
+        hidden_width=12,
+    )
+    params = init_packed_params(spec, seed=67)
+    statistics = PlannerStatistics()
+
+    canonical = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    rewritten = search_sql_packed_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        planner_statistics=statistics,
+        sql=EQUIVALENT_INLINE_DECISION_SQL,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert rewritten["sql_query_sha256"] != canonical["sql_query_sha256"]
+    assert rewritten["sql_semantic_identity"] == canonical["sql_semantic_identity"]
+    assert rewritten["sql_physical_plan"]["plan_sha256"] == (
+        canonical["sql_physical_plan"]["plan_sha256"]
+    )
+    assert rewritten["compiled_topology_digest"] == canonical["compiled_topology_digest"]
+    assert rewritten["chosen_action"] == canonical["chosen_action"]
+    assert rewritten["root_values"] == pytest.approx(canonical["root_values"], abs=1e-6)
+    assert rewritten["sql_cardinality_forecast"]["filter"]["observations"] == 1
+    assert rewritten["sql_cardinality_forecast"]["partition"]["observations"] == 1
