@@ -630,7 +630,7 @@ class _JsonStreamReader:
         while True:
             while (
                 self._position < len(self._buffer)
-                and self._buffer[self._position] in " \\t\\r\\n"
+                and self._buffer[self._position] in " \t\r\n"
             ):
                 self._position += 1
             if self._position < len(self._buffer) or not self._fill():
