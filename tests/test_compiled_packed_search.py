@@ -24,7 +24,9 @@ from azelficoast.belief.showdown_packing import ShowdownVocabulary
 from azelficoast.belief.sql_compiled_search import (
     SQLPackedLoweringError,
     compile_packed_sql_decision_query,
+    explain_sql_packed_best_action,
     explain_sql_packed_transition_program,
+    search_sql_packed_best_action,
     search_sql_packed_transition_program,
 )
 from azelficoast.core.compiled_search import (
@@ -39,9 +41,13 @@ from azelficoast.core.planning import LogicalOperator
 from azelficoast.core.search import search_transition_program
 from azelficoast.core.statistics import PlannerStatistics
 from azelficoast.core.sql import (
+    BEST_ACTION_SQL,
+    DECISION_BEST_ACTION_QUERY,
+    DECISION_BEST_ACTION_SEMANTIC_ID,
     DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
     MAXIMIN_SQL,
+    prepare_best_action_query,
     prepare_decision_query,
     prepare_policy_query,
 )
@@ -582,6 +588,48 @@ def test_sql_decision_query_lowers_to_current_packed_jax_physical_plan() -> None
     assert plan.semantic_identity == DECISION_QUERY_SEMANTIC_ID
     assert plan.plan_sha256.startswith("sha256:")
 
+def test_best_action_sql_lowers_to_bounded_winner_plan() -> None:
+    prepared = prepare_best_action_query()
+    plan = compile_packed_sql_decision_query(prepared)
+
+    assert plan.query_class == DECISION_BEST_ACTION_QUERY
+    assert plan.result_contract == "winner-only-exact-action-and-value"
+    assert plan.semantic_identity == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert plan.semantic_identity != DECISION_QUERY_SEMANTIC_ID
+    assert plan.numeric_backend == "jax-shared-packed-worlds-bounded"
+    assert plan.physical_execution_stages[-1] == "choose_bounded_action"
+    assert plan.bindings[-2].fused_group == "bounded-evaluate-reduce"
+    assert plan.bindings[-1].implementation == "choose_bounded_action"
+    assert plan.as_record()["schema_version"] == 4
+
+
+def test_best_action_explain_is_read_only_and_exposes_bounded_plan() -> None:
+    explanation = explain_sql_packed_best_action(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert explanation["sql"]["query_class"] == DECISION_BEST_ACTION_QUERY
+    assert explanation["sql"]["semantic_identity"] == (
+        DECISION_BEST_ACTION_SEMANTIC_ID
+    )
+    assert explanation["physical"]["result_contract"] == (
+        "winner-only-exact-action-and-value"
+    )
+    assert explanation["physical"]["numeric_backend"] == (
+        "jax-shared-packed-worlds-bounded"
+    )
+    assert explanation["execution"] == {
+        "performed": False,
+        "evaluator_calls": 0,
+        "action_selected": False,
+        "planner_statistics_mutated": False,
+    }
+
+
 
 def test_sql_packed_lowering_fails_closed_for_unreviewed_semantic_change() -> None:
     changed = DEFAULT_DECISION_SQL.replace(
@@ -783,7 +831,7 @@ def test_equivalent_sql_rewrites_share_one_packed_physical_plan_identity() -> No
     assert program_equivalent.semantic_identity == canonical.semantic_identity
     assert program_equivalent.equivalence_rule == "sqlite-program-equivalence"
     assert program_equivalent.equivalence_scope == "sqlite-version-bound"
-    assert program_equivalent.as_record()["schema_version"] == 3
+    assert program_equivalent.as_record()["schema_version"] == 4
 
 
 def test_equivalent_sql_executes_through_same_packed_jax_plan_and_statistics() -> None:
@@ -986,3 +1034,101 @@ def test_bounded_packed_winner_skips_certifiably_losing_leaf(
     )
     assert reveal_interval["exact"] is False
     assert reveal_interval["upper"] < bounded["chosen_value"]
+
+
+
+def test_best_action_sql_executes_bounded_winner_contract(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=4,
+        action_width=4,
+        embedding_width=4,
+        member_hidden_width=4,
+        world_hidden_width=4,
+        hidden_width=4,
+    )
+    params = init_packed_params(spec, seed=83)
+
+    def fake_features(
+        value: Mapping[str, Any],
+        *,
+        width: int,
+    ) -> tuple[float, ...]:
+        marker = 1.0 if value.get("root_action") == "hide" else -1.0
+        return tuple(marker for _ in range(width))
+
+    evaluated_rows: list[tuple[float, ...]] = []
+
+    def fake_values(
+        evaluator_params: Mapping[str, Any],
+        packed: Any,
+        *,
+        public_features: Sequence[Sequence[float]],
+        leaf_world_weights: Any,
+        expected_vocabulary_sha256: str | None = None,
+    ) -> tuple[float, ...]:
+        del evaluator_params, packed, leaf_world_weights, expected_vocabulary_sha256
+        rows = [tuple(float(item) for item in row) for row in public_features]
+        evaluated_rows.extend(rows)
+        return tuple(0.9 if row[0] > 0.0 else -0.9 for row in rows)
+
+    monkeypatch.setattr(compiled_search_module, "hashed_features", fake_features)
+    monkeypatch.setattr(
+        compiled_search_module,
+        "predict_packed_shared_world_values",
+        fake_values,
+    )
+
+    full = search_packed_compiled_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    full_calls = len(evaluated_rows)
+    evaluated_rows.clear()
+
+    result = search_sql_packed_best_action(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        sql=BEST_ACTION_SQL,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert result["chosen_action"] == full["chosen_action"] == "hide"
+    assert result["chosen_value"] == pytest.approx(full["root_values"]["hide"])
+    assert result["sql_result"] == {
+        "action_id": "hide",
+        "expected_value": pytest.approx(full["root_values"]["hide"]),
+    }
+    assert result["evaluator_calls"] < full_calls
+    assert result["winner_certificate"]["pruned_leaf_count"] == 1
+    assert result["sql_semantic_identity"] == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert result["sql_physical_plan"]["result_contract"] == (
+        "winner-only-exact-action-and-value"
+    )
+    assert "root_values" not in result
+
+
+def test_best_action_sql_cannot_silently_use_full_result_query() -> None:
+    prepared = prepare_best_action_query(DEFAULT_DECISION_SQL)
+
+    assert prepared.semantic_identity is None
+    with pytest.raises(
+        SQLPackedLoweringError,
+        match="no reviewed packed/JAX semantic identity",
+    ):
+        compile_packed_sql_decision_query(prepared)

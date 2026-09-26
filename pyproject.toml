@@ -42,15 +42,40 @@ line-length = 100
 required-version = ">=0.12.18,<0.13"
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F"]
+select = ["E4", "E7", "E9", "F", "B", "RUF012"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+  "azelficoast.belief.battle_promotion.BattlePromotionPolicy",
+  "azelficoast.belief.evaluator.BeliefEvaluatorSpec",
+  "azelficoast.belief.improvement.AdmissionPolicy",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["RUF012"]
 
 [tool.mypy]
 python_version = "3.11"
 strict = true
 follow_imports = "silent"
+exclude = [
+  "src/azelficoast/core/compiled_search.py",
+  "src/azelficoast/belief/compiled_search.py",
+  "src/azelficoast/belief/packed_evaluator.py",
+  "src/azelficoast/belief/showdown_packing.py",
+]
 files = [
+  # The authoritative core is checked as a package: new core modules enter strict CI automatically.
+  "src/azelficoast/core",
+
+  # Runtime semantics are package frontiers. Only modules whose implementation
+  # genuinely requires the optional JAX stack are checked in the accelerator frontier.
+  "src/azelficoast/search",
+  "src/azelficoast/live",
+  "src/azelficoast/belief",
+
+  # Research contracts and matched experiment settlement.
   "src/azelficoast/research/contracts.py",
-  "src/azelficoast/core/mechanics.py",
   "src/azelficoast/research/matched_comparison.py",
   "src/azelficoast/research/matched_search.py",
   "src/azelficoast/research/typed_search.py",

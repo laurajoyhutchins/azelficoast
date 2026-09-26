@@ -10,6 +10,9 @@ from azelficoast.core.sql import (
     ACTION_SUMMARY_QUERY,
     ACTION_SUMMARY_SEMANTIC_ID,
     ACTION_SUMMARY_SQL,
+    BEST_ACTION_SQL,
+    DECISION_BEST_ACTION_QUERY,
+    DECISION_BEST_ACTION_SEMANTIC_ID,
     DECISION_EXPECTED_VALUE_QUERY,
     DECISION_POLICY_QUERY,
     DECISION_QUERY_SEMANTIC_ID,
@@ -18,10 +21,14 @@ from azelficoast.core.sql import (
     RISK_ADJUSTED_SQL,
     MAXIMIN_SQL,
     SQLQueryError,
+    bound_semantic_identity,
+    parameter_bindings_identity,
     describe_decision_sql_surface,
+    explain_best_action_query,
     explain_decision_query,
     explain_sql_query,
     prepare_action_summary_query,
+    prepare_best_action_query,
     prepare_decision_query,
     policy_semantic_identity,
     prepare_policy_query,
@@ -55,6 +62,35 @@ def test_default_decision_sql_is_admitted_by_real_sqlite_parser() -> None:
     )
 
 
+def test_best_action_sql_is_a_distinct_winner_only_semantic_query() -> None:
+    prepared = prepare_best_action_query()
+    explanation = explain_best_action_query(prepared)
+
+    assert prepared.query_class == DECISION_BEST_ACTION_QUERY
+    assert prepared.sql == BEST_ACTION_SQL
+    assert prepared.semantic_identity == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert prepared.bound_semantic_identity == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert prepared.semantic_identity != DECISION_QUERY_SEMANTIC_ID
+    assert prepared.parameter_names == ()
+    assert prepared.equivalence_rule == "canonical-source"
+    assert prepared.equivalence_scope == "reviewed-source"
+    assert prepared.logical == DEFAULT_DECISION_PLAN
+    assert BEST_ACTION_SQL.endswith("LIMIT 1")
+    assert explanation["query_class"] == DECISION_BEST_ACTION_QUERY
+    assert explanation["semantic_identity"] == DECISION_BEST_ACTION_SEMANTIC_ID
+
+
+def test_best_action_sql_fails_closed_when_result_cardinality_changes() -> None:
+    changed = BEST_ACTION_SQL.replace("LIMIT 1", "LIMIT 2")
+    prepared = prepare_best_action_query(changed)
+
+    assert prepared.semantic_identity is None
+    assert prepared.bound_semantic_identity is None
+    assert prepared.logical is None
+    assert prepared.equivalence_rule is None
+    assert prepared.equivalence_scope is None
+
+
 def test_explain_binds_exact_sql_and_planner_environment() -> None:
     prepared = prepare_decision_query(DEFAULT_DECISION_SQL)
     repeated = prepare_decision_query(DEFAULT_DECISION_SQL)
@@ -62,7 +98,7 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
     assert prepared.sql_sha256 == repeated.sql_sha256
     assert explanation["schema"] == "azelficoast.core.sql-query-explain"
-    assert explanation["schema_version"] == 6
+    assert explanation["schema_version"] == 7
     assert explanation["sql_sha256"] == prepared.sql_sha256
     assert explanation["relations"] == list(prepared.relations)
     assert explanation["functions"] == ["sum"]
@@ -217,6 +253,18 @@ def test_writer_surface_exposes_named_query_classes() -> None:
     assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
         "packed_jax_lowering"
     ] is True
+    assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
+        "result_contract"
+    ] == "all-action-exact-values"
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY][
+        "semantic_identity"
+    ] == DECISION_BEST_ACTION_SEMANTIC_ID
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY][
+        "packed_jax_lowering"
+    ] is True
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY][
+        "result_contract"
+    ] == "winner-only-exact-action-and-value"
     assert surface["query_classes"][DECISION_POLICY_QUERY][
         "semantic_identity"
     ] is None
@@ -306,6 +354,12 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
         .read_text(encoding="utf-8")
         .strip()
     )
+    best_action_source = (
+        files("azelficoast.queries")
+        .joinpath("best_action.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
     maximin_source = (
         files("azelficoast.queries")
         .joinpath("maximin.sql")
@@ -333,6 +387,7 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     surface = describe_decision_sql_surface()
 
     assert query_source == DEFAULT_DECISION_SQL
+    assert best_action_source == BEST_ACTION_SQL
     assert maximin_source == MAXIMIN_SQL
     assert risk_adjusted_source == RISK_ADJUSTED_SQL
     assert summary_source == ACTION_SUMMARY_SQL
@@ -346,15 +401,24 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY]["source"] == (
         "azelficoast.queries/decision.sql"
     )
+    assert surface["query_classes"][DECISION_BEST_ACTION_QUERY]["source"] == (
+        "azelficoast.queries/best_action.sql"
+    )
     assert surface["query_classes"][DECISION_POLICY_QUERY]["source"] is None
     assert surface["policy_examples"] == {
         "maximin": "azelficoast.queries/maximin.sql",
         "risk_adjusted": "azelficoast.queries/risk_adjusted.sql",
     }
+    assert surface["policy_parameters"] == {
+        "style": "named",
+        "value_types": ["integer", "real"],
+        "binding_schema": "azelficoast.core.sql-parameter-bindings",
+        "binding_schema_version": 1,
+    }
     assert surface["query_classes"][ACTION_SUMMARY_QUERY]["source"] == (
         "azelficoast.queries/action_summary.sql"
     )
-    assert surface["schema_version"] == 4
+    assert surface["schema_version"] == 6
 
 
 def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
@@ -373,7 +437,10 @@ def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
 
 def test_policy_sql_gets_source_derived_semantic_identity() -> None:
     maximin = prepare_policy_query(MAXIMIN_SQL)
-    risk_adjusted = prepare_policy_query(RISK_ADJUSTED_SQL)
+    risk_adjusted = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
 
     assert maximin.query_class == DECISION_POLICY_QUERY
     assert maximin.semantic_identity == policy_semantic_identity(MAXIMIN_SQL)
@@ -402,7 +469,10 @@ def test_policy_identity_ignores_incidental_presentation() -> None:
 
 
 def test_policy_ranking_is_system_owned_and_deterministic() -> None:
-    prepared = prepare_policy_query(RISK_ADJUSTED_SQL)
+    prepared = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
     explanation = explain_sql_query(prepared)
 
     assert prepared.execution_sql != prepared.sql
@@ -435,6 +505,153 @@ def test_policy_writer_must_use_action_statistics_surface() -> None:
 def test_policy_contract_rejects_wrong_result_shape() -> None:
     with pytest.raises(SQLQueryError, match="action_id, score"):
         prepare_policy_query(ACTION_SUMMARY_SQL)
+
+
+def test_policy_parameter_values_are_separate_from_policy_semantics() -> None:
+    low = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
+    high = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.75},
+    )
+
+    assert low.semantic_identity == high.semantic_identity
+    assert low.semantic_identity == policy_semantic_identity(RISK_ADJUSTED_SQL)
+    assert low.parameter_names == high.parameter_names == ("risk_aversion",)
+    assert low.parameter_bindings_identity != high.parameter_bindings_identity
+    assert low.bound_semantic_identity != high.bound_semantic_identity
+    assert low.bound_semantic_identity == bound_semantic_identity(
+        low.semantic_identity,
+        low.parameter_bindings_identity,
+        has_bindings=True,
+    )
+
+
+def test_policy_parameter_evidence_preserves_exact_numeric_type() -> None:
+    integer = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 1},
+    )
+    real = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 1.0},
+    )
+
+    assert integer.semantic_identity == real.semantic_identity
+    assert integer.parameter_bindings[0].value_type == "integer"
+    assert integer.parameter_bindings[0].canonical_value == "1"
+    assert real.parameter_bindings[0].value_type == "real"
+    assert real.parameter_bindings[0].canonical_value == float(1).hex()
+    assert integer.parameter_bindings_identity != real.parameter_bindings_identity
+
+
+def test_explain_binds_policy_parameters_without_hiding_source_identity() -> None:
+    prepared = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
+    explanation = explain_sql_query(prepared)
+
+    assert explanation["schema_version"] == 7
+    assert explanation["semantic_identity"] == prepared.semantic_identity
+    assert explanation["bound_semantic_identity"] == (
+        prepared.bound_semantic_identity
+    )
+    assert explanation["parameter_names"] == ["risk_aversion"]
+    assert explanation["parameter_bindings"] == [
+        {
+            "name": "risk_aversion",
+            "value_type": "real",
+            "canonical_value": float(0.25).hex(),
+        }
+    ]
+    assert explanation["parameter_bindings_identity"] == (
+        prepared.parameter_bindings_identity
+    )
+
+
+def test_parameter_bindings_are_exact_and_fail_closed() -> None:
+    with pytest.raises(SQLQueryError, match="binding parameter"):
+        prepare_policy_query(RISK_ADJUSTED_SQL)
+
+    with pytest.raises(SQLQueryError, match="must match query parameters exactly"):
+        prepare_policy_query(
+            MAXIMIN_SQL,
+            parameters={"unused": 1},
+        )
+
+
+@pytest.mark.parametrize("value", [True, float("nan"), float("inf"), float("-inf")])
+def test_policy_parameters_reject_ambiguous_numeric_values(value: object) -> None:
+    with pytest.raises(SQLQueryError):
+        prepare_policy_query(
+            RISK_ADJUSTED_SQL,
+            parameters={"risk_aversion": value},  # type: ignore[arg-type]
+        )
+
+
+def test_parameter_binding_identity_is_order_independent() -> None:
+    first = prepare_policy_query(
+        """
+        SELECT
+            action_id,
+            expected_value - :risk * (expected_value - worst_value)
+                + :bonus AS score
+        FROM action_statistics
+        """,
+        parameters={"risk": 0.25, "bonus": 1},
+    )
+    second = prepare_policy_query(
+        """
+        SELECT
+            action_id,
+            expected_value - :risk * (expected_value - worst_value)
+                + :bonus AS score
+        FROM action_statistics
+        """,
+        parameters={"bonus": 1, "risk": 0.25},
+    )
+
+    assert first.parameter_bindings_identity == second.parameter_bindings_identity
+    assert first.bound_semantic_identity == second.bound_semantic_identity
+    assert first.parameter_names == ("bonus", "risk")
+
+
+def test_parameter_name_case_is_part_of_policy_source_identity() -> None:
+    lower_sql = """
+    SELECT
+        action_id,
+        expected_value - :risk * (expected_value - worst_value) AS score
+    FROM action_statistics
+    """
+    upper_sql = lower_sql.replace(":risk", ":Risk")
+
+    lower = prepare_policy_query(lower_sql, parameters={"risk": 0.25})
+    upper = prepare_policy_query(upper_sql, parameters={"Risk": 0.25})
+
+    assert lower.semantic_identity != upper.semantic_identity
+    assert lower.bound_semantic_identity != upper.bound_semantic_identity
+
+
+def test_unparameterized_query_keeps_semantic_identity_as_bound_identity() -> None:
+    prepared = prepare_policy_query(MAXIMIN_SQL)
+
+    assert prepared.parameter_names == ()
+    assert prepared.parameter_bindings == ()
+    assert prepared.bound_semantic_identity == prepared.semantic_identity
+
+
+def test_parameter_bindings_identity_matches_prepared_evidence() -> None:
+    prepared = prepare_policy_query(
+        RISK_ADJUSTED_SQL,
+        parameters={"risk_aversion": 0.25},
+    )
+
+    assert prepared.parameter_bindings_identity == parameter_bindings_identity(
+        prepared.parameter_bindings
+    )
 
 
 def test_unknown_query_class_fails_closed() -> None:

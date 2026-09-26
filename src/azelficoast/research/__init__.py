@@ -1,1 +1,1 @@
-"""Matched experiments, population inference, and research analysis."""
+"""Research contracts, orchestration, population inference, and shared analysis."""

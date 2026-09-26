@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, cast
 
 from poke_env.battle.abstract_battle import AbstractBattle
 from poke_env.player import SimpleHeuristicsPlayer
@@ -99,7 +99,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
     ) -> BattleOrder | None:
         for order in getattr(battle, "valid_orders", ()):
             if order.message == action:
-                return order
+                return cast(BattleOrder, order)
         return None
 
     def _belief_decision(self, battle: AbstractBattle) -> LiveDecisionResult:
@@ -136,7 +136,7 @@ class AzelficoastPlayer(SimpleHeuristicsPlayer):
                 reason="belief-policy-returned-nonlegal-action",
                 diagnostics={"action": result.action},
             )
-        return result
+        return cast(LiveDecisionResult, result)
 
     def choose_move(self, battle: AbstractBattle) -> BattleOrder:
         belief = self._belief_decision(battle)

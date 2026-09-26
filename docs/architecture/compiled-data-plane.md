@@ -182,7 +182,7 @@ introducing a second optimizer path.
 
 ## Matched representation experiment
 
-`azelficoast.research.evaluator_representation_experiment` compares the existing hashed
+`azelficoast.research.experiments.evaluator_representation_experiment` compares the existing hashed
 hidden-world evaluator against the packed treatment over the same frozen training records.
 It fixes split membership, targets, public/action feature widths, optimizer settings,
 epochs, and random seed.

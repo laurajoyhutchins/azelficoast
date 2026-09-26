@@ -53,6 +53,12 @@ PACKED_COMPILED_EXECUTION_STAGES = (
     "predict_packed_shared_world_values",
     "reduce_compiled_root_values",
 )
+PACKED_BOUNDED_EXECUTION_STAGES = (
+    "compile_search_topology",
+    "pack_joint_posterior",
+    "transport_posterior_mass",
+    "choose_bounded_action",
+)
 
 
 def search_packed_compiled_transition_program(
@@ -274,6 +280,7 @@ def choose_packed_compiled_action_bounded(
             "leaves": topology.leaf_count,
         },
         "numeric_backend": "jax-shared-packed-worlds-bounded",
+        "physical_execution_stages": list(PACKED_BOUNDED_EXECUTION_STAGES),
         "semantic_authority": (
             "python-validated-transition-program + pinned-showdown-vocabulary "
             "+ tanh-certified-value-range"

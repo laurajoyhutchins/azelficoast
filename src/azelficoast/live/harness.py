@@ -650,6 +650,7 @@ def _resolve_live_credentials(username_override: str | None) -> tuple[str, str]:
     ]
     if missing:
         raise ValueError("missing live Showdown credentials: " + ", ".join(missing))
+    assert username is not None and password is not None
     return username, password
 
 
@@ -747,22 +748,28 @@ def _training_opponent(
     search_policy_margin: float,
 ) -> Player:
     kind = spec.get("kind")
-    common = {
-        "battle_format": BATTLE_FORMAT,
-        "max_concurrent_battles": concurrency,
-    }
     if kind == "max-base-power":
-        return MaxBasePowerPlayer(**common)
+        return MaxBasePowerPlayer(
+            battle_format=BATTLE_FORMAT,
+            max_concurrent_battles=concurrency,
+        )
     if kind == "simple-heuristics":
-        return SimpleHeuristicsPlayer(**common)
+        return SimpleHeuristicsPlayer(
+            battle_format=BATTLE_FORMAT,
+            max_concurrent_battles=concurrency,
+        )
     if kind == "dirty-tricks":
-        return DirtyTricksPlayer(**common)
+        return DirtyTricksPlayer(
+            battle_format=BATTLE_FORMAT,
+            max_concurrent_battles=concurrency,
+        )
     if kind in {"incumbent", "archive"}:
         checkpoint = spec.get("checkpoint")
         if not isinstance(checkpoint, str) or not checkpoint:
             raise ValueError(f"{kind} opponent lacks a checkpoint")
         return AzelficoastPlayer(
-            **common,
+            battle_format=BATTLE_FORMAT,
+            max_concurrent_battles=concurrency,
             showdown_root=showdown_root,
             belief_timeout_seconds=belief_timeout,
             evaluator_checkpoint=Path(checkpoint),

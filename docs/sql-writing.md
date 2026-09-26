@@ -151,8 +151,7 @@ identity.
 
 ### `decision.expected_value`
 
-This is the existing live decision policy and the only query class currently lowered to
-the packed/JAX executor:
+This query asks for the exact expected value of every legal root action:
 
 ```sql
 SELECT
@@ -162,6 +161,36 @@ FROM action_value_terms
 GROUP BY action_id
 ORDER BY expected_value DESC, action_id ASC;
 ```
+
+Because every row is part of the result contract, its packed/JAX lowering evaluates the
+complete successor frontier.
+
+### `decision.best_action`
+
+This packaged query deliberately asks for less:
+
+```sql
+SELECT
+    action_id,
+    SUM(weight * value) AS expected_value
+FROM action_value_terms
+GROUP BY action_id
+ORDER BY expected_value DESC, action_id ASC
+LIMIT 1;
+```
+
+That `LIMIT 1` is semantic, not presentation sugar. It gives the physical planner
+permission to use exact bound-based pruning. The packed value head is certified to stay
+inside `[-1, 1]`; after an exact incumbent is established, a losing action may stop
+evaluating leaves once its conservative upper bound is strictly below the incumbent's
+conservative lower bound.
+
+The result still contains the exact winning `action_id` and `expected_value`.
+Unevaluated losers are retained only as certificate intervals in execution evidence.
+They are never fabricated as SQL result rows.
+
+Changing or removing `LIMIT 1` changes the semantic query class and therefore removes
+this bounded-lowering authority.
 
 ### `analysis.action_summary`
 
@@ -219,7 +248,8 @@ and `risk_adjusted.sql` composes the same relation differently:
 WITH scored AS (
     SELECT
         action_id,
-        expected_value - 0.25 * (expected_value - worst_value) AS score
+        expected_value
+            - :risk_aversion * (expected_value - worst_value) AS score
     FROM action_statistics
 )
 SELECT
@@ -231,11 +261,84 @@ FROM scored;
 Neither policy needs a new Python query class. Its semantic identity is derived from the
 normalized policy source, writer-surface identity, result contract, and system-owned
 ranking contract. Comments, whitespace, case, and a trailing semicolon do not create a
-new identity; a changed coefficient or expression does.
+new identity; changing the SQL expression does.
+
+### Policy parameters
+
+Policies may use named SQLite parameters such as `:risk_aversion`. Parameter values are
+bound separately from policy semantics:
+
+```python
+prepare_policy_query(
+    RISK_ADJUSTED_SQL,
+    parameters={"risk_aversion": 0.25},
+)
+```
+
+The policy SQL keeps one semantic identity across a parameter sweep. Exact bindings get
+their own deterministic evidence identity, and the prepared query derives a
+`bound_semantic_identity` from the policy identity plus those bindings.
+
+```text
+risk_adjusted.sql
+      |
+      +--> policy semantic identity
+      |
+      +-- risk_aversion = 0.25 --> binding identity A --> bound identity A
+      |
+      +-- risk_aversion = 0.75 --> binding identity B --> bound identity B
+```
+
+Only named parameters are supported. Bindings must match the parameters in the parsed
+SQLite program exactly. Values are restricted to finite SQLite integers and reals;
+booleans, NaN, infinities, missing bindings, extra bindings, and positional parameters
+fail closed. Integer and real values remain distinct in evidence, so `1` and `1.0`
+cannot collapse accidentally.
 
 Policies deliberately have no packed/JAX execution authority yet. They can be parsed,
 authorized, identified, explained, compared, and reviewed as decision semantics without
 silently becoming the live battle policy.
+
+### Parameter sweep experiments
+
+Policy experiments consume the SQL source and parameter grid as data. The generic
+`azelficoast.research.policy_sweep` runner does not encode coefficient values.
+
+The committed risk-adjusted experiment plan is:
+
+```json
+{
+  "policy_resource": "risk_adjusted.sql",
+  "parameter_grid": {
+    "risk_aversion": [0.0, 0.25, 0.5, 0.75, 1.0]
+  },
+  "require_all_actions": true
+}
+```
+
+For every grid point the runner prepares the same SQL policy, records its exact parameter
+binding and bound semantic identity, and evaluates the same frozen
+`action_statistics` fixtures. Evidence is settled only when the full Cartesian matrix
+is present:
+
+```text
+one policy source
+      |
+      +-- binding 0 ----+
+      +-- binding 1 ----+
+      +-- binding 2 ----+--> same frozen fixtures --> matched evidence
+      +-- binding 3 ----+
+      +-- binding 4 ----+
+```
+
+The result records the plan identity, fixture-corpus identity, policy semantic identity,
+every parameter-binding identity, every bound semantic identity, complete action
+rankings, and chosen-action changes across the grid. Duplicate typed bindings,
+incomplete matrices, non-finite fixture values, unknown actions, or nondeterministic
+ranking fail closed.
+
+This keeps scientific parameters in the experiment contract instead of hiding a sweep in
+Python control flow.
 
 That separation is the point of the named-query layer:
 

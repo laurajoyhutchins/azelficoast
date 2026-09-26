@@ -24,7 +24,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 
 import numpy as np
 
@@ -60,6 +60,12 @@ JOIN_ORDER_AGGREGATE_FIRST = "aggregate-outcomes-before-world-join"
 
 class CompiledSearchError(ValueError):
     """Raised when an authorized search topology cannot be compiled or transported."""
+
+
+class _JaxModule(Protocol):
+    """Typed surface used from JAX without making JAX part of the core contract."""
+
+    def jit(self, function: Callable[..., Any]) -> Callable[..., Any]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -912,11 +918,12 @@ def compile_search_topology(
         edge_leaf_index.append(leaf_index_by_key[edge["leaf_key"]])
         edge_chance.append(float(edge["chance"]))
 
+    program_digest = sha256_json(program_set)
     material = {
         "schema": COMPILED_TOPOLOGY_SCHEMA,
         "schema_version": COMPILED_TOPOLOGY_SCHEMA_VERSION,
         "method": method,
-        "program_digest": sha256_json(program_set),
+        "program_digest": program_digest,
         "outcome_world_join_plan": outcome_world_join_plan.as_record(),
         "root_actions": list(actions),
         "world_ids": list(world_ids),
@@ -947,7 +954,7 @@ def compile_search_topology(
 
     return CompiledSearchTopology(
         method=method,
-        program_digest=material["program_digest"],
+        program_digest=program_digest,
         topology_digest=topology_digest,
         outcome_world_join_plan=outcome_world_join_plan,
         root_actions=tuple(actions),
@@ -1025,7 +1032,7 @@ def _posterior_for_topology(
     return worlds_by_id, weights
 
 
-def _require_jax() -> tuple[Any, Any]:
+def _require_jax() -> tuple[_JaxModule, Any]:
     try:
         import jax
         import jax.numpy as jnp
@@ -1033,7 +1040,7 @@ def _require_jax() -> tuple[Any, Any]:
         raise CompiledSearchError(
             "JAX is required for compiled search transport; install the simulator extra"
         ) from error
-    return jax, jnp
+    return cast(_JaxModule, jax), jnp
 
 
 @lru_cache(maxsize=None)
