@@ -1,0 +1,238 @@
+name: research
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - ".github/actions/**"
+      - ".github/workflows/research.yml"
+      - "experiments/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "README.md"
+      - "src/**"
+      - "showdown/**"
+      - "tests/**"
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: Candidate experiment name, or all
+        required: false
+        default: all
+        type: string
+      study:
+        description: Hosted research study name, or all
+        required: false
+        default: all
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: research-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  candidate-plan:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Select affected candidate experiments
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUESTED: ${{ inputs.candidate }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            matrix="$(PYTHONPATH=src python -m azelficoast.research.ci plan --requested "${REQUESTED:-all}")"
+          else
+            matrix="$(PYTHONPATH=src python -m azelficoast.research.ci plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+          fi
+          count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
+          echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
+          echo "count=${count}" >> "${GITHUB_OUTPUT}"
+
+  accelerator-static:
+    needs: candidate-plan
+    if: needs.candidate-plan.result == 'success'
+    name: strict accelerator typing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Azelficoast simulator Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: true
+      - name: Type check accelerator frontier
+        run: |
+          uv run mypy --python-version 3.13 \
+            src/azelficoast/core/compiled_search.py \
+            src/azelficoast/belief/showdown_packing.py \
+            src/azelficoast/belief/packed_evaluator.py \
+            src/azelficoast/belief/compiled_search.py
+
+  candidate-exact:
+    needs: candidate-plan
+    if: needs.candidate-plan.outputs.count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.candidate-plan.outputs.matrix) }}
+    name: candidate (${{ matrix.experiment }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: ${{ matrix.simulator }}
+      - name: Restore verified pinned Pokémon Showdown
+        if: matrix.showdown == true
+        uses: ./.github/actions/setup-showdown
+      - name: Execute and settle candidate evidence
+        env:
+          AZELFICOAST_GIT_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: uv run python -m azelficoast.research.ci run "${{ matrix.experiment }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: /tmp/azelficoast-research/${{ matrix.experiment }}
+          if-no-files-found: error
+
+  candidate-certify:
+    needs: [candidate-plan, candidate-exact, accelerator-static]
+    if: always() && needs.candidate-plan.result == 'success'
+    name: certify candidate exact head
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Validate and emit exact-head certificate
+        env:
+          SELECTED_COUNT: ${{ needs.candidate-plan.outputs.count }}
+          EXACT_RESULT: ${{ needs.candidate-exact.result }}
+          ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          MATRIX: ${{ needs.candidate-plan.outputs.matrix }}
+        run: uv run python -m azelficoast.research.ci certify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: candidate-research-certificate
+          path: /tmp/candidate-research-certificate/certificate.json
+          if-no-files-found: error
+
+  hosted-plan:
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review'
+    runs-on: ubuntu-latest
+    outputs:
+      run_matrix: ${{ steps.plan.outputs.run_matrix }}
+      run_count: ${{ steps.plan.outputs.run_count }}
+      aggregate_matrix: ${{ steps.plan.outputs.aggregate_matrix }}
+      aggregate_count: ${{ steps.plan.outputs.aggregate_count }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Select affected hosted research
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REQUESTED: ${{ inputs.study }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            plan="$(PYTHONPATH=src python -m azelficoast.research.hosted plan --requested "${REQUESTED:-all}")"
+          else
+            plan="$(PYTHONPATH=src python -m azelficoast.research.hosted plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+          fi
+          run_matrix="$(python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["run"], separators=(",",":")))' "${plan}")"
+          aggregate_matrix="$(python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["aggregate"], separators=(",",":")))' "${plan}")"
+          run_count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${run_matrix}")"
+          aggregate_count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${aggregate_matrix}")"
+          echo "run_matrix=${run_matrix}" >> "${GITHUB_OUTPUT}"
+          echo "run_count=${run_count}" >> "${GITHUB_OUTPUT}"
+          echo "aggregate_matrix=${aggregate_matrix}" >> "${GITHUB_OUTPUT}"
+          echo "aggregate_count=${aggregate_count}" >> "${GITHUB_OUTPUT}"
+
+  hosted-run:
+    needs: hosted-plan
+    if: needs.hosted-plan.outputs.run_count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.hosted-plan.outputs.run_matrix) }}
+    name: hosted (${{ matrix.study }} / ${{ matrix.unit }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-python-environment
+      - name: Setup canonical research evidence
+        if: matrix.evidence == true
+        uses: ./.github/actions/setup-research-evidence
+      - name: Restore verified pinned Pokémon Showdown
+        if: matrix.showdown == true
+        uses: ./.github/actions/setup-showdown
+      - name: Execute hosted research unit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python -m azelficoast.research.hosted run-unit "${{ matrix.study }}" "${{ matrix.unit }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: ${{ matrix.if_no_files }}
+
+  hosted-aggregate:
+    needs: [hosted-plan, hosted-run]
+    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-run.result != 'cancelled'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.hosted-plan.outputs.aggregate_matrix) }}
+    name: aggregate (${{ matrix.study }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-python-environment
+      - name: Setup canonical research evidence
+        if: matrix.evidence == true
+        uses: ./.github/actions/setup-research-evidence
+      - name: Restore verified pinned Pokémon Showdown
+        if: matrix.showdown == true
+        uses: ./.github/actions/setup-showdown
+      - name: Prepare aggregate inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python -m azelficoast.research.hosted prepare-aggregate "${{ matrix.study }}"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ${{ matrix.download_pattern }}
+          path: /tmp/exact
+          merge-multiple: true
+      - name: Aggregate hosted research evidence
+        run: uv run python -m azelficoast.research.hosted aggregate "${{ matrix.study }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: ${{ matrix.if_no_files }}

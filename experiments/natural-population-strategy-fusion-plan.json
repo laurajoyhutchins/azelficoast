@@ -91,6 +91,9 @@
     "source_decision_state_count": 6485,
     "selected_count": 10,
     "frozen_before_policy_values": true,
-    "selection_uses_policy_result": false
+    "selection_uses_policy_result": false,
+    "bounded_candidate_count": 13,
+    "eligible_count": 10,
+    "overflow_sampling_applied": false
   }
 }

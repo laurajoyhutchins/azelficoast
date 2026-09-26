@@ -31,8 +31,6 @@ EXPECTED_GENERATOR_CONTEXT = {
     "teamDetails": {},
     "isLead": False,
     "isDoubles": False,
-    "publicLevel": None,
-    "publicAbility": None,
 }
 
 # (physical attack multiplier, final damage multiplier)
@@ -281,6 +279,16 @@ def extract_damage_observations(
     return tuple(observations)
 
 
+def _normalized_generator_context(value: object) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    return {
+        key: item
+        for key, item in value.items()
+        if key not in {"publicLevel", "publicAbility"} or item is not None
+    }
+
+
 def load_world_sample(path: str | Path) -> dict[str, Any]:
     sample_path = Path(path)
     payload = json.loads(sample_path.read_text(encoding="utf-8"))
@@ -294,7 +302,7 @@ def load_world_sample(path: str | Path) -> dict[str, Any]:
         raise ReplayError(
             f"{sample_path}: sample is not bound to Showdown {SHOWDOWN_COMMIT}"
         )
-    if payload.get("generator_context") != EXPECTED_GENERATOR_CONTEXT:
+    if _normalized_generator_context(payload.get("generator_context")) != EXPECTED_GENERATOR_CONTEXT:
         raise ReplayError(f"{sample_path}: unexpected generator context")
 
     rounds = payload.get("rounds")
@@ -606,7 +614,7 @@ def build_replay_belief(
     """Build a deterministic belief certificate from acquired public evidence."""
     if sample.get("showdown_commit") != SHOWDOWN_COMMIT:
         raise ReplayError("world sample is not bound to the expected Showdown revision")
-    if sample.get("generator_context") != EXPECTED_GENERATOR_CONTEXT:
+    if _normalized_generator_context(sample.get("generator_context")) != EXPECTED_GENERATOR_CONTEXT:
         raise ReplayError("world sample uses an unexpected generator context")
     if sample.get("observed_moves") != ["closecombat"]:
         raise ReplayError(
