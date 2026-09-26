@@ -609,7 +609,7 @@ def analyze_quotiented_oracle(
 
 
 class _JsonStreamReader:
-    """Incremental JSON reader that materializes selected top-level arrays only."""
+    """Parse oracle JSON incrementally without retaining its full source text."""
 
     def __init__(self, source: TextIO, chunk_size: int) -> None:
         if chunk_size < 1:
