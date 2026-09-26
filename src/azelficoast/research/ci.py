@@ -563,6 +563,18 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
     ),
     _spec(
+        "candidate-research-contract",
+        paths=(
+            "src/azelficoast/research/ci.py",
+            "tests/test_research_ci.py",
+        ),
+        artifact="candidate-research-contract-evidence",
+        tests=("tests/test_research_ci.py",),
+        modules=(),
+        simulator=False,
+        showdown=False,
+    ),
+    _spec(
         "sql-policy-parameter-sweep",
         paths=(
             "src/azelficoast/core/sql.py",
@@ -618,7 +630,6 @@ _BY_NAME = {experiment.name: experiment for experiment in EXPERIMENTS}
 _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
     ".github/workflows/candidate-research.yml",
-    "src/azelficoast/research/ci.py",
 }
 _SHARED_SHOWDOWN_PATHS = {".github/actions/setup-showdown/action.yml"}
 
