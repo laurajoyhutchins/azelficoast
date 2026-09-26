@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from importlib import import_module
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -232,8 +233,8 @@ def evaluator_identity(
 
 def _require_jax() -> tuple[Any, Any]:
     try:
-        import jax
-        import jax.numpy as jnp
+        jax = import_module("jax")
+        jnp = import_module("jax.numpy")
     except ImportError as error:
         raise BeliefEvaluatorError(
             "JAX is required for learned evaluator initialization and inference; "
