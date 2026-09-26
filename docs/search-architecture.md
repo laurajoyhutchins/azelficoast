@@ -372,3 +372,44 @@ cardinalities, selected join order, predicted work units, and rows saved.
 The pre-JAX cardinality guard uses the number of search-equivalent outcome groups as its
 chance-edge lower bound. That remains a true lower bound whether the physical compiler
 chooses aggregation pushdown or the original expansion order.
+
+
+## Exact winner-only pruning from evaluator bounds
+
+The packed evaluator's value head ends in `tanh`, so every successor value is
+certifiably in `[-1, 1]`. Azelficoast now exposes that range as an executable
+contract and validates inference results against it.
+
+That bound enables a separate winner-only physical operator. For each root action,
+search knows the positive contribution coefficient of every successor leaf. It evaluates
+the largest-mass leaves first and maintains a conservative interval:
+
+```text
+partial weighted value
++ remaining mass × [-1, +1]
+```
+
+One action is fully evaluated first to establish an exact incumbent. A losing action may
+stop only when its outward-rounded upper bound is strictly below the incumbent's
+outward-rounded lower bound. Overlapping intervals, including possible ties, force more
+evaluation.
+
+The result contract is intentionally different from the full expected-value query:
+
+```text
+full expected-value path
+    -> exact value for every action
+
+bounded winner-only path
+    -> exact chosen action + exact chosen value
+    -> exact values for any other fully evaluated actions
+    -> certified intervals for pruned actions
+```
+
+Because pruned losers do not have exact scores, this path cannot substitute for
+`decision.expected_value`. It is machinery for a future winner-only semantic query or
+other consumers whose contract genuinely asks only which action wins.
+
+The optimization changes only evaluator work. Transition-program validation,
+information-set construction, posterior transport, and transition-evaluation accounting
+remain unchanged.

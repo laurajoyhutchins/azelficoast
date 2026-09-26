@@ -20,6 +20,15 @@ from azelficoast.core.costing import (
     choose_execution_path,
     estimate_cache_route,
 )
+from azelficoast.core.evaluation import (
+    ActionValueInterval,
+    BoundedActionDecision,
+    EvaluationContribution,
+    EvaluationFrontier,
+    EvaluationFrontierError,
+    EvaluationLeaf,
+    choose_bounded_action,
+)
 from azelficoast.core.decision_relevance import (
     CERTIFICATE_SCHEMA,
     CERTIFICATE_SCHEMA_VERSION,
@@ -109,6 +118,8 @@ __all__ = [
     "ACTION_SUMMARY_QUERY",
     "ACTION_SUMMARY_SEMANTIC_ID",
     "ACTION_SUMMARY_SQL",
+    "ActionValueInterval",
+    "BoundedActionDecision",
     "CacheRouteEstimate",
     "CacheTierCost",
     "CardinalityEstimate",
@@ -126,6 +137,10 @@ __all__ = [
     "DEFAULT_DECISION_SQL",
     "RISK_ADJUSTED_SQL",
     "MAXIMIN_SQL",
+    "EvaluationContribution",
+    "EvaluationFrontier",
+    "EvaluationFrontierError",
+    "EvaluationLeaf",
     "ExecutionCostProfile",
     "ExecutionDecision",
     "ExecutionFeatures",
@@ -170,6 +185,7 @@ __all__ = [
     "VERIFICATION_SCHEMA_VERSION",
     "analyze_categorical_dependency",
     "canonical_json",
+    "choose_bounded_action",
     "choose_execution_path",
     "choose_operator_implementation",
     "choose_physical_plan",

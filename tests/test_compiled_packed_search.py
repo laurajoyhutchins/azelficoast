@@ -7,8 +7,10 @@ from typing import Any, Mapping, Sequence
 
 import pytest
 
+import azelficoast.belief.compiled_search as compiled_search_module
 from azelficoast.belief.compiled_search import (
     PACKED_COMPILED_EXECUTION_STAGES,
+    choose_packed_compiled_action_bounded,
     search_packed_compiled_transition_program,
 )
 from azelficoast.belief.packed_evaluator import (
@@ -862,3 +864,89 @@ def test_composable_sql_policy_does_not_inherit_expected_value_lowering() -> Non
         match="no reviewed packed/JAX semantic identity",
     ):
         compile_packed_sql_decision_query(prepared)
+
+
+
+def test_bounded_packed_winner_skips_certifiably_losing_leaf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("jax")
+    vocabulary = _vocabulary()
+    spec = PackedBeliefEvaluatorSpec.from_vocabulary(
+        vocabulary,
+        public_width=4,
+        action_width=4,
+        embedding_width=4,
+        member_hidden_width=4,
+        world_hidden_width=4,
+        hidden_width=4,
+    )
+    params = init_packed_params(spec, seed=79)
+
+    def fake_features(
+        value: Mapping[str, Any],
+        *,
+        width: int,
+    ) -> tuple[float, ...]:
+        marker = 1.0 if value.get("root_action") == "hide" else -1.0
+        return tuple(marker for _ in range(width))
+
+    evaluated_rows: list[tuple[float, ...]] = []
+
+    def fake_values(
+        evaluator_params: Mapping[str, Any],
+        packed: Any,
+        *,
+        public_features: Sequence[Sequence[float]],
+        leaf_world_weights: Any,
+        expected_vocabulary_sha256: str | None = None,
+    ) -> tuple[float, ...]:
+        del evaluator_params, packed, leaf_world_weights, expected_vocabulary_sha256
+        rows = [tuple(float(item) for item in row) for row in public_features]
+        evaluated_rows.extend(rows)
+        return tuple(0.9 if row[0] > 0.0 else -0.9 for row in rows)
+
+    monkeypatch.setattr(compiled_search_module, "hashed_features", fake_features)
+    monkeypatch.setattr(
+        compiled_search_module,
+        "predict_packed_shared_world_values",
+        fake_values,
+    )
+
+    full = search_packed_compiled_transition_program(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    full_rows = len(evaluated_rows)
+    evaluated_rows.clear()
+
+    bounded = choose_packed_compiled_action_bounded(
+        program_set=_program(),
+        posterior=_posterior(),
+        method="information_set",
+        vocabulary=vocabulary,
+        evaluator_spec=spec,
+        evaluator_params=params,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert full["chosen_action"] == bounded["chosen_action"] == "hide"
+    assert bounded["chosen_value"] == pytest.approx(full["root_values"]["hide"])
+    assert bounded["evaluator_calls"] < full["evaluator_calls"] == full_rows
+    assert bounded["winner_certificate"]["pruned_leaf_count"] == 1
+    assert bounded["winner_certificate"]["pruned_actions"] == ["reveal"]
+    assert "root_values" not in bounded
+    reveal_interval = next(
+        row
+        for row in bounded["winner_certificate"]["action_value_intervals"]
+        if row["action"] == "reveal"
+    )
+    assert reveal_interval["exact"] is False
+    assert reveal_interval["upper"] < bounded["chosen_value"]
