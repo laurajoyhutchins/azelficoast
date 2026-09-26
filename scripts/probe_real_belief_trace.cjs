@@ -1501,15 +1501,18 @@ if (posteriorOnly) {
       observed_opponent_moves: observedOpponentMoves(),
       known_opponent_item: source.known_opponent_item || null,
       opponent_policy: OPPONENT_POLICY,
-    opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
+      opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION,
       hidden_world_count: outputWorlds.length,
       own_active_tera_type: OWN_ACTIVE_TERA_TYPE,
       opponent_bench_species: OPPONENT_BENCH_SPECIES,
     },
     legal_actions: legalActions,
     worlds: outputWorlds,
-  }, null, 2) + "\n");
-  process.exit(0);
+  }).catch(error => {
+    process.stderr.write(String(error.stack || error) + "\n");
+    process.exitCode = 1;
+  });
+  return;
 }
 const {createTransitionProgramCompiler} = require(
   path.join(path.dirname(process.argv[1]), "real_belief_probe", "transition_program_compiler.cjs")
@@ -1545,10 +1548,11 @@ const {compileLazyWholeTurnPrograms} = createTransitionProgramCompiler({
 });
 
 if (transitionProgramOnly) {
-  process.stdout.write(
-    JSON.stringify(compileLazyWholeTurnPrograms(), null, 2) + "\n"
-  );
-  process.exit(0);
+  void writeJsonStream(compileLazyWholeTurnPrograms()).catch(error => {
+    process.stderr.write(String(error.stack || error) + "\n");
+    process.exitCode = 1;
+  });
+  return;
 }
 
 
