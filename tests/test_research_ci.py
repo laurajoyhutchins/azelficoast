@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import importlib
+import json
+
+import pytest
+
 from azelficoast.research.ci import EXPERIMENTS, experiments_for_paths, matrix_for
 
 
@@ -84,3 +89,48 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
     ]
     assert selected[0].simulator is True
     assert selected[0].showdown is False
+
+def test_showdown_revision_is_read_from_repository_authority() -> None:
+    module = importlib.import_module("azelficoast.research.ci")
+    revision = getattr(module, "showdown_revision", None)
+
+    assert callable(revision), "candidate runner lacks a repository-owned revision reader"
+    assert revision() == Path("experiments/showdown-revision.txt").read_text(
+        encoding="utf-8"
+    ).strip()
+
+
+def test_candidate_certificate_fails_closed_when_exact_evidence_failed(tmp_path) -> None:
+    module = importlib.import_module("azelficoast.research.ci")
+    certify = getattr(module, "certify_candidate", None)
+    error_type = getattr(module, "CandidateExperimentError", None)
+
+    assert callable(certify), "candidate certificate must be code-owned"
+    assert isinstance(error_type, type), "candidate certification error must be typed"
+    with pytest.raises(error_type):
+        certify(
+            matrix_json=json.dumps(matrix_for((EXPERIMENTS[0],))),
+            selected_count=1,
+            exact_result="failure",
+            accelerator_static_result="success",
+            head_sha="a" * 40,
+            output=tmp_path / "certificate.json",
+        )
+
+
+def test_candidate_certificate_fails_closed_when_accelerator_check_failed(tmp_path) -> None:
+    module = importlib.import_module("azelficoast.research.ci")
+    certify = getattr(module, "certify_candidate", None)
+    error_type = getattr(module, "CandidateExperimentError", None)
+
+    assert callable(certify), "candidate certificate must be code-owned"
+    assert isinstance(error_type, type), "candidate certification error must be typed"
+    with pytest.raises(error_type):
+        certify(
+            matrix_json=json.dumps(matrix_for((EXPERIMENTS[0],))),
+            selected_count=1,
+            exact_result="success",
+            accelerator_static_result="failure",
+            head_sha="a" * 40,
+            output=tmp_path / "certificate.json",
+        )
