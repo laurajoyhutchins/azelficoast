@@ -24,7 +24,9 @@ The current reusable surface is:
 - `core.program`: structural transition-program lookup.
 - `core.search`: determinization and information-set search over arbitrary finite
   transition programs.
-- `core.projection`: integer-weight projection of finite support.
+- `core.projection`: integer-weight projection of finite support, including active-support
+  compaction that pushes zero-mass filtering ahead of aggregation while preserving the
+  verified global partition identity.
 
 The core contracts are now canonical rather than compatibility-backed. Callers import
 them directly from `azelficoast.core`; the former transition/search façade modules have
@@ -108,3 +110,32 @@ path so planner behavior is auditable and can later become optimization evidence
 
 Hardware/JAX target discovery remains research/runtime-specific; the core only consumes
 an opaque target signature.
+
+
+### Active-support pushdown
+
+A compiled projection remains the semantic authority for class membership. Runtime
+posterior updates frequently leave most canonical support classes at zero mass, so the
+execution path now compacts that verified map before aggregation:
+
+```text
+canonical support
+      |
+      | filter weight > 0
+      v
+active canonical rows
+      |
+      | map through verified global class_ids
+      v
+active execution classes
+      |
+      | aggregate only touched classes
+      v
+projected batch
+```
+
+The optimization deliberately preserves global class IDs and the projection's canonical
+representatives. It changes allocation and work, not equivalence semantics or evidence
+identity. The adaptive-execution benchmark and bounded two-attack-turn runtime both use
+this active slice rather than allocating a dense weight vector for every projection
+class on each execution.

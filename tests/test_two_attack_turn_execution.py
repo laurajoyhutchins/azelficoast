@@ -12,6 +12,7 @@ from azelficoast.research.mechanics.gen9_two_attack_turn import (
     two_attack_turn_numeric,
 )
 from azelficoast.research.mechanics.two_attack_turn_belief import (
+    TwoAttackTurnBelief,
     build_two_attack_turn_support,
     compile_two_attack_turn_projection,
     uniform_two_attack_turn_belief,
@@ -231,3 +232,39 @@ def test_calibrated_dispatcher_executes_the_selected_exact_path() -> None:
     assert projected.decision is not None
     assert direct.decision is not None
     assert projected.histogram() == direct.histogram()
+
+
+
+def test_sparse_posterior_filters_inactive_support_before_projected_execution() -> None:
+    contexts, belief, projection = _fixture()
+    weights = np.zeros_like(belief.weights)
+    active_indices = np.asarray([0, 1, len(weights) - 1], dtype=np.int64)
+    weights[active_indices] = np.asarray([3, 5, 7], dtype=np.int64)
+    sparse = TwoAttackTurnBelief(support=belief.support, weights=weights)
+
+    direct = execute_two_attack_turn_belief(
+        sparse,
+        projection,
+        contexts,
+        batch_executor=_batch,
+        backend="cpu",
+        target_signature="sha256:test",
+        force_path=ExecutionPath.DIRECT,
+    )
+    projected = execute_two_attack_turn_belief(
+        sparse,
+        projection,
+        contexts,
+        batch_executor=_batch,
+        backend="cpu",
+        target_signature="sha256:test",
+        force_path=ExecutionPath.PROJECTED,
+    )
+
+    assert projected.histogram() == direct.histogram()
+    assert projected.total_weight == direct.total_weight == 15
+    assert projected.certificate["active_canonical_classes"] == 3
+    assert 0 < projected.certificate["active_execution_classes"] <= 3
+    assert projected.certificate["transition_evaluations"] == (
+        projected.certificate["active_execution_classes"]
+    )

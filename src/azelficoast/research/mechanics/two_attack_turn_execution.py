@@ -15,6 +15,7 @@ from typing import Callable, Sequence
 import numpy as np
 
 from azelficoast.core.costing import ExecutionCostProfile, ExecutionPath
+from azelficoast.core.projection import ActiveProjection, compact_active_projection
 from azelficoast.research.adaptive_execution import current_jax_execution_target
 from azelficoast.research.mechanics.gen9_two_attack_turn import (
     TwoAttackTurnContext,
@@ -30,7 +31,6 @@ from azelficoast.research.mechanics.transition_program import (
 from azelficoast.research.mechanics.two_attack_turn_belief import (
     TwoAttackTurnBelief,
     TwoAttackTurnProjection,
-    project_two_attack_turn_belief,
 )
 
 BatchExecutor = Callable[
@@ -130,6 +130,19 @@ def _direct_inputs(
     )
 
 
+def _active_projection(
+    belief: TwoAttackTurnBelief,
+    projection: TwoAttackTurnProjection,
+) -> ActiveProjection:
+    return compact_active_projection(
+        belief.weights,
+        projection.class_ids,
+        projection.representative_indices,
+        support_class_count=belief.support.class_count,
+        mismatch_message="projection does not match two-attack support",
+    )
+
+
 def _projected_inputs(
     belief: TwoAttackTurnBelief,
     projection: TwoAttackTurnProjection,
@@ -149,23 +162,16 @@ def _projected_inputs(
 ]:
     support = belief.support
     rows = _compiled_contexts(contexts)
-    if len(projection.class_ids) != support.class_count:
-        raise TwoAttackTurnExecutionError(
-            "projection does not cover canonical turn support"
-        )
     if np.any(support.context_index >= len(rows)):
         raise TwoAttackTurnExecutionError(
             "belief support references an unavailable turn context"
         )
 
-    projected = project_two_attack_turn_belief(belief, projection)
-    active_class_ids = np.flatnonzero(projected.weights > 0).astype(
-        np.int32, copy=False
-    )
-    if not len(active_class_ids):
+    active = _active_projection(belief, projection)
+    if not active.active_class_count:
         raise TwoAttackTurnExecutionError("belief contains no active execution class")
 
-    representatives = projection.representative_indices[active_class_ids]
+    representatives = active.representative_indices
     count = len(representatives)
     inputs = (
         rows[support.context_index[representatives]],
@@ -175,9 +181,9 @@ def _projected_inputs(
         support.p1_secondary_roll[representatives].astype(np.int32, copy=False),
         np.zeros(count, dtype=np.int32),
         support.p2_damage_roll[representatives].astype(np.int32, copy=False),
-        projected.weights[active_class_ids].astype(np.int64, copy=False),
+        active.weights.astype(np.int64, copy=False),
     )
-    return inputs, active_class_ids
+    return inputs, active.global_class_ids
 
 
 @dataclass(frozen=True)
@@ -216,13 +222,16 @@ class _TwoAttackTurnProgram:
         return self.belief.active_canonical_classes
 
     @property
+    def _active_projection(self) -> ActiveProjection:
+        return _active_projection(self.belief, self.projection)
+
+    @property
     def _active_class_ids(self) -> np.ndarray:
-        projected = project_two_attack_turn_belief(self.belief, self.projection)
-        return np.flatnonzero(projected.weights > 0).astype(np.int32, copy=False)
+        return self._active_projection.global_class_ids
 
     @property
     def active_execution_classes(self) -> int:
-        return len(self._active_class_ids)
+        return self._active_projection.active_class_count
 
     @property
     def projection_binding_hash(self) -> str:
