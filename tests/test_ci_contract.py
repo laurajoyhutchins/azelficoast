@@ -29,13 +29,21 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
     assert mypy["strict"] is True
     assert mypy["follow_imports"] == "silent"
     checked = set(mypy["files"])
-    assert "src/azelficoast/core" in checked
-    assert mypy["exclude"] == ["src/azelficoast/core/compiled_search.py"]
+    assert {"src/azelficoast/core", "src/azelficoast/search", "src/azelficoast/live"} <= checked
+    assert mypy["exclude"] == [
+        "src/azelficoast/core/compiled_search.py",
+        "src/azelficoast/live/harness.py",
+    ]
     required = {
+        "src/azelficoast/belief/battle_promotion.py",
+        "src/azelficoast/belief/competence.py",
+        "src/azelficoast/belief/coverage.py",
+        "src/azelficoast/belief/joint_posterior.py",
+        "src/azelficoast/belief/statistics.py",
+        "src/azelficoast/belief/status_move_prior.py",
+        "src/azelficoast/belief/training.py",
+        "src/azelficoast/belief/treatments.py",
         "src/azelficoast/belief/validity.py",
-        "src/azelficoast/live/belief.py",
-        "src/azelficoast/live/corpus.py",
-        "src/azelficoast/search/fusion.py",
         "src/azelficoast/research/contracts.py",
         "src/azelficoast/research/matched_comparison.py",
         "src/azelficoast/research/matched_search.py",
