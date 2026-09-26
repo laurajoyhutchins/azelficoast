@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - "experiments/showdown-revision.txt"
       - "scripts/sample_joint_random_battle_posterior.cjs"
       - "src/azelficoast/belief/joint_posterior.py"
       - "src/azelficoast/belief/validity.py"
