@@ -113,7 +113,7 @@ def test_candidate_experiments_delegate_execution_to_registry() -> None:
         for module in experiment.modules
     ]
     assert modules
-    assert all(module.entrypoint is not None for module in modules)
+    assert all(module.entrypoint for module in modules)
     for module in modules:
         source = (
             ROOT / "src" / Path(*module.module.split(".")).with_suffix(".py")
