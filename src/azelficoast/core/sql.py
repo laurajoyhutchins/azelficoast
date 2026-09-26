@@ -567,13 +567,16 @@ def _reviewed_equivalence_index() -> dict[str, str]:
         _normalize_reviewed_sql_source(DEFAULT_DECISION_SQL): "writer-view"
     }
     for order in _connected_join_orders():
-        for predicate_order in (predicates, tuple(reversed(predicates))):
+        for predicate_order in (predicates, (predicates[1], predicates[0])):
             source = _inline_decision_sql(order, predicate_order)
             index.setdefault(
                 _normalize_reviewed_sql_source(source),
                 "cte-inlining+inner-join-commutativity+predicate-commutativity",
             )
-        for predicate_order in (cte_predicates, tuple(reversed(cte_predicates))):
+        for predicate_order in (
+            cte_predicates,
+            (cte_predicates[1], cte_predicates[0]),
+        ):
             source = _cte_decision_sql(order, predicate_order)
             index.setdefault(
                 _normalize_reviewed_sql_source(source),
