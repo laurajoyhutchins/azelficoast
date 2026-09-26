@@ -55,7 +55,6 @@ def test_sql_transport_description_binds_packaged_relational_semantics() -> None
     )
     assert description["logical_operators"] == [
         "scan",
-        "filter",
         "project",
         "update_belief",
         "aggregate",
