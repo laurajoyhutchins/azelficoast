@@ -172,9 +172,8 @@ result shape fail closed. The exact SQL source is hashed, while SQLite's
 `EXPLAIN QUERY PLAN` output is recorded together with the SQLite version because that
 physical outline is environment-bound.
 
-Admission and semantic recognition are separate. The core assigns the canonical decision
-semantic identity only to a finite rewrite family generated from reviewed relational
-rules:
+Admission and semantic recognition are separate. Portable recognition starts with a
+finite rewrite family generated from reviewed relational rules:
 
 ```text
 inner-join commutativity / associativity
@@ -185,22 +184,42 @@ non-recursive projection-CTE inlining
 Thus these may be different SQL source hashes but one logical query:
 
 ```text
-canonical CTE SQL -----------+
+canonical writer SQL --------+
 inline SQL ------------------+--> decision semantic identity
 reordered inner joins -------+
 reordered filter predicates -+
 ```
 
-The rule set is deliberately an allowlist, not a homemade general SQL parser. SQLite
-still parses every query first. A read-only query outside the reviewed equivalence class
-may be inspected, but receives no logical-plan authority and cannot be compiled merely
-because it mentions the same tables and aggregate.
+There is also a stricter writer-ergonomics fallback for syntax SQLite itself erases. If
+an admitted query compiles, under the exact same SQL surface and SQLite version, to the
+same complete VDBE program as the canonical query, it receives the same semantic
+identity with `sqlite-version-bound` equivalence evidence. This admits harmless forms
+such as table aliases, redundant parentheses, and ordinal `ORDER BY` references without
+teaching Azelficoast a second SQL parser.
 
-The semantic identity, rather than the exact SQL spelling, keys the reviewed packed/JAX
+```text
+different SQL spelling
+        |
+        v
+SQLite parse + authorization
+        |
+        v
+EXPLAIN bytecode
+        |
+        +-- identical canonical program --> same decision semantics
+        |
+        +-- different program -----------> no authority
+```
+
+The VDBE path is deliberately environment-bound rather than treated as a portable proof.
+EXPLAIN evidence records both the SQLite version and executable-program hash. The
+portable reviewed relational rules remain separate evidence.
+
+The semantic identity, rather than exact SQL spelling, keys the reviewed packed/JAX
 physical lowering and planner statistics. Equivalent SQL therefore shares one
-content-addressed physical plan and one advisory selectivity history; changes to
-filtering, aggregation, ordering, or other unproved semantics fail closed until a new
-equivalence rule is admitted with evidence.
+content-addressed physical plan and one advisory selectivity history. A query whose
+execution program changes receives no authority merely because its output columns still
+look plausible.
 
 
 ### Active-support pushdown
