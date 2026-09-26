@@ -1,0 +1,82 @@
+{
+  "schema": "azelficoast.sql-policy-action-statistics-corpus",
+  "schema_version": 1,
+  "fixtures": [
+    {
+      "fixture_id": "upside-versus-floor",
+      "action_statistics": [
+        {
+          "action_id": "aggressive",
+          "posterior_mass": 1.0,
+          "expected_value": 0.8,
+          "worst_value": -0.4,
+          "best_value": 1.0
+        },
+        {
+          "action_id": "stable",
+          "posterior_mass": 1.0,
+          "expected_value": 0.65,
+          "worst_value": 0.4,
+          "best_value": 0.8
+        }
+      ]
+    },
+    {
+      "fixture_id": "late-risk-switch",
+      "action_statistics": [
+        {
+          "action_id": "burst",
+          "posterior_mass": 1.0,
+          "expected_value": 0.9,
+          "worst_value": 0.2,
+          "best_value": 1.1
+        },
+        {
+          "action_id": "steady",
+          "posterior_mass": 1.0,
+          "expected_value": 0.7,
+          "worst_value": 0.6,
+          "best_value": 0.8
+        }
+      ]
+    },
+    {
+      "fixture_id": "deterministic-tie-break",
+      "action_statistics": [
+        {
+          "action_id": "alpha",
+          "posterior_mass": 1.0,
+          "expected_value": 0.8,
+          "worst_value": 0.4,
+          "best_value": 0.9
+        },
+        {
+          "action_id": "beta",
+          "posterior_mass": 1.0,
+          "expected_value": 0.7,
+          "worst_value": 0.5,
+          "best_value": 0.8
+        }
+      ]
+    },
+    {
+      "fixture_id": "robust-dominance",
+      "action_statistics": [
+        {
+          "action_id": "alpha",
+          "posterior_mass": 1.0,
+          "expected_value": 0.75,
+          "worst_value": 0.55,
+          "best_value": 0.9
+        },
+        {
+          "action_id": "beta",
+          "posterior_mass": 1.0,
+          "expected_value": 0.6,
+          "worst_value": 0.2,
+          "best_value": 0.85
+        }
+      ]
+    }
+  ]
+}

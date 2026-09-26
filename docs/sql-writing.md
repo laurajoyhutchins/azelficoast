@@ -262,6 +262,47 @@ Policies deliberately have no packed/JAX execution authority yet. They can be pa
 authorized, identified, explained, compared, and reviewed as decision semantics without
 silently becoming the live battle policy.
 
+### Parameter sweep experiments
+
+Policy experiments consume the SQL source and parameter grid as data. The generic
+`azelficoast.research.policy_sweep` runner does not encode coefficient values.
+
+The committed risk-adjusted experiment plan is:
+
+```json
+{
+  "policy_resource": "risk_adjusted.sql",
+  "parameter_grid": {
+    "risk_aversion": [0.0, 0.25, 0.5, 0.75, 1.0]
+  },
+  "require_all_actions": true
+}
+```
+
+For every grid point the runner prepares the same SQL policy, records its exact parameter
+binding and bound semantic identity, and evaluates the same frozen
+`action_statistics` fixtures. Evidence is settled only when the full Cartesian matrix
+is present:
+
+```text
+one policy source
+      |
+      +-- binding 0 ----+
+      +-- binding 1 ----+
+      +-- binding 2 ----+--> same frozen fixtures --> matched evidence
+      +-- binding 3 ----+
+      +-- binding 4 ----+
+```
+
+The result records the plan identity, fixture-corpus identity, policy semantic identity,
+every parameter-binding identity, every bound semantic identity, complete action
+rankings, and chosen-action changes across the grid. Duplicate typed bindings,
+incomplete matrices, non-finite fixture values, unknown actions, or nondeterministic
+ranking fail closed.
+
+This keeps scientific parameters in the experiment contract instead of hiding a sweep in
+Python control flow.
+
 That separation is the point of the named-query layer:
 
 ```text
