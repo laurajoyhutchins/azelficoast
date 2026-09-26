@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import statistics
 import time
@@ -376,19 +375,6 @@ def run_experiment(fixtures: Path) -> dict[str, object]:
             "GitHub-hosted timing is CPU evidence, not GPU evidence",
         ],
     }
-
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    result = run_experiment(args.fixtures)
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
 
 
 if __name__ == "__main__":
