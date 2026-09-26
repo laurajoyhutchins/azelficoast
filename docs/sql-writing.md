@@ -14,6 +14,7 @@ Ordinary decision queries should prefer these relations:
 ```text
 active_worlds(world_id, weight)
 action_value_terms(action_id, weight, value)
+action_statistics(action_id, posterior_mass, expected_value, worst_value, best_value)
 ```
 
 The canonical policy is intentionally small:
@@ -52,10 +53,11 @@ SQLite version and executable-program hash.
 
 Syntactically valid SQL does not automatically become executable decision semantics.
 
-A query may parse successfully and still receive no Azelficoast semantic identity. A
-changed filter, aggregate, ordering rule, function, relation, or executable SQLite
-program must earn a reviewed semantic lowering before the packed/JAX path will execute
-it.
+A fixed query class may parse successfully and still receive no Azelficoast semantic
+identity when it falls outside its reviewed equivalence rules. Source-derived policies
+receive an identity for their exact normalized policy source, but that identity alone
+does not grant packed/JAX execution. Physical lowering remains a separate reviewed
+authority.
 
 That boundary is intentional: SQL is the source language, but mechanics, posterior
 meaning, evaluator semantics, and evidence admission remain outside the language.
