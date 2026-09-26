@@ -75,9 +75,9 @@ def _parameter_grid(
     if not isinstance(raw_grid, Mapping) or not raw_grid:
         raise PolicySweepError("parameter_grid must be a non-empty object")
 
-    names = tuple(sorted(raw_grid))
-    if not all(isinstance(name, str) and name for name in names):
+    if not all(isinstance(name, str) and name for name in raw_grid):
         raise PolicySweepError("parameter_grid names must be non-empty strings")
+    names = tuple(sorted(str(name) for name in raw_grid))
 
     axes: list[tuple[int | float, ...]] = []
     for name in names:
