@@ -107,47 +107,112 @@ def _artifact(
     }
 
 
-def generator_faithful_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
-    worlds, reconstruction = _validated_oracle(oracle)
-    rounds = reconstruction.get("generator_rounds")
-    matches = reconstruction.get("generator_matches")
-    if not isinstance(rounds, int) or rounds <= 0:
-        raise PosteriorTreatmentError("generator posterior lacks generator-round evidence")
-    if not isinstance(matches, int) or matches <= 0:
-        raise PosteriorTreatmentError("generator posterior lacks conditioned-match evidence")
-
-    if any(
-        not isinstance(world.get("provenance"), Mapping)
-        or int(world["provenance"].get("generator_rounds", -1)) != rounds
-        for world in worlds
-    ):
-        raise PosteriorTreatmentError(
-            "world provenance is not bound to the reconstruction generator sweep"
+def _generator_faithful_worlds(
+    worlds: Sequence[Mapping[str, Any]],
+    reconstruction: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], int, int, str]:
+    reference = reconstruction.get("generator_faithful_reference")
+    if reference is None:
+        rounds = reconstruction.get("generator_rounds")
+        matches = reconstruction.get("generator_matches")
+        if not isinstance(rounds, int) or rounds <= 0:
+            raise PosteriorTreatmentError("generator posterior lacks generator-round evidence")
+        if not isinstance(matches, int) or matches <= 0:
+            raise PosteriorTreatmentError("generator posterior lacks conditioned-match evidence")
+        if any(
+            not isinstance(world.get("provenance"), Mapping)
+            or int(world["provenance"].get("generator_rounds", -1)) != rounds
+            for world in worlds
+        ):
+            raise PosteriorTreatmentError(
+                "world provenance is not bound to the reconstruction generator sweep"
+            )
+        return [copy.deepcopy(dict(world)) for world in worlds], rounds, matches, (
+            "normalized transition-oracle generator mass"
         )
 
+    if not isinstance(reference, Mapping):
+        raise PosteriorTreatmentError("generator-faithful reference must be an object")
+    rounds = reference.get("generator_rounds")
+    matches = reference.get("generator_matches")
+    raw_weights = reference.get("world_weights")
+    if not isinstance(rounds, int) or rounds <= 0:
+        raise PosteriorTreatmentError("generator reference lacks generator-round evidence")
+    if not isinstance(matches, int) or matches <= 0:
+        raise PosteriorTreatmentError("generator reference lacks conditioned-match evidence")
+    if not isinstance(raw_weights, list) or not raw_weights:
+        raise PosteriorTreatmentError("generator reference lacks hidden-world weights")
+
+    weights: dict[str, float] = {}
+    for row in raw_weights:
+        if not isinstance(row, Mapping):
+            raise PosteriorTreatmentError("generator reference contains malformed weight")
+        world_id = row.get("world_id")
+        weight = row.get("weight")
+        if (
+            not isinstance(world_id, str)
+            or not world_id
+            or world_id in weights
+            or not isinstance(weight, (int, float))
+            or isinstance(weight, bool)
+            or weight <= 0
+        ):
+            raise PosteriorTreatmentError("generator reference contains invalid world weight")
+        weights[world_id] = float(weight)
+
+    world_ids = {str(world["world_id"]) for world in worlds}
+    if set(weights) != world_ids:
+        raise PosteriorTreatmentError(
+            "generator reference support differs from mechanics-oracle support"
+        )
+    total = sum(weights.values())
+    if total <= 0:
+        raise PosteriorTreatmentError("generator reference has no probability mass")
+
+    rebound: list[dict[str, Any]] = []
+    for world in worlds:
+        row = copy.deepcopy(dict(world))
+        row["weight"] = weights[str(world["world_id"])] / total
+        rebound.append(row)
+    return rebound, rounds, matches, "certified lower-resolution generator reference"
+
+
+def generator_faithful_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
+    worlds, reconstruction = _validated_oracle(oracle)
+    rebound, rounds, matches, weight_rule = _generator_faithful_worlds(
+        worlds,
+        reconstruction,
+    )
     return _artifact(
         oracle=oracle,
         treatment="generator_faithful",
-        worlds=worlds,
+        worlds=rebound,
         construction={
             "kind": "conditioned-generator-frequency",
             "generator_rounds": rounds,
             "generator_matches": matches,
             "preserves_joint_hidden_worlds": True,
-            "weight_rule": "normalized transition-oracle generator mass",
+            "weight_rule": weight_rule,
         },
     )
 
 
 def practical_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
-    worlds, reconstruction = _validated_oracle(oracle)
-    rounds = reconstruction.get("generator_rounds")
+    generator = generator_faithful_posterior(oracle)
+    worlds = generator["worlds"]
+    assert isinstance(worlds, list)
+    construction = generator["construction"]
+    assert isinstance(construction, Mapping)
+    rounds = construction.get("generator_rounds")
     if not isinstance(rounds, int) or rounds <= 0:
         raise PosteriorTreatmentError("practical posterior lacks generator evidence")
 
     item_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     item_mass: dict[str, float] = defaultdict(float)
-    for world in worlds:
+    for raw_world in worlds:
+        if not isinstance(raw_world, Mapping):
+            raise PosteriorTreatmentError("practical posterior world is malformed")
+        world = copy.deepcopy(dict(raw_world))
         hidden = world["hidden"]
         assert isinstance(hidden, Mapping)
         item = hidden.get("opponent.active.item")
@@ -192,21 +257,29 @@ def practical_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
 
 def oracle_posterior(oracle: Mapping[str, Any]) -> dict[str, Any]:
     worlds, reconstruction = _validated_oracle(oracle)
-    if reconstruction.get("posterior_authority") != "exact_conditional":
+    authority = reconstruction.get("posterior_authority")
+    if authority == "exact_conditional":
+        evidence = reconstruction.get("exact_conditional_evidence")
+        kind = "exact-conditional"
+    elif authority == "best_available_conditional":
+        evidence = reconstruction.get("best_available_conditional_evidence")
+        kind = "best-available-conditional"
+    else:
         raise PosteriorTreatmentError(
-            "oracle posterior requires exact_conditional reconstruction authority"
+            "oracle posterior requires exact or best-available conditional authority"
         )
-    evidence = reconstruction.get("exact_conditional_evidence")
     if not isinstance(evidence, Mapping) or not evidence:
         raise PosteriorTreatmentError(
-            "oracle posterior lacks exact conditional evidence"
+            "oracle posterior lacks conditional authority evidence"
         )
+    if evidence.get("realized_hidden_state_used") is not False:
+        raise PosteriorTreatmentError("oracle posterior authority used realized hidden state")
     return _artifact(
         oracle=oracle,
         treatment="oracle",
         worlds=worlds,
         construction={
-            "kind": "exact-conditional",
+            "kind": kind,
             "evidence": copy.deepcopy(dict(evidence)),
             "realized_hidden_state_used": False,
         },
