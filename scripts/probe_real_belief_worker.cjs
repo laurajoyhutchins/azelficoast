@@ -184,7 +184,7 @@ function createSession(sessionKey, source) {
 }
 
 function compileTransitionProgram(sessionKey, cacheMode) {
-  if (!["fresh", "exact", "projection"].includes(cacheMode)) {
+  if (!["fresh", "exact", "projection", "projection-first"].includes(cacheMode)) {
     throw new Error("unknown transition cache mode");
   }
   const session = sessions.get(sessionKey);
