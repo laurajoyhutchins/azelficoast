@@ -12,7 +12,9 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]\nrevision_path = REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"\nSHOWDOWN_REVISION = revision_path.read_text(encoding="utf-8").strip()
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+revision_path = REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"
+SHOWDOWN_REVISION = revision_path.read_text(encoding="utf-8").strip()
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 DEFAULT_OUTPUT_ROOT = Path("/tmp/azelficoast-research")
 
