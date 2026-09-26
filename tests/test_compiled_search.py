@@ -8,6 +8,8 @@ import pytest
 
 from azelficoast.core.compiled_search import (
     CardinalityEnvelope,
+    JOIN_ORDER_AGGREGATE_FIRST,
+    JOIN_ORDER_EXPAND_FIRST,
     compile_search_topology,
     estimate_search_cardinality_lower_bound,
     materialize_compiled_frontier,
@@ -418,3 +420,151 @@ def test_adaptive_search_keeps_compiled_path_inside_observed_envelope() -> None:
         "leaves": 3,
         "dense_leaf_world_cells": 9,
     }
+
+
+
+def _duplicate_outcome_program(
+    *,
+    split_legal_surface: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    program_set, posterior = _inputs()
+    changed = copy.deepcopy(program_set)
+    row = changed["programs"][1]["classes"][0]
+    template = copy.deepcopy(row["outcomes"][0])
+    outcomes = []
+    for index in range(8 if split_legal_surface else 4):
+        outcome = copy.deepcopy(template)
+        outcome["probability"] = 1.0 / (8 if split_legal_surface else 4)
+        if split_legal_surface and index % 2:
+            outcome["legal_actions"] = ["continue", "switch"]
+        outcomes.append(outcome)
+    row["outcomes"] = outcomes
+    return changed, posterior
+
+
+def test_join_planner_keeps_expand_first_when_grouping_cannot_pay_for_it() -> None:
+    program_set, posterior = _inputs()
+    topology = compile_search_topology(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    plan = topology.outcome_world_join_plan
+    assert plan.selected_order == JOIN_ORDER_EXPAND_FIRST
+    assert plan.raw_join_rows == plan.grouped_join_rows == topology.edge_count
+    assert plan.aggregate_first_work_units > plan.expand_first_work_units
+    assert plan.saved_join_rows == 0
+
+
+@pytest.mark.parametrize("method", ["information_set", "determinization"])
+def test_join_planner_pushes_exact_outcome_aggregation_before_world_join(
+    method: str,
+) -> None:
+    pytest.importorskip("jax")
+    program_set, posterior = _duplicate_outcome_program()
+    reference = search_transition_program(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        evaluator=WeightedPayoffEvaluator(),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    compiled = search_transition_program_compiled(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        evaluator=WeightedPayoffEvaluator(),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    topology = compile_search_topology(
+        program_set=program_set,
+        posterior=posterior,
+        method=method,
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    plan = topology.outcome_world_join_plan
+    assert plan.selected_order == JOIN_ORDER_AGGREGATE_FIRST
+    assert plan.raw_outcome_rows == 7
+    assert plan.grouped_outcome_rows == 4
+    assert plan.raw_join_rows == 17
+    assert plan.grouped_join_rows == 8
+    assert plan.expand_first_work_units == 17
+    assert plan.aggregate_first_work_units == 15
+    assert plan.saved_join_rows == 9
+    assert topology.edge_count == 8
+    assert topology.transition_evaluations == 3
+    assert compiled["compiled_shape"]["raw_chance_edges"] == 17
+    assert compiled["compiled_shape"]["chance_edges"] == 8
+    assert compiled["compiled_shape"]["outcome_join_saved_rows"] == 9
+    assert compiled["root_values"] == pytest.approx(reference["root_values"], abs=1e-6)
+    assert compiled["chosen_action"] == reference["chosen_action"]
+
+
+def test_outcome_aggregation_does_not_cross_successor_legal_action_surface() -> None:
+    pytest.importorskip("jax")
+    program_set, posterior = _duplicate_outcome_program(split_legal_surface=True)
+    reference = search_transition_program(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        evaluator=WeightedPayoffEvaluator(),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    compiled = search_transition_program_compiled(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        evaluator=WeightedPayoffEvaluator(),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    topology = compile_search_topology(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    plan = topology.outcome_world_join_plan
+    assert plan.selected_order == JOIN_ORDER_AGGREGATE_FIRST
+    assert plan.raw_outcome_rows == 11
+    assert plan.grouped_outcome_rows == 5
+    b_action_index = topology.root_actions.index("B")
+    b_leaf_legal = {
+        topology.leaf_legal_actions[index]
+        for index, action_index in enumerate(topology.leaf_action_index)
+        if action_index == b_action_index
+    }
+    assert b_leaf_legal == {("continue",)}
+    assert compiled["root_values"] == pytest.approx(reference["root_values"], abs=1e-6)
+    assert compiled["chosen_action"] == reference["chosen_action"]
+
+
+def test_cardinality_lower_bound_remains_below_aggregated_physical_edges() -> None:
+    program_set, posterior = _duplicate_outcome_program()
+    lower = estimate_search_cardinality_lower_bound(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    topology = compile_search_topology(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+
+    assert lower.chance_edge_count == 4
+    assert lower.chance_edge_count <= topology.edge_count == 8
