@@ -106,14 +106,14 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_callable_experiments_delegate_execution_to_registry() -> None:
+def test_candidate_experiments_delegate_execution_to_registry() -> None:
     modules = [
         module
         for experiment in EXPERIMENTS
         for module in experiment.modules
-        if module.entrypoint is not None
     ]
-    assert len(modules) == 12
+    assert modules
+    assert all(module.entrypoint is not None for module in modules)
     for module in modules:
         source = (
             ROOT / "src" / Path(*module.module.split(".")).with_suffix(".py")
