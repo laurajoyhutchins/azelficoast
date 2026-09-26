@@ -285,7 +285,8 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "src/azelficoast/belief/packed_evaluator.py" in source
     assert "src/azelficoast/belief/compiled_search.py" in source
 
-ef test_showdown_revision_is_declared_once_in_repository_contract() -> None:
+
+def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
     action = (ROOT / ".github" / "actions" / "setup-showdown" / "action.yml").read_text(encoding="utf-8")
     revision = (ROOT / "experiments" / "showdown-revision.txt").read_text(encoding="utf-8").strip()
     runner = (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(encoding="utf-8")
