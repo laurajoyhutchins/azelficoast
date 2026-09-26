@@ -21,6 +21,8 @@ from typing import Any, Mapping
 
 from azelficoast.belief.evaluator import BeliefEvaluatorError, hashed_features
 from azelficoast.belief.packed_evaluator import (
+    PACKED_VALUE_LOWER_BOUND,
+    PACKED_VALUE_UPPER_BOUND,
     PackedBeliefEvaluatorSpec,
     predict_packed_shared_world_values,
 )
@@ -29,6 +31,7 @@ from azelficoast.belief.showdown_packing import (
     ShowdownVocabulary,
     pack_joint_posterior,
 )
+from azelficoast.core.evaluation import choose_bounded_action
 from azelficoast.core.compiled_search import (
     COMPILED_SEARCH_SCHEMA,
     COMPILED_SEARCH_SCHEMA_VERSION,
@@ -41,6 +44,8 @@ from azelficoast.research.contracts import PublicSuccessorState, ResearchContrac
 
 PACKED_COMPILED_SEARCH_SCHEMA = "azelficoast.packed-compiled-partial-information-search"
 PACKED_COMPILED_SEARCH_SCHEMA_VERSION = 2
+PACKED_BOUNDED_DECISION_SCHEMA = "azelficoast.packed-bounded-best-action"
+PACKED_BOUNDED_DECISION_SCHEMA_VERSION = 1
 PACKED_COMPILED_EXECUTION_STAGES = (
     "compile_search_topology",
     "pack_joint_posterior",
@@ -166,5 +171,115 @@ def search_packed_compiled_transition_program(
         "non_claim": (
             "Research path only; live routing remains on the existing search "
             "implementation until equivalence and latency evidence are admitted."
+        ),
+    }
+
+
+
+def choose_packed_compiled_action_bounded(
+    *,
+    program_set: Mapping[str, Any],
+    posterior: Mapping[str, Any],
+    method: str,
+    vocabulary: ShowdownVocabulary,
+    evaluator_spec: PackedBeliefEvaluatorSpec,
+    evaluator_params: Mapping[str, Any],
+    expected_program_schema: str | None = None,
+    expected_program_schema_version: int | None = None,
+    batch_size: int = 1,
+) -> dict[str, Any]:
+    """Return only the exact best action, pruning bounded losing leaf evaluations.
+
+    This surface deliberately does not return exact values for pruned actions. It may
+    therefore serve winner-only decision semantics, but it cannot substitute for the
+    full expected-value query, whose result contract includes every exact action value.
+    """
+
+    if evaluator_spec.vocabulary_sha256 != vocabulary.vocabulary_sha256:
+        raise BeliefEvaluatorError(
+            "packed evaluator spec and Showdown vocabulary identities differ"
+        )
+
+    try:
+        topology = compile_search_topology(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
+        )
+        packed = pack_joint_posterior(posterior, vocabulary)
+        transported = transport_posterior_mass(topology, posterior)
+    except (CompiledSearchError, ShowdownPackingError) as error:
+        raise BeliefEvaluatorError(str(error)) from error
+
+    if packed.world_ids != topology.world_ids:
+        raise BeliefEvaluatorError(
+            "packed posterior ordering differs from compiled search support"
+        )
+    if packed.vocabulary_sha256 != evaluator_spec.vocabulary_sha256:
+        raise BeliefEvaluatorError("packed posterior vocabulary identity drifted")
+
+    public_features: list[tuple[float, ...]] = []
+    try:
+        for successor in topology.leaf_public_states:
+            public = PublicSuccessorState.from_record(successor)
+            public_features.append(
+                hashed_features(
+                    public.public_state.to_record(),
+                    width=evaluator_spec.public_width,
+                )
+            )
+    except ResearchContractError as error:
+        raise BeliefEvaluatorError(str(error)) from error
+
+    def evaluate(indices: tuple[int, ...]) -> tuple[float, ...]:
+        return predict_packed_shared_world_values(
+            evaluator_params,
+            packed,
+            public_features=[public_features[index] for index in indices],
+            leaf_world_weights=transported.leaf_world_weights[list(indices)],
+            expected_vocabulary_sha256=evaluator_spec.vocabulary_sha256,
+        )
+
+    decision = choose_bounded_action(
+        root_actions=topology.root_actions,
+        leaf_action_index=topology.leaf_action_index,
+        coefficients=tuple(float(value) for value in transported.leaf_mass),
+        evaluate=evaluate,
+        value_lower_bound=PACKED_VALUE_LOWER_BOUND,
+        value_upper_bound=PACKED_VALUE_UPPER_BOUND,
+        batch_size=batch_size,
+    )
+
+    return {
+        "schema": PACKED_BOUNDED_DECISION_SCHEMA,
+        "schema_version": PACKED_BOUNDED_DECISION_SCHEMA_VERSION,
+        "method": method,
+        "transition_program_digest": topology.program_digest,
+        "compiled_topology_digest": topology.topology_digest,
+        "posterior_source_digest": packed.source_digest,
+        "vocabulary_sha256": packed.vocabulary_sha256,
+        "transition_evaluations": topology.transition_evaluations,
+        "evaluator_calls": decision.evaluated_leaf_count,
+        "evaluator_batches": decision.evaluation_batches,
+        "chosen_action": decision.chosen_action,
+        "chosen_value": decision.chosen_value,
+        "winner_certificate": decision.as_record(),
+        "compiled_shape": {
+            "actions": topology.action_count,
+            "worlds": topology.world_count,
+            "classes": topology.class_count,
+            "chance_edges": topology.edge_count,
+            "leaves": topology.leaf_count,
+        },
+        "numeric_backend": "jax-shared-packed-worlds-bounded",
+        "semantic_authority": (
+            "python-validated-transition-program + pinned-showdown-vocabulary "
+            "+ tanh-certified-value-range"
+        ),
+        "non_claim": (
+            "Winner-only result: pruned actions have certified value intervals, not "
+            "exact root values; this cannot replace decision.expected_value."
         ),
     }

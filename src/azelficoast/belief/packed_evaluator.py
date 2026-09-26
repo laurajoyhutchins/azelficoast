@@ -32,6 +32,8 @@ from azelficoast.research.contracts import PublicSuccessorState, ResearchContrac
 
 PACKED_EVALUATOR_SCHEMA = "azelficoast.showdown-packed-belief-evaluator"
 PACKED_EVALUATOR_SCHEMA_VERSION = 1
+PACKED_VALUE_LOWER_BOUND = -1.0
+PACKED_VALUE_UPPER_BOUND = 1.0
 
 
 @dataclass(frozen=True)
@@ -557,6 +559,10 @@ def predict_packed(
     value = float(raw_value)
     if not math.isfinite(value):
         raise BeliefEvaluatorError("packed value head returned a non-finite value")
+    if not PACKED_VALUE_LOWER_BOUND <= value <= PACKED_VALUE_UPPER_BOUND:
+        raise BeliefEvaluatorError(
+            "packed value head escaped its certified tanh range"
+        )
     return BeliefPrediction(
         value=value,
         legal_actions=inputs.legal_actions,
@@ -765,6 +771,12 @@ def predict_packed_values(
         raise BeliefEvaluatorError("packed batched value head returned the wrong shape")
     if not np.all(np.isfinite(values)):
         raise BeliefEvaluatorError("packed batched value head returned non-finite values")
+    if np.any(values < PACKED_VALUE_LOWER_BOUND) or np.any(
+        values > PACKED_VALUE_UPPER_BOUND
+    ):
+        raise BeliefEvaluatorError(
+            "packed batched value head escaped its certified tanh range"
+        )
     return tuple(float(value) for value in values)
 
 
@@ -910,5 +922,11 @@ def predict_packed_shared_world_values(
     if values.shape != (public.shape[0],) or not np.all(np.isfinite(values)):
         raise BeliefEvaluatorError(
             "shared-world packed frontier evaluator returned invalid values"
+        )
+    if np.any(values < PACKED_VALUE_LOWER_BOUND) or np.any(
+        values > PACKED_VALUE_UPPER_BOUND
+    ):
+        raise BeliefEvaluatorError(
+            "shared-world packed frontier escaped its certified tanh range"
         )
     return tuple(float(value) for value in values)
