@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - ".python-version"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
       - ".github/workflows/candidate-research.yml"

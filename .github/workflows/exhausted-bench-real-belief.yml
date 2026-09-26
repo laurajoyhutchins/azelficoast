@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - "experiments/opponent-policy-semantics.json"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
@@ -51,7 +52,7 @@ jobs:
         env:
           FIXTURE_ID: ${{ matrix.fixture_id }}
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           import os
           from pathlib import Path
@@ -158,7 +159,7 @@ jobs:
         env:
           FIXTURE_ID: ${{ matrix.fixture_id }}
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           import os
           from pathlib import Path

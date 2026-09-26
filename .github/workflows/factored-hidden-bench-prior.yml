@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
+      - ".python-version"
       - "experiments/opponent-policy-semantics.json"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
@@ -44,7 +45,7 @@ jobs:
 
       - name: Extract frozen Staraptor discovery fixture
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
@@ -99,7 +100,7 @@ jobs:
 
       - name: Verify prior remains predictive
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
@@ -136,7 +137,7 @@ jobs:
 
       - name: Verify full-support factor collapse
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 

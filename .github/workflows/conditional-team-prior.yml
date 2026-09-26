@@ -35,7 +35,7 @@ jobs:
 
       - name: Verify preregistered held-out improvement
         run: |
-          python - <<'PY'
+          uv run python - <<'PY'
           import json
           from pathlib import Path
 
