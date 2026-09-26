@@ -11,12 +11,39 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 EVIDENCE_ROOT = Path("/tmp/azelficoast-evidence")
-SOURCE_ARTIFACT = {
-    "id": 10827665365,
-    "digest": "sha256:60597bbe29b7db16e01a628f2ce2fdf16098035883896ba61f90a0caac18be34",
-}
+
+
+def _canonical_discovery_source_artifact() -> dict[str, object]:
+    manifest_path = (
+        REPOSITORY_ROOT
+        / "experiments"
+        / "evidence"
+        / "canonical-evidence.json"
+    )
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    try:
+        source = document["contents"]["discovery"]["source_artifact"]
+    except (KeyError, TypeError) as error:
+        raise RuntimeError(
+            "canonical evidence manifest lacks discovery source artifact"
+        ) from error
+    if not isinstance(source, dict):
+        raise RuntimeError("canonical discovery source artifact must be an object")
+    artifact_id = source.get("id")
+    digest = source.get("digest")
+    if (
+        not isinstance(artifact_id, int)
+        or not isinstance(digest, str)
+        or not digest.startswith("sha256:")
+    ):
+        raise RuntimeError("canonical discovery source artifact is malformed")
+    return {"id": artifact_id, "digest": digest}
+
+
+SOURCE_ARTIFACT = _canonical_discovery_source_artifact()
 
 
 class HostedResearchError(RuntimeError):
