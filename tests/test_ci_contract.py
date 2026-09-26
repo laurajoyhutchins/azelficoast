@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import tomllib
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,40 @@ def _event_block(source: str, event: str) -> str:
             break
         block.append(line)
     return "".join(block)
+
+
+def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
+    config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+
+    mypy = config["tool"]["mypy"]
+    assert mypy["strict"] is True
+    assert mypy["follow_imports"] == "silent"
+    checked = set(mypy["files"])
+    assert "src/azelficoast/core" in checked
+    assert mypy["exclude"] == ["src/azelficoast/core/compiled_search.py"]
+    required = {
+        "src/azelficoast/belief/validity.py",
+        "src/azelficoast/live/belief.py",
+        "src/azelficoast/live/corpus.py",
+        "src/azelficoast/search/fusion.py",
+        "src/azelficoast/research/contracts.py",
+        "src/azelficoast/research/matched_comparison.py",
+        "src/azelficoast/research/matched_search.py",
+        "src/azelficoast/research/typed_search.py",
+        "src/azelficoast/research/population_cohort.py",
+    }
+    assert required <= checked
+
+    ruff_rules = set(config["tool"]["ruff"]["lint"]["select"])
+    assert {"E4", "E7", "E9", "F", "B", "RUF012"} <= ruff_rules
+    assert config["tool"]["ruff"]["lint"]["flake8-bugbear"]["extend-immutable-calls"] == [
+        "azelficoast.belief.battle_promotion.BattlePromotionPolicy",
+        "azelficoast.belief.evaluator.BeliefEvaluatorSpec",
+        "azelficoast.belief.improvement.AdmissionPolicy",
+    ]
+    assert config["tool"]["ruff"]["lint"]["per-file-ignores"] == {
+        "tests/**/*.py": ["RUF012"]
+    }
 
 
 def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> None:
@@ -77,10 +112,21 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
     ).read_text(encoding="utf-8")
 
     assert "uses: actions/setup-python@v7" in source
-    assert 'python-version: "3.13"' in source
+    assert 'python-version:' in source
+    assert 'default: "3.13"' in source
+    assert 'python-version: "${{ inputs.python-version }}"' in source
     assert "python -m pip install uv==0.12.18" in source
     assert "uv sync --locked" in source
     assert "uv sync --locked --extra simulator" in source
+
+
+def test_base_static_analysis_runs_in_declared_python_version() -> None:
+    source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+
+    static = source[source.index("  static:\n") : source.index("  test:\n")]
+    assert "uses: ./.github/actions/setup-python-environment" in static
+    assert 'python-version: "3.11"' in static
+    assert "run: uv run mypy" in static
 
 
 def test_uv_managed_workflows_use_shared_python_environment() -> None:
@@ -221,8 +267,10 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     source = (WORKFLOWS / "candidate-research.yml").read_text(encoding="utf-8")
 
     assert "\n  certify:\n" in source
-    assert "needs: [plan, exact]" in source
+    assert "needs: [plan, exact, accelerator-static]" in source
     assert "if: always() && needs.plan.result == 'success'" in source
+    assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
+    assert 'if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]' in source
     assert '"schema": "azelficoast.candidate-research-certificate"' in source
     assert '"git_sha": os.environ["HEAD_SHA"]' in source
     assert "name: candidate-research-certificate" in source
