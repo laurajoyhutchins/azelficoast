@@ -135,10 +135,16 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     evaluator = plan.get("evaluator")
     if not isinstance(evaluator, Mapping):
         raise MatchedComparisonError("plan must pin one learned evaluator")
-    if (
-        evaluator.get("schema") != EVALUATOR_SCHEMA
-        or evaluator.get("schema_version") != EVALUATOR_SCHEMA_VERSION
-    ):
+    evaluator_schema = evaluator.get("schema")
+    evaluator_version = evaluator.get("schema_version")
+    supported_evaluator = (
+        evaluator_schema == EVALUATOR_SCHEMA
+        and evaluator_version == EVALUATOR_SCHEMA_VERSION
+    ) or (
+        evaluator_schema == MATERIAL_EVALUATOR_SCHEMA
+        and evaluator_version == MATERIAL_EVALUATOR_SCHEMA_VERSION
+    )
+    if not supported_evaluator:
         raise MatchedComparisonError("unexpected evaluator schema")
     checkpoint_digest = evaluator.get("checkpoint_digest")
     if not (
