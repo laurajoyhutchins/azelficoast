@@ -485,7 +485,7 @@ class _ReplayTraceReader(Player):
         async def _noop(*args: Any, **kwargs: Any) -> None:
             return None
 
-        self.ps_client.send_message = _noop
+        setattr(self.ps_client, "send_message", _noop)
 
     async def _handle_battle_request(
         self,
@@ -593,12 +593,14 @@ async def _trace_side(
             raise PublicReplayError(
                 f"{replay.replay_id}/{side}: request has no recorded input choice"
             )
-        battle = reader.battles.get(battle_tag)
-        if battle is None:
+        current_battle = reader.battles.get(battle_tag)
+        if current_battle is None:
             raise PublicReplayError(
                 f"{replay.replay_id}/{side}: poke-env did not retain reconstructed battle"
             )
-        legal_actions = [order.message for order in getattr(battle, "valid_orders", ())]
+        legal_actions = [
+            order.message for order in getattr(current_battle, "valid_orders", ())
+        ]
         if not legal_actions:
             raise PublicReplayError(
                 f"{replay.replay_id}/{side}: actionable request has no legal orders"
@@ -638,7 +640,7 @@ async def _trace_side(
                 "kind": "decision",
                 "battle_tag": battle_tag,
                 "decision_index": decision_index,
-                "state": battle_view(battle),
+                "state": battle_view(current_battle),
                 "chosen_action": action,
                 "source": {
                     "kind": "public-showdown-replay",
@@ -670,8 +672,8 @@ async def _trace_side(
             f"{replay.replay_id}/{side}: {len(leftovers)} recorded choices were not consumed"
         )
 
-    battle = reader.battles.get(battle_tag)
-    if battle is None:
+    final_battle = reader.battles.get(battle_tag)
+    if final_battle is None:
         raise PublicReplayError(f"{replay.replay_id}/{side}: reconstructed battle missing")
     winner = _winner(replay.log)
     won = _to_id(winner) == _to_id(username) if winner is not None else None
@@ -687,7 +689,7 @@ async def _trace_side(
             "won": won,
             "lost": (not won) if won is not None else None,
             "tied": winner is None,
-            "final_state": battle_view(battle),
+            "final_state": battle_view(final_battle),
             "source": {
                 "kind": "public-showdown-replay",
                 "replay_id": replay.replay_id,
