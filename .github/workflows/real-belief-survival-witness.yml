@@ -14,6 +14,9 @@ on:
       - "src/azelficoast/research/verification/real_belief_miner.py"
       - "src/azelficoast/research/hosted/**"
       - "scripts/probe_real_belief_trace.cjs"
+      - "scripts/real_belief_probe/**"
+      - "scripts/json_stream_writer.cjs"
+      - "experiments/opponent-policy-semantics.json"
       - ".github/workflows/real-belief-survival-witness.yml"
   workflow_dispatch:
 
