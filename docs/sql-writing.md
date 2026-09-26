@@ -92,6 +92,43 @@ semantic operators
 read-only optimizer receipt
 ```
 
+## Relational information-set transport
+
+The first multi-stage search calculation now exists as executable SQL rather than only
+as a logical-operator label. `information_set_transport.sql` consumes an already
+authorized leaf/world/chance incidence relation and performs:
+
+```text
+normalize prior world weights
+        |
+        v
+worlds JOIN chance edges
+        |
+        v
+SUM mass BY leaf, world
+        |
+        v
+SUM mass BY leaf
+        |
+        v
+conditional posterior = leaf/world mass / leaf mass
+```
+
+`transport_information_set_mass_sql(...)` executes that packaged query in SQLite and
+returns the same dense `leaf_mass`, `leaf_world_mass`, and conditional
+`leaf_world_weights` surfaces consumed by compiled search. Candidate coverage compares
+this relational reference directly against the JAX transport on the exact same
+Python-authorized topology.
+
+This deliberately does **not** let SQL decide which worlds share an observation or
+which edge belongs to which leaf. Those incidences still come from the independently
+validated `CompiledSearchTopology`. SQL owns the numerical relational transform after
+that authority boundary.
+
+`EXPLAIN AZELFICOAST` now reports this relational transport contract alongside the
+selected packed/JAX physical path. That makes the SQL implementation an executable
+reference alternative without silently promoting it into the live hot path.
+
 ## Fail-closed rule
 
 Syntactically valid SQL does not automatically become executable decision semantics.
