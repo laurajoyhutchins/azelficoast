@@ -279,7 +279,7 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "needs: [plan, exact, accelerator-static]" in source
     assert "if: always() && needs.plan.result == 'success'" in source
     assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
-    assert 'if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]' in source
+    assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
     assert "uv run python -m azelficoast.research.ci certify" in source
     assert "python - <<'PY'" not in source
     assert "name: candidate-research-certificate" in source
