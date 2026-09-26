@@ -41,6 +41,13 @@ from azelficoast.research.contracts import PublicSuccessorState, ResearchContrac
 
 PACKED_COMPILED_SEARCH_SCHEMA = "azelficoast.packed-compiled-partial-information-search"
 PACKED_COMPILED_SEARCH_SCHEMA_VERSION = 1
+PACKED_COMPILED_EXECUTION_STAGES = (
+    "compile_search_topology",
+    "pack_joint_posterior",
+    "transport_posterior_mass",
+    "predict_packed_shared_world_values",
+    "reduce_compiled_root_values",
+)
 
 
 def search_packed_compiled_transition_program(
@@ -142,6 +149,7 @@ def search_packed_compiled_transition_program(
             ),
         },
         "numeric_backend": "jax-shared-packed-worlds",
+        "physical_execution_stages": list(PACKED_COMPILED_EXECUTION_STAGES),
         "semantic_authority": (
             "python-validated-transition-program + pinned-showdown-vocabulary"
         ),
