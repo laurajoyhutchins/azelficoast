@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.live.corpus import DecisionFixture, load_corpus
-from azelficoast.research.depth import summarize_pair
-from azelficoast.research.population import (
+from azelficoast.research.studies.depth import summarize_pair
+from azelficoast.research.studies.population import (
     _binary_contrast,
     _quantile,
     _spearman,

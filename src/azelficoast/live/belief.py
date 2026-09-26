@@ -34,7 +34,7 @@ from azelficoast.research.contracts import (
     parse_belief_artifact,
 )
 from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
-from azelficoast.research.typed_search import (
+from azelficoast.research.studies.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )

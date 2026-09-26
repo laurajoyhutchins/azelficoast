@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.live.corpus import load_corpus
-from azelficoast.research.population_cohort import (
+from azelficoast.research.studies.population_cohort import (
     COHORT_SCHEMA,
     COHORT_SCHEMA_VERSION as COHORT_SCHEMA_VERSION,
     PopulationStudyError,

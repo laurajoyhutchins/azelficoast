@@ -46,7 +46,7 @@ Evaluator-call counts are recorded separately and are not substituted for the
 transition budget. Transport IDs are used only to join mechanics records and
 never enter evaluator features. The cohort selector remains outcome-blind and
 retains the existing admission reasons, hash sampling, and CLI. Its extraction
-into `population_cohort.py` does not change cohort policy.
+into `studies/population_cohort.py` does not change cohort policy.
 Receipts also retain typed resource accounting for evaluator calls and executor,
 preparation, and search wall-clock times; these measurements do not redefine the
 counted class budget.
