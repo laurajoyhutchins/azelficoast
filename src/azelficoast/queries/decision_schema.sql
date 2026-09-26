@@ -36,3 +36,14 @@ JOIN legal_actions AS a
   ON a.action_id = t.action_id
 JOIN evaluations AS e
   ON e.successor_id = t.successor_id;
+
+
+CREATE VIEW action_statistics AS
+SELECT
+    action_id,
+    SUM(weight) AS posterior_mass,
+    SUM(weight * value) AS expected_value,
+    MIN(value) AS worst_value,
+    MAX(value) AS best_value
+FROM action_value_terms
+GROUP BY action_id;
