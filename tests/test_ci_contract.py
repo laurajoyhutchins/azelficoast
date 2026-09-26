@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -274,3 +275,30 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert '"schema": "azelficoast.candidate-research-certificate"' in source
     assert '"git_sha": os.environ["HEAD_SHA"]' in source
     assert "name: candidate-research-certificate" in source
+
+def test_research_semantics_do_not_live_in_workflow_yaml() -> None:
+    forbidden_fragments = (
+        "python - <<",
+        "node - <<",
+        "assert ",
+        "--target-particles",
+        "--minimum-particles",
+        "--max-rounds",
+        "--battles ",
+        "--rounds ",
+        "AZELFICOAST_ROOT_CHANCE_SAMPLES",
+        "AZELFICOAST_CONTINUATION_CHANCE_SAMPLES",
+        "AZELFICOAST_CHANCE_SEED_FAMILY",
+        "AZELFICOAST_CONTINUATION_DECISION_HORIZONS",
+    )
+    digest = re.compile(r"(?<![0-9a-f])[0-9a-f]{40,64}(?![0-9a-f])")
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        for fragment in forbidden_fragments:
+            assert fragment not in source, (
+                f"{path.name} encodes research semantics via {fragment!r}"
+            )
+        assert digest.search(source) is None, (
+            f"{path.name} must not own fixture, evidence, or revision digests"
+        )
