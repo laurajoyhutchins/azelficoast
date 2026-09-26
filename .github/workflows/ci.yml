@@ -39,6 +39,9 @@ jobs:
       - name: Check Showdown probe syntax
         run: |
           node --check scripts/probe_real_belief_trace.cjs
+          for script in scripts/real_belief_probe/*.cjs; do
+            node --check "$script"
+          done
           node --check scripts/probe_real_belief_worker.cjs
           node --check scripts/transition_successor_delta.cjs
       - name: Test
