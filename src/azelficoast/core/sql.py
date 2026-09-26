@@ -204,6 +204,10 @@ _DECISION_SQL_SURFACE = {
     },
     "schema_source_sha256": _SCHEMA_SOURCE_SHA256,
     "schema_source": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
+    "policy_examples": {
+        "maximin": f"{_SQL_RESOURCE_PACKAGE}/{_MAXIMIN_SQL_RESOURCE}",
+        "risk_adjusted": f"{_SQL_RESOURCE_PACKAGE}/{_RISK_ADJUSTED_SQL_RESOURCE}",
+    },
     "query_classes": {
         name: {
             "source": (
@@ -251,14 +255,30 @@ def describe_decision_sql_surface() -> dict[str, Any]:
         "schema_source": f"{_SQL_RESOURCE_PACKAGE}/{_DECISION_SCHEMA_RESOURCE}",
         "query_classes": {
             name: {
-                "source": f"{_SQL_RESOURCE_PACKAGE}/{query.source_resource}",
+                "source": (
+                    f"{_SQL_RESOURCE_PACKAGE}/{query.source_resource}"
+                    if query.source_resource is not None
+                    else None
+                ),
                 "result_columns": list(query.result_columns),
                 "semantic_identity": query.semantic_identity,
+                "semantic_identity_mode": query.semantic_identity_mode,
+                "ranking": (
+                    [["score", "desc"], ["action_id", "asc"]]
+                    if name == DECISION_POLICY_QUERY
+                    else None
+                ),
                 "packed_jax_lowering": (
                     name == DECISION_EXPECTED_VALUE_QUERY
                 ),
             }
             for name, query in _QUERY_CLASSES.items()
+        },
+        "policy_examples": {
+            "maximin": f"{_SQL_RESOURCE_PACKAGE}/{_MAXIMIN_SQL_RESOURCE}",
+            "risk_adjusted": (
+                f"{_SQL_RESOURCE_PACKAGE}/{_RISK_ADJUSTED_SQL_RESOURCE}"
+            ),
         },
     }
 
