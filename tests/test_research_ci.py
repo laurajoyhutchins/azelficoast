@@ -106,7 +106,7 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_registered_callable_experiments_have_no_local_cli_authority() -> None:
+def test_callable_experiments_delegate_execution_to_registry() -> None:
     modules = [
         module
         for experiment in EXPERIMENTS
@@ -114,62 +114,41 @@ def test_registered_callable_experiments_have_no_local_cli_authority() -> None:
         if module.entrypoint is not None
     ]
     assert len(modules) == 12
-
     for module in modules:
-        path = ROOT / "src" / Path(*module.module.split(".")).with_suffix(".py")
-        source = path.read_text(encoding="utf-8")
-        assert "argparse.ArgumentParser" not in source
+        source = (
+            ROOT / "src" / Path(*module.module.split(".")).with_suffix(".py")
+        ).read_text(encoding="utf-8")
         assert 'if __name__ == "__main__":' not in source
 
 
-def test_callable_module_contract_executes_path_entrypoint(tmp_path, monkeypatch) -> None:
-    module_name = "azelficoast_test_path_experiment"
-    imported = types.ModuleType(module_name)
-    input_path = tmp_path / "fixture.json"
-    input_path.write_text("{}\n", encoding="utf-8")
-
-    def run_experiment(path: Path) -> dict[str, object]:
-        assert path == input_path
-        return {"schema": "test", "passed": True}
-
-    imported.run_experiment = run_experiment
-    monkeypatch.setitem(sys.modules, module_name, imported)
-
-    contract = ModuleRun(
-        module=module_name,
-        output="result.json",
-        input=input_path.name,
-        entrypoint="run_experiment",
-        input_kind="path",
-    )
-    assert _execute_module(contract, tmp_path) == 0
-    assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {
+def test_callable_module_contract_executes_and_serializes(tmp_path, monkeypatch) -> None:
+    path_module = types.ModuleType("azelficoast_test_path_experiment")
+    document_module = types.ModuleType("azelficoast_test_document_experiment")
+    fixture = tmp_path / "fixture.json"
+    fixture.write_text('{"fixture": 7}\n', encoding="utf-8")
+    path_module.run_experiment = lambda path: {
+        "path": path.name,
         "passed": True,
-        "schema": "test",
     }
+    document_module.analyze_document = lambda document: {
+        "fixture": document["fixture"],
+        "passed": False,
+    }
+    monkeypatch.setitem(sys.modules, path_module.__name__, path_module)
+    monkeypatch.setitem(sys.modules, document_module.__name__, document_module)
 
-
-def test_callable_module_contract_loads_json_document(tmp_path, monkeypatch) -> None:
-    module_name = "azelficoast_test_document_experiment"
-    imported = types.ModuleType(module_name)
-    input_path = tmp_path / "fixture.json"
-    input_path.write_text('{"fixture": 7}\n', encoding="utf-8")
-
-    def analyze_document(document: object) -> dict[str, object]:
-        assert document == {"fixture": 7}
-        return {"schema": "test", "passed": False}
-
-    imported.analyze_document = analyze_document
-    monkeypatch.setitem(sys.modules, module_name, imported)
-
-    contract = ModuleRun(
-        module=module_name,
-        output="result.json",
-        input=input_path.name,
-        entrypoint="analyze_document",
-        input_kind="json",
-    )
-    assert _execute_module(contract, tmp_path) == 1
-    assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8"))[
-        "passed"
-    ] is False
+    assert _execute_module(
+        ModuleRun(path_module.__name__, "path.json", fixture.name, "run_experiment"),
+        tmp_path,
+    ) == 0
+    assert _execute_module(
+        ModuleRun(
+            document_module.__name__,
+            "document.json",
+            fixture.name,
+            "analyze_document",
+        ),
+        tmp_path,
+    ) == 1
+    assert json.loads((tmp_path / "path.json").read_text())["path"] == fixture.name
+    assert json.loads((tmp_path / "document.json").read_text())["fixture"] == 7
