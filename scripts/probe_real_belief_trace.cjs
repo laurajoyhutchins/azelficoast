@@ -55,9 +55,6 @@ if (posteriorOnly && transitionProgramOnly) {
 if (historicalShowdownCommit && !posteriorOnly) {
   fail("--historical-showdown-commit is allowed only with --posterior-only");
 }
-if (generatorCacheDir && !posteriorOnly) {
-  fail("--generator-cache-dir is allowed only with --posterior-only");
-}
 if (
   historicalShowdownCommit &&
   !/^[0-9a-f]{40}$/.test(historicalShowdownCommit)
@@ -78,6 +75,12 @@ function environmentInteger(name, fallback, {min = 0} = {}) {
   }
   return value;
 }
+
+const GENERATOR_ROUNDS = environmentInteger(
+  "AZELFICOAST_GENERATOR_ROUNDS",
+  2048,
+  {min: 1}
+);
 
 const ROOT_CHANCE_SAMPLES = environmentInteger(
   "AZELFICOAST_ROOT_CHANCE_SAMPLES",
@@ -1489,6 +1492,8 @@ if (posteriorOnly) {
     treatment: "generator_faithful",
     reconstruction: {
       generator_rounds: GENERATOR_ROUNDS,
+      generator_seed_schedule: "diagonal-counter-[i,i,i,i]",
+      generator_seed_start: 0,
       generator_matches: matched,
       generator_variant_count: variants.length,
       mechanics_projection_variant_count: mechanicsProjectionCount,
@@ -1638,6 +1643,8 @@ void writeJsonStream({
   },
   reconstruction: {
     generator_rounds: GENERATOR_ROUNDS,
+    generator_seed_schedule: "diagonal-counter-[i,i,i,i]",
+    generator_seed_start: 0,
     generator_matches: matched,
     generator_variant_count: variants.length,
     mechanics_projection_variant_count: mechanicsProjectionCount,
