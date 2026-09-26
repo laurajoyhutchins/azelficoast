@@ -1,9 +1,10 @@
 """Lower admitted decision SQL into the existing packed/JAX search data plane.
 
 The SQL front end is intentionally narrower than SQLite itself. An admitted query may be
-read-only SQL, but compiled execution is enabled only for the exact decision query whose
-logical semantics have a reviewed lowering. Unknown SQL therefore remains parseable and
-explainable without silently acquiring execution semantics.
+read-only SQL, but compiled execution is enabled only when the core recognizer assigns
+the reviewed decision semantic identity. Equivalent SQL syntax may therefore share one
+physical plan and statistics history, while unknown SQL remains parseable without
+acquiring execution semantics.
 """
 
 from __future__ import annotations
@@ -22,19 +23,20 @@ from azelficoast.belief.showdown_packing import ShowdownVocabulary
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
 from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql import (
+    DECISION_QUERY_SEMANTIC_ID,
     DEFAULT_DECISION_SQL,
     PreparedDecisionQuery,
     prepare_decision_query,
 )
 
 SQL_PACKED_PLAN_SCHEMA = "azelficoast.sql-packed-decision-plan"
-SQL_PACKED_PLAN_SCHEMA_VERSION = 1
+SQL_PACKED_PLAN_SCHEMA_VERSION = 2
 SQL_PACKED_SEARCH_SCHEMA = "azelficoast.sql-packed-partial-information-search"
-SQL_PACKED_SEARCH_SCHEMA_VERSION = 1
+SQL_PACKED_SEARCH_SCHEMA_VERSION = 2
 
 
 class SQLPackedLoweringError(ValueError):
-    """Raised when admitted SQL has no exact packed/JAX lowering."""
+    """Raised when admitted SQL has no reviewed packed/JAX lowering."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +59,8 @@ class SQLPackedDecisionPlan:
     """Exact physical lowering for one admitted decision query."""
 
     sql_sha256: str
+    semantic_identity: str
+    equivalence_rule: str
     logical: LogicalPlan
     bindings: tuple[SQLPackedBinding, ...]
     physical_execution_stages: tuple[str, ...]
@@ -68,6 +72,8 @@ class SQLPackedDecisionPlan:
             "schema": SQL_PACKED_PLAN_SCHEMA,
             "schema_version": SQL_PACKED_PLAN_SCHEMA_VERSION,
             "sql_sha256": self.sql_sha256,
+            "semantic_identity": self.semantic_identity,
+            "equivalence_rule": self.equivalence_rule,
             "logical_operators": [
                 operator.value for operator in self.logical.operators
             ],
@@ -84,10 +90,6 @@ class SQLPackedDecisionPlan:
             "plan_sha256": self.plan_sha256,
         }
 
-
-_DEFAULT_SQL_SHA256 = "sha256:" + hashlib.sha256(
-    DEFAULT_DECISION_SQL.encode("utf-8")
-).hexdigest()
 
 _PACKED_BINDINGS = (
     SQLPackedBinding(
@@ -164,9 +166,13 @@ def compile_packed_sql_decision_query(
 ) -> SQLPackedDecisionPlan:
     """Lower the reviewed SQL decision query into the packed/JAX physical path."""
 
-    if query.sql_sha256 != _DEFAULT_SQL_SHA256 or query.sql != DEFAULT_DECISION_SQL:
+    if query.semantic_identity != DECISION_QUERY_SEMANTIC_ID:
         raise SQLPackedLoweringError(
-            "admitted SQL has no reviewed packed/JAX lowering"
+            "admitted SQL has no reviewed packed/JAX semantic identity"
+        )
+    if query.equivalence_rule is None:
+        raise SQLPackedLoweringError(
+            "admitted SQL lacks reviewed relational equivalence evidence"
         )
     if query.logical != DEFAULT_DECISION_PLAN:
         raise SQLPackedLoweringError(
@@ -180,7 +186,7 @@ def compile_packed_sql_decision_query(
     material = {
         "schema": SQL_PACKED_PLAN_SCHEMA,
         "schema_version": SQL_PACKED_PLAN_SCHEMA_VERSION,
-        "sql_sha256": query.sql_sha256,
+        "semantic_identity": query.semantic_identity,
         "logical_operators": [
             operator.value for operator in query.logical.operators
         ],
@@ -197,6 +203,8 @@ def compile_packed_sql_decision_query(
     }
     return SQLPackedDecisionPlan(
         sql_sha256=query.sql_sha256,
+        semantic_identity=query.semantic_identity,
+        equivalence_rule=query.equivalence_rule,
         logical=query.logical,
         bindings=_PACKED_BINDINGS,
         physical_execution_stages=_SQL_PACKED_EXECUTION_STAGES,
@@ -233,11 +241,11 @@ def search_sql_packed_transition_program(
     action_rows = len(raw_actions)
 
     filter_signature = (
-        f"{prepared.sql_sha256}:filter:hidden_worlds:active-positive:"
+        f"{plan.semantic_identity}:filter:hidden_worlds:active-positive:"
         f"{posterior.get('schema', 'unknown')}"
     )
     partition_signature = (
-        f"{prepared.sql_sha256}:partition:{method}:"
+        f"{plan.semantic_identity}:partition:{method}:"
         f"{program_set.get('schema', 'unknown')}"
     )
 
@@ -349,6 +357,8 @@ def search_sql_packed_transition_program(
         "packed_search_schema": result["schema"],
         "packed_search_schema_version": result["schema_version"],
         "sql_query_sha256": prepared.sql_sha256,
+        "sql_semantic_identity": plan.semantic_identity,
+        "sql_equivalence_rule": plan.equivalence_rule,
         "sql_physical_plan": plan.as_record(),
         "sql_cardinality_forecast": forecast,
         "sql_cardinality_observed": observed,
