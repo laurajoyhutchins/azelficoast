@@ -11,11 +11,11 @@ from azelficoast.core.sql import (
     ACTION_SUMMARY_SEMANTIC_ID,
     ACTION_SUMMARY_SQL,
     DECISION_EXPECTED_VALUE_QUERY,
-    DECISION_MAXIMIN_QUERY,
+    DECISION_POLICY_QUERY,
     DECISION_QUERY_SEMANTIC_ID,
     DECISION_SQL_SURFACE_ID,
     DEFAULT_DECISION_SQL,
-    MAXIMIN_SEMANTIC_ID,
+    RISK_ADJUSTED_SQL,
     MAXIMIN_SQL,
     SQLQueryError,
     describe_decision_sql_surface,
@@ -23,7 +23,8 @@ from azelficoast.core.sql import (
     explain_sql_query,
     prepare_action_summary_query,
     prepare_decision_query,
-    prepare_maximin_query,
+    policy_semantic_identity,
+    prepare_policy_query,
     prepare_sql_query,
 )
 
@@ -61,7 +62,7 @@ def test_explain_binds_exact_sql_and_planner_environment() -> None:
 
     assert prepared.sql_sha256 == repeated.sql_sha256
     assert explanation["schema"] == "azelficoast.core.sql-query-explain"
-    assert explanation["schema_version"] == 5
+    assert explanation["schema_version"] == 6
     assert explanation["sql_sha256"] == prepared.sql_sha256
     assert explanation["relations"] == list(prepared.relations)
     assert explanation["functions"] == ["sum"]
@@ -216,10 +217,17 @@ def test_writer_surface_exposes_named_query_classes() -> None:
     assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY][
         "packed_jax_lowering"
     ] is True
-    assert surface["query_classes"][DECISION_MAXIMIN_QUERY][
+    assert surface["query_classes"][DECISION_POLICY_QUERY][
         "semantic_identity"
-    ] == MAXIMIN_SEMANTIC_ID
-    assert surface["query_classes"][DECISION_MAXIMIN_QUERY][
+    ] is None
+    assert surface["query_classes"][DECISION_POLICY_QUERY][
+        "semantic_identity_mode"
+    ] == "source-derived"
+    assert surface["query_classes"][DECISION_POLICY_QUERY]["ranking"] == [
+        ["score", "desc"],
+        ["action_id", "asc"],
+    ]
+    assert surface["query_classes"][DECISION_POLICY_QUERY][
         "packed_jax_lowering"
     ] is False
     assert surface["query_classes"][ACTION_SUMMARY_QUERY][
@@ -304,6 +312,12 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
         .read_text(encoding="utf-8")
         .strip()
     )
+    risk_adjusted_source = (
+        files("azelficoast.queries")
+        .joinpath("risk_adjusted.sql")
+        .read_text(encoding="utf-8")
+        .strip()
+    )
     summary_source = (
         files("azelficoast.queries")
         .joinpath("action_summary.sql")
@@ -320,6 +334,7 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
 
     assert query_source == DEFAULT_DECISION_SQL
     assert maximin_source == MAXIMIN_SQL
+    assert risk_adjusted_source == RISK_ADJUSTED_SQL
     assert summary_source == ACTION_SUMMARY_SQL
     assert "CREATE VIEW action_statistics" in schema_source
     assert surface["schema_source"] == (
@@ -331,13 +346,15 @@ def test_sql_query_classes_are_first_class_packaged_sources() -> None:
     assert surface["query_classes"][DECISION_EXPECTED_VALUE_QUERY]["source"] == (
         "azelficoast.queries/decision.sql"
     )
-    assert surface["query_classes"][DECISION_MAXIMIN_QUERY]["source"] == (
-        "azelficoast.queries/maximin.sql"
-    )
+    assert surface["query_classes"][DECISION_POLICY_QUERY]["source"] is None
+    assert surface["policy_examples"] == {
+        "maximin": "azelficoast.queries/maximin.sql",
+        "risk_adjusted": "azelficoast.queries/risk_adjusted.sql",
+    }
     assert surface["query_classes"][ACTION_SUMMARY_QUERY]["source"] == (
         "azelficoast.queries/action_summary.sql"
     )
-    assert surface["schema_version"] == 3
+    assert surface["schema_version"] == 4
 
 
 def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
@@ -354,25 +371,66 @@ def test_action_summary_is_a_distinct_admitted_semantic_query_class() -> None:
     assert explanation["logical_operators"] == []
 
 
-def test_maximin_is_distinct_policy_semantics_without_jax_authority() -> None:
-    prepared = prepare_maximin_query()
+def test_policy_sql_gets_source_derived_semantic_identity() -> None:
+    maximin = prepare_policy_query(MAXIMIN_SQL)
+    risk_adjusted = prepare_policy_query(RISK_ADJUSTED_SQL)
+
+    assert maximin.query_class == DECISION_POLICY_QUERY
+    assert maximin.semantic_identity == policy_semantic_identity(MAXIMIN_SQL)
+    assert maximin.semantic_identity != DECISION_QUERY_SEMANTIC_ID
+    assert maximin.equivalence_rule == "policy-source"
+    assert maximin.equivalence_scope == "source-bound"
+    assert maximin.logical is None
+    assert maximin.direct_relations == ("action_statistics",)
+    assert risk_adjusted.semantic_identity == policy_semantic_identity(
+        RISK_ADJUSTED_SQL
+    )
+    assert risk_adjusted.semantic_identity != maximin.semantic_identity
+
+
+def test_policy_identity_ignores_incidental_presentation() -> None:
+    commented = "-- conservative policy\n" + MAXIMIN_SQL + ";"
+
+    prepared = prepare_policy_query(commented)
+
+    assert prepared.sql_sha256 != prepare_policy_query(MAXIMIN_SQL).sql_sha256
+    assert prepared.semantic_identity == policy_semantic_identity(MAXIMIN_SQL)
+
+
+def test_policy_ranking_is_system_owned_and_deterministic() -> None:
+    prepared = prepare_policy_query(RISK_ADJUSTED_SQL)
     explanation = explain_sql_query(prepared)
 
-    assert prepared.query_class == DECISION_MAXIMIN_QUERY
-    assert prepared.semantic_identity == MAXIMIN_SEMANTIC_ID
-    assert prepared.semantic_identity != DECISION_QUERY_SEMANTIC_ID
-    assert prepared.equivalence_rule == "canonical-source"
-    assert prepared.equivalence_scope == "reviewed-source"
-    assert prepared.logical is None
-    assert explanation["query_class"] == DECISION_MAXIMIN_QUERY
+    assert prepared.execution_sql != prepared.sql
+    assert prepared.execution_sql.endswith(
+        "ORDER BY score DESC, action_id ASC"
+    )
+    assert prepared.execution_sql_sha256 != prepared.sql_sha256
+    assert explanation["query_class"] == DECISION_POLICY_QUERY
+    assert explanation["execution_sql_sha256"] == (
+        prepared.execution_sql_sha256
+    )
 
 
-def test_named_query_contract_rejects_wrong_result_shape() -> None:
+def test_policy_writer_must_use_action_statistics_surface() -> None:
+    bypass = """
+    SELECT
+        action_id,
+        SUM(weight * value) AS score
+    FROM action_value_terms
+    GROUP BY action_id
+    """
+
+    with pytest.raises(
+        SQLQueryError,
+        match="must read action_statistics directly",
+    ):
+        prepare_policy_query(bypass)
+
+
+def test_policy_contract_rejects_wrong_result_shape() -> None:
     with pytest.raises(SQLQueryError, match="action_id, score"):
-        prepare_sql_query(
-            ACTION_SUMMARY_SQL,
-            query_class=DECISION_MAXIMIN_QUERY,
-        )
+        prepare_policy_query(ACTION_SUMMARY_SQL)
 
 
 def test_unknown_query_class_fails_closed() -> None:
