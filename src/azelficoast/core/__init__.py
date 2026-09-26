@@ -32,6 +32,10 @@ from azelficoast.core.program import (
     TransitionProgramError,
     program_for_action,
 )
+from azelficoast.core.projection import (
+    ActiveProjection,
+    compact_active_projection,
+)
 from azelficoast.core.planning import (
     DEFAULT_DECISION_PLAN,
     PLAN_EXPLAIN_SCHEMA,
@@ -59,6 +63,7 @@ from azelficoast.core.transition import (
 )
 
 __all__ = [
+    "ActiveProjection",
     "DEFAULT_DECISION_PLAN",
     "ExecutionCostProfile",
     "ExecutionDecision",
@@ -91,6 +96,7 @@ __all__ = [
     "canonical_json",
     "choose_execution_path",
     "choose_physical_plan",
+    "compact_active_projection",
     "decision_relevance_quotient",
     "explain_physical_plan",
     "program_for_action",

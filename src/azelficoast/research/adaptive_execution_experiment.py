@@ -21,6 +21,7 @@ from azelficoast.core.costing import (
     ExecutionPath,
     choose_execution_path,
 )
+from azelficoast.core.projection import compact_active_projection
 from azelficoast.research.adaptive_execution import current_jax_execution_target
 from azelficoast.research.mechanics.class_native_belief import (
     ClassNativeBelief,
@@ -28,7 +29,6 @@ from azelficoast.research.mechanics.class_native_belief import (
     build_factor_support,
     compile_damage_projection,
     damage_dependency_tuple,
-    project_belief,
 )
 from azelficoast.research.mechanics.gen9_damage import DamageContext, compile_numeric_context
 from azelficoast.research.mechanics.jax_gen9_damage import damage_score, weighted_damage_score
@@ -199,14 +199,26 @@ def _sparse_uniform_belief(
     return belief, compile_damage_projection(support, contexts)
 
 
+def _active_projection(
+    belief: ClassNativeBelief,
+    projection: ProjectionMap,
+):
+    return compact_active_projection(
+        belief.weights,
+        projection.class_ids,
+        projection.representative_indices,
+        support_class_count=belief.support.class_count,
+        mismatch_message="projection does not match belief support",
+    )
+
+
 def _active_projected_inputs(
     belief: ClassNativeBelief,
     projection: ProjectionMap,
     contexts: Sequence[DamageContext],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    projected = project_belief(belief, projection)
-    active = projected.weights > 0
-    representatives = projection.representative_indices[active]
+    active = _active_projection(belief, projection)
+    representatives = active.representative_indices
     context_indices = belief.support.context_index[representatives]
     params = np.asarray(
         [
@@ -216,7 +228,7 @@ def _active_projected_inputs(
         dtype=np.int32,
     )
     rolls = belief.support.roll[representatives].astype(np.int32, copy=False)
-    weights = projected.weights[active].astype(np.int32, copy=False)
+    weights = active.weights.astype(np.int32, copy=False)
     return params, rolls, weights
 
 
@@ -253,7 +265,7 @@ def _benchmark_treatment(
     repeats: int = 9,
 ) -> dict[str, object]:
     belief, projection = _sparse_uniform_belief(contexts, treatment)
-    projected = project_belief(belief, projection)
+    projected = _active_projection(belief, projection)
 
     direct_params, direct_rolls = _materialize_direct_inputs(belief, contexts)
     direct_params_device = jax.device_put(direct_params)
@@ -318,7 +330,7 @@ def _benchmark_treatment(
         "treatment": treatment.name,
         "logical_world_count": belief.logical_world_count,
         "active_canonical_classes": belief.active_canonical_classes,
-        "active_projected_classes": projected.active_classes,
+        "active_projected_classes": projected.active_class_count,
         "direct_median_ms": direct_ms,
         "direct_mad_ms": direct_mad,
         "projected_median_ms": projected_ms,
