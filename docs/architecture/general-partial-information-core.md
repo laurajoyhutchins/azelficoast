@@ -21,6 +21,8 @@ The current reusable surface is:
   execution paths.
 - `core.planning`: a small logical-plan / physical-plan boundary with deterministic
   EXPLAIN evidence for execution-path selection.
+- `core.sql`: a read-only SQL front end over admitted decision relations, parsed by
+  SQLite rather than by an Azelficoast-specific SQL grammar.
 - `core.memo`: bounded memo groups for exact materialized semantic results; callers
   own equivalence identity and physical-alternative identity.
 - `core.program`: structural transition-program lookup.
@@ -112,6 +114,48 @@ path so planner behavior is auditable and can later become optimization evidence
 
 Hardware/JAX target discovery remains research/runtime-specific; the core only consumes
 an opaque target signature.
+
+
+### SQL as a decision-query DSL
+
+The relational planner now has an intentionally small executable SQL front end. The
+initial query is ordinary SQL over four admitted relations:
+
+```sql
+WITH active_worlds AS (
+    SELECT world_id, weight
+    FROM hidden_worlds
+    WHERE active = 1 AND weight > 0
+),
+weighted_successors AS (
+    SELECT t.action_id, w.weight, e.value
+    FROM active_worlds AS w
+    JOIN transitions AS t ON t.world_id = w.world_id
+    JOIN legal_actions AS a ON a.action_id = t.action_id
+    JOIN evaluations AS e ON e.successor_id = t.successor_id
+)
+SELECT action_id, SUM(weight * value) AS expected_value
+FROM weighted_successors
+GROUP BY action_id
+ORDER BY expected_value DESC, action_id ASC;
+```
+
+This is deliberately not a second mechanics engine. Trusted machinery still owns the
+contents and identities of hidden worlds, legal actions, transitions, and evaluations.
+SQL is allowed to describe relational composition over those admitted facts.
+
+Admission uses Python's standard-library SQLite parser and authorizer. Only read-only
+`SELECT` access and an explicit aggregate-function surface are accepted; mutation,
+recursive SQL, unapproved functions, missing authority relations, and an unexpected
+result shape fail closed. The exact SQL source is hashed, while SQLite's
+`EXPLAIN QUERY PLAN` output is recorded together with the SQLite version because that
+physical outline is environment-bound.
+
+The first slice intentionally maps the admitted decision query to the existing logical
+decision plan rather than pretending that Azelficoast already has a general SQL-to-JAX
+compiler. That is the next useful experiment: lower the relational query into the same
+packed/JAX physical operators and compare the generated plan against the hand-built
+planner without changing mechanics or scientific semantics.
 
 
 ### Active-support pushdown
