@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from azelficoast.research.hosted import belief
 from azelficoast.research.hosted.contracts import (
     STUDIES,
@@ -52,9 +54,13 @@ def test_shared_capabilities_select_only_consumers() -> None:
     evidence = studies_for_paths(
         (".github/actions/setup-research-evidence/action.yml",)
     )
+    evidence_authority = studies_for_paths(
+        ("src/azelficoast/research/evidence.py",)
+    )
 
     assert showdown
     assert evidence
+    assert evidence_authority == evidence
     assert all(study.showdown for study in showdown)
     assert all(study.evidence for study in evidence)
     assert "replay-world-experiment" not in {study.name for study in showdown}
@@ -101,3 +107,25 @@ def test_compiled_artifact_names_are_unique() -> None:
     assert isinstance(matrix, list)
     names = [entry["artifact_name"] for entry in matrix]
     assert len(names) == len(set(names))
+
+
+def test_hosted_cli_exposes_only_generic_execution_commands() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "azelficoast"
+        / "research"
+        / "hosted"
+        / "__main__.py"
+    ).read_text(encoding="utf-8")
+
+    for command in (
+        'commands.add_parser("matrix")',
+        'commands.add_parser("exhausted-bench")',
+        'commands.add_parser("public-belief-exact")',
+        'commands.add_parser("natural-population-shard")',
+        'commands.add_parser("natural-depth-shard")',
+    ):
+        assert command not in source
+    for command in ("plan", "run-unit", "prepare-aggregate", "aggregate"):
+        assert f'commands.add_parser("{command}")' in source
