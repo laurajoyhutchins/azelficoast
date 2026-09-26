@@ -13,9 +13,22 @@ from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-revision_path = REPOSITORY_ROOT / "experiments" / "showdown-revision.txt"
-SHOWDOWN_REVISION = revision_path.read_text(encoding="utf-8").strip()
+def _repository_showdown_revision() -> str:
+    authority = Path(__file__).resolve().parents[3] / "showdown" / "revision.json"
+    document: object = json.loads(authority.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise RuntimeError("Showdown revision authority must be a JSON object")
+    commit = document.get("commit")
+    if (
+        not isinstance(commit, str)
+        or len(commit) != 40
+        or any(character not in "0123456789abcdef" for character in commit)
+    ):
+        raise RuntimeError("Showdown revision authority lacks a 40-hex commit")
+    return commit
+
+
+SHOWDOWN_REVISION = _repository_showdown_revision()
 SHOWDOWN_ROOT = Path("/tmp/pokemon-showdown")
 DEFAULT_OUTPUT_ROOT = Path("/tmp/azelficoast-research")
 
@@ -134,7 +147,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
         artifact="adaptive-cost-model-evidence",
         generator=(
-            "scripts/generate_showdown_damage_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
             "showdown-gen9-damage-fixtures.json",
         ),
         tests=("tests/test_adaptive_execution.py",),
@@ -170,7 +183,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/class_native_belief.py",
             "src/azelficoast/research/mechanics/native_damage_compiler.py",
             "src/azelficoast/research/experiments/attack_transition_experiment.py",
-            "scripts/generate_showdown_attack_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_attack_fixtures.cjs",
             "tests/test_gen9_attack.py",
             "tests/test_class_native_belief.py",
             "tests/test_native_damage_compiler.py",
@@ -179,7 +192,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         artifact="attack-transition-evidence",
         allow_nonzero_module_results=True,
         generator=(
-            "scripts/generate_showdown_attack_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_attack_fixtures.cjs",
             "showdown-attack-fixtures.json",
         ),
         tests=(
@@ -226,7 +239,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
         artifact="class-native-belief-evidence",
         generator=(
-            "scripts/generate_showdown_damage_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
             "showdown-gen9-damage-fixtures.json",
         ),
         tests=("tests/test_class_native_belief.py",),
@@ -254,14 +267,14 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/verification/showdown_damage_corpus.py",
             "src/azelficoast/research/mechanics/jax_gen9_damage.py",
             "src/azelficoast/research/experiments/jax_gen9_damage_experiment.py",
-            "scripts/generate_showdown_damage_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
             "tests/test_gen9_damage.py",
             "tests/test_showdown_damage_corpus.py",
             "tests/test_jax_gen9_damage.py",
         ),
         artifact="gen9-damage-kernel-evidence",
         generator=(
-            "scripts/generate_showdown_damage_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
             "showdown-gen9-damage-fixtures.json",
         ),
         tests=(
@@ -318,12 +331,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/experiments/native_damage_experiment.py",
             "src/azelficoast/research/mechanics/jax_gen9_damage.py",
             "src/azelficoast/research/verification/showdown_damage_corpus.py",
-            "scripts/generate_showdown_damage_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
             "tests/test_native_damage_compiler.py",
         ),
         artifact="native-damage-evidence",
         generator=(
-            "scripts/generate_showdown_damage_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_damage_fixtures.cjs",
             "showdown-gen9-damage-fixtures.json",
         ),
         tests=("tests/test_native_damage_compiler.py", "tests/test_gen9_damage.py"),
@@ -430,12 +443,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         paths=(
             "src/azelficoast/research/mechanics/simulator_ir.py",
             "src/azelficoast/research/verification/showdown_transition_corpus.py",
-            "scripts/generate_showdown_transition_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_transition_fixtures.cjs",
             "tests/test_showdown_transition_corpus.py",
         ),
         artifact="showdown-transition-dependency-evidence",
         generator=(
-            "scripts/generate_showdown_transition_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_transition_fixtures.cjs",
             "showdown-transition-fixtures.json",
         ),
         modules=(
@@ -476,12 +489,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/ordered_attack_belief.py",
             "src/azelficoast/research/mechanics/ordered_attack_compiler.py",
             "src/azelficoast/research/experiments/ordered_attack_experiment.py",
-            "scripts/generate_showdown_ordered_attack_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_ordered_attack_fixtures.cjs",
             "tests/test_gen9_ordered_attack.py",
         ),
         artifact="ordered-attack-evidence",
         generator=(
-            "scripts/generate_showdown_ordered_attack_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_ordered_attack_fixtures.cjs",
             "showdown-ordered-attack-fixtures.json",
         ),
         tests=("tests/test_gen9_ordered_attack.py",),
@@ -502,12 +515,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/two_attack_turn_belief.py",
             "src/azelficoast/research/mechanics/two_attack_turn_compiler.py",
             "src/azelficoast/research/experiments/two_attack_turn_experiment.py",
-            "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_two_attack_turn_fixtures.cjs",
             "tests/test_gen9_two_attack_turn.py",
         ),
         artifact="two-attack-turn-evidence",
         generator=(
-            "scripts/generate_showdown_two_attack_turn_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_two_attack_turn_fixtures.cjs",
             "showdown-two-attack-turn-fixtures.json",
         ),
         tests=("tests/test_gen9_two_attack_turn.py",),
@@ -526,12 +539,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         paths=(
             "src/azelficoast/research/mechanics/stateful_protect_turn.py",
             "src/azelficoast/research/experiments/stateful_protect_experiment.py",
-            "scripts/generate_showdown_stateful_protect_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_stateful_protect_fixtures.cjs",
             "tests/test_stateful_protect_turn.py",
         ),
         artifact="stateful-protect-evidence",
         generator=(
-            "scripts/generate_showdown_stateful_protect_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_stateful_protect_fixtures.cjs",
             "stateful-protect-fixtures.json",
         ),
         tests=("tests/test_stateful_protect_turn.py",),
@@ -549,12 +562,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         paths=(
             "src/azelficoast/research/mechanics/switch_hazard_turn.py",
             "src/azelficoast/research/experiments/switch_hazard_experiment.py",
-            "scripts/generate_showdown_switch_hazard_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_switch_hazard_fixtures.cjs",
             "tests/test_switch_hazard_turn.py",
         ),
         artifact="switch-entry-hazard-evidence",
         generator=(
-            "scripts/generate_showdown_switch_hazard_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_switch_hazard_fixtures.cjs",
             "switch-hazard-fixtures.json",
         ),
         tests=("tests/test_switch_hazard_turn.py",),
@@ -577,12 +590,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
             "src/azelficoast/research/mechanics/staged_attack.py",
             "src/azelficoast/research/mechanics/switch_intimidate_turn.py",
             "src/azelficoast/research/experiments/switch_intimidate_experiment.py",
-            "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_switch_intimidate_fixtures.cjs",
             "tests/test_switch_intimidate_turn.py",
         ),
         artifact="switch-intimidate-evidence",
         generator=(
-            "scripts/generate_showdown_switch_intimidate_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_switch_intimidate_fixtures.cjs",
             "switch-intimidate-fixtures.json",
         ),
         tests=("tests/test_switch_intimidate_turn.py",),
@@ -600,12 +613,12 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         paths=(
             "src/azelficoast/research/mechanics/voluntary_switch_turn.py",
             "src/azelficoast/research/experiments/voluntary_switch_experiment.py",
-            "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_voluntary_switch_fixtures.cjs",
             "tests/test_voluntary_switch_turn.py",
         ),
         artifact="voluntary-switch-evidence",
         generator=(
-            "scripts/generate_showdown_voluntary_switch_fixtures.cjs",
+            "showdown/verification/fixtures/generate_showdown_voluntary_switch_fixtures.cjs",
             "voluntary-switch-fixtures.json",
         ),
         tests=("tests/test_voluntary_switch_turn.py",),
@@ -622,7 +635,7 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         "posterior-stratified-population",
         paths=(
             "experiments/posterior-stratified-population-contract.json",
-            "experiments/showdown-revision.txt",
+            "showdown/revision.json",
             "src/azelficoast/research/posterior_population_contract.py",
             "src/azelficoast/research/matched_population_run.py",
             "src/azelficoast/research/matched_comparison.py",
@@ -737,7 +750,7 @@ _SHARED_PYTHON_PATHS = {
 }
 _SHARED_SHOWDOWN_PATHS = {
     ".github/actions/setup-showdown/action.yml",
-    "experiments/showdown-revision.txt",
+    "showdown/revision.json",
 }
 
 

@@ -28,14 +28,14 @@ jobs:
       - name: Install pinned JavaScript static tooling
         run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
       - name: Lint JavaScript script frontier
-        run: npm run lint:scripts
+        run: npm run lint:showdown
       - name: Type check JavaScript script frontier
-        run: npm run typecheck:scripts
+        run: npm run typecheck:showdown
       - name: Check JavaScript syntax
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' scripts < <(find scripts -type f -name '*.cjs' -print0 | sort -z)
+          mapfile -d '' scripts < <(find showdown -type f -name '*.cjs' -print0 | sort -z)
           if (( ${#scripts[@]} == 0 )); then
             echo "no CJS scripts found" >&2
             exit 1

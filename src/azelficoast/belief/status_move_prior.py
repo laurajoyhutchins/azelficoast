@@ -101,7 +101,13 @@ def _sample(
     is_lead: bool,
     seed_offset: int,
 ) -> dict[str, Any]:
-    script = Path(__file__).resolve().parents[3] / "scripts" / "sample_showdown_worlds.cjs"
+    script = (
+        Path(__file__).resolve().parents[3]
+        / "showdown"
+        / "research"
+        / "belief"
+        / "sample_showdown_worlds.cjs"
+    )
     completed = subprocess.run(
         [
             "node",

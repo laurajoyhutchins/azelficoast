@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {execFileSync} = require("node:child_process");
 
-const PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
+const {PINNED_SHOWDOWN_COMMIT} = require("../shared/revision.cjs");
 const SCHEMA = "azelficoast.showdown-vocabulary";
 const SCHEMA_VERSION = 1;
 

@@ -7,7 +7,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "experiments/showdown-revision.txt"
+      - "showdown/revision.json"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-showdown/action.yml"
       - ".github/workflows/training.yml"
@@ -16,7 +16,7 @@ on:
       - "src/azelficoast/research/public_replays.py"
       - "src/azelficoast/research/training_records.py"
       - "src/azelficoast/research/training_service.py"
-      - "scripts/replay_inputlog_to_streams.cjs"
+      - "showdown/verification/replay_inputlog_to_streams.cjs"
       - "pyproject.toml"
       - "uv.lock"
 

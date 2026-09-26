@@ -27,7 +27,7 @@ from azelficoast.research.training_records import (
     build_training_records,
     write_training_records,
 )
-from azelficoast.research.verification.showdown_damage_corpus import PINNED_SHOWDOWN_COMMIT
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 
 TEACHER_MANIFEST_SCHEMA = "azelficoast.training-teacher-manifest"
 TEACHER_MANIFEST_SCHEMA_VERSION = 3

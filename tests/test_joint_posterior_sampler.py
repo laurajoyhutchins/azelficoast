@@ -14,7 +14,9 @@ def test_joint_random_battle_sampler_has_valid_node_syntax() -> None:
 
     script = (
         Path(__file__).resolve().parents[1]
-        / "scripts"
+        / "showdown"
+        / "research"
+        / "belief"
         / "sample_joint_random_battle_posterior.cjs"
     )
     completed = subprocess.run(

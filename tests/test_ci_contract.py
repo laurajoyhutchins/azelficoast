@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import tomllib
+
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
+from azelficoast.research.ci import SHOWDOWN_REVISION
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -75,15 +79,15 @@ def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> N
 def test_ci_checks_entire_javascript_script_frontier() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
 
-    assert "npm run lint:scripts" in source
-    assert "npm run typecheck:scripts" in source
-    assert "find scripts -type f -name '*.cjs' -print0" in source
+    assert "npm run lint:showdown" in source
+    assert "npm run typecheck:showdown" in source
+    assert "find showdown -type f -name '*.cjs' -print0" in source
     assert 'node --check "$script"' in source
 
     # Script admission is directory-derived, not a hand-maintained trusted allowlist.
-    assert "node --check scripts/probe_real_belief_trace.cjs" not in source
-    assert "node --check scripts/probe_real_belief_worker.cjs" not in source
-    assert "node --check scripts/transition_successor_delta.cjs" not in source
+    assert "node --check showdown/runtime/probe_real_belief_trace.cjs" not in source
+    assert "node --check showdown/runtime/probe_real_belief_worker.cjs" not in source
+    assert "node --check showdown/runtime/transition_successor_delta.cjs" not in source
 
 
 def test_expensive_pr_workflows_are_exact_head_fenced() -> None:
@@ -175,7 +179,7 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
 def test_training_workflow_observes_replay_bridge_changes() -> None:
     source = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
 
-    assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
+    assert '- "showdown/verification/replay_inputlog_to_streams.cjs"' in source
 
 
 def test_repository_evidence_replaces_historical_artifact_runtime_dependencies() -> None:
@@ -290,3 +294,40 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "src/azelficoast/belief/showdown_packing.py" in source
     assert "src/azelficoast/belief/packed_evaluator.py" in source
     assert "src/azelficoast/belief/compiled_search.py" in source
+
+
+def test_showdown_revision_is_repository_owned() -> None:
+    revision_path = ROOT / "showdown" / "revision.json"
+    document = json.loads(revision_path.read_text(encoding="utf-8"))
+
+    assert document == {
+        "schema": "azelficoast.showdown-revision",
+        "schema_version": 1,
+        "commit": PINNED_SHOWDOWN_COMMIT,
+    }
+    assert SHOWDOWN_REVISION == PINNED_SHOWDOWN_COMMIT
+
+    setup = (
+        ROOT / ".github" / "actions" / "setup-showdown" / "action.yml"
+    ).read_text(encoding="utf-8")
+    assert "require('./showdown/revision.json').commit" in setup
+    assert PINNED_SHOWDOWN_COMMIT not in setup
+
+    for path in sorted((ROOT / "showdown").rglob("*.cjs")):
+        assert PINNED_SHOWDOWN_COMMIT not in path.read_text(encoding="utf-8"), (
+            f"{path.relative_to(ROOT)} duplicates the repository Showdown revision"
+        )
+
+    for path in sorted(WORKFLOWS.glob("*.yml")):
+        source = path.read_text(encoding="utf-8")
+        assert PINNED_SHOWDOWN_COMMIT not in source, (
+            f"{path.name} duplicates the current repository Showdown revision"
+        )
+        if "uses: ./.github/actions/setup-showdown" not in source:
+            continue
+        if "  pull_request:\n" not in source:
+            continue
+        assert (
+            '- "showdown/revision.json"' in source
+            or '- "showdown/**"' in source
+        ), f"{path.name} must observe Showdown revision authority changes"

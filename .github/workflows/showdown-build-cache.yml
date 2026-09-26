@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "experiments/showdown-revision.txt"
+      - "showdown/revision.json"
       - ".github/actions/setup-showdown/action.yml"
       - ".github/workflows/showdown-build-cache.yml"
   workflow_dispatch:

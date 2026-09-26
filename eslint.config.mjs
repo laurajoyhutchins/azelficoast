@@ -1,6 +1,6 @@
 export default [
   {
-    files: ["scripts/**/*.cjs"],
+    files: ["showdown/**/*.cjs"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "commonjs",

@@ -5,16 +5,16 @@ on:
     types: [ready_for_review]
     paths:
       - "experiments/opponent-policy-semantics.json"
-      - "experiments/showdown-revision.txt"
       - ".github/actions/setup-python-environment/action.yml"
       - ".github/actions/setup-research-evidence/action.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "showdown/revision.json"
       - "experiments/evidence/canonical-evidence.json"
       - "experiments/evidence/canonical-evidence.tar.gz"
       - "src/azelficoast/research/verification/real_belief_trace.py"
       - "src/azelficoast/research/verification/real_belief_miner.py"
-      - "scripts/probe_real_belief_trace.cjs"
-      - "scripts/real_belief_probe/**"
+      - "showdown/runtime/probe_real_belief_trace.cjs"
+      - "showdown/runtime/real_belief_probe/**"
       - ".github/workflows/real-belief-survival-witness.yml"
   workflow_dispatch:
 
@@ -62,7 +62,7 @@ jobs:
 
       - name: Generate exact hidden-world oracle
         run: |
-          node scripts/probe_real_belief_trace.cjs \
+          node showdown/runtime/probe_real_belief_trace.cjs \
             /tmp/pokemon-showdown \
             /tmp/azelficoast-evidence/survival-source.json \
             > /tmp/tropius-chiyu-oracle.json
@@ -89,9 +89,10 @@ jobs:
           assert trace["source_fixture_id"] == (
               "65261d732db208427215265f3171af6607a21c9b36606054604883cb5e4654f2"
           ), trace
-          assert trace["showdown_commit"] == (
-              "a5df8274e85b0889bf2a9b3422a08b39732374fc"
-          ), trace
+          expected_showdown = json.loads(
+              Path("showdown/revision.json").read_text(encoding="utf-8")
+          )["commit"]
+          assert trace["showdown_commit"] == expected_showdown, trace
           assert trace["experiment_valid"] is True, trace
           assert trace["world_count"] >= 2, trace
           assert trace["legal_action_count"] == 11, trace

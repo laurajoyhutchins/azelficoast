@@ -476,16 +476,16 @@ def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
 
 
 def test_showdown_probe_preserves_semantic_support_before_execution_projection() -> None:
-    scripts = Path(__file__).resolve().parents[1] / "scripts"
-    source = (scripts / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
+    showdown_runtime = Path(__file__).resolve().parents[1] / "showdown" / "runtime"
+    source = (showdown_runtime / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
     generator_source = (
-        scripts / "real_belief_probe" / "generator_population.cjs"
+        showdown_runtime / "real_belief_probe" / "generator_population.cjs"
     ).read_text(encoding="utf-8")
     opponent_source = (
-        scripts / "real_belief_probe" / "opponent_policy.cjs"
+        showdown_runtime / "real_belief_probe" / "opponent_policy.cjs"
     ).read_text(encoding="utf-8")
     compiler_source = (
-        scripts / "real_belief_probe" / "transition_program_compiler.cjs"
+        showdown_runtime / "real_belief_probe" / "transition_program_compiler.cjs"
     ).read_text(encoding="utf-8")
 
     assert '"--historical-showdown-commit"' in source

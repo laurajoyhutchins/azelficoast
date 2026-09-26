@@ -16,7 +16,7 @@ if (!showdownRoot || !fixturePath) {
   fail("usage: enumerate_team_completion_support.cjs SHOWDOWN_ROOT FIXTURE_JSON");
 }
 
-const SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc";
+const {PINNED_SHOWDOWN_COMMIT: SHOWDOWN_COMMIT} = require("../../shared/revision.cjs");
 const actualCommit = execFileSync(
   "git",
   ["-C", showdownRoot, "rev-parse", "HEAD"],

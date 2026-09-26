@@ -4,8 +4,7 @@ on:
   pull_request:
     types: [ready_for_review]
     paths:
-      - "experiments/showdown-revision.txt"
-      - "scripts/sample_joint_random_battle_posterior.cjs"
+      - "showdown/research/belief/sample_joint_random_battle_posterior.cjs"
       - "src/azelficoast/belief/joint_posterior.py"
       - "src/azelficoast/belief/validity.py"
       - "src/azelficoast/belief/evaluator.py"
@@ -16,6 +15,7 @@ on:
       - "tests/test_live_belief.py"
       - ".github/workflows/joint-random-battle-posterior.yml"
       - ".github/actions/setup-showdown/action.yml"
+      - "showdown/revision.json"
       - ".github/actions/setup-research-evidence/action.yml"
       - ".github/actions/setup-python-environment/action.yml"
       - "experiments/evidence/canonical-evidence.json"
@@ -79,7 +79,7 @@ jobs:
           source="$(cat /tmp/joint-source-path)"
           echo "fixture=$source"
           set +e
-          node scripts/sample_joint_random_battle_posterior.cjs \
+          node showdown/research/belief/sample_joint_random_battle_posterior.cjs \
             /tmp/pokemon-showdown \
             "$source" \
             --target-particles 16 \

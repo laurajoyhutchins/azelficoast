@@ -2,7 +2,7 @@
   "schema": "azelficoast.posterior-stratified-population-contract",
   "schema_version": 1,
   "issue": 69,
-  "showdown_revision_source": "experiments/showdown-revision.txt",
+  "showdown_revision_source": "showdown/revision.json",
   "completion_posterior_treatments": [
     "oracle",
     "generator_faithful",
