@@ -606,3 +606,13 @@ def test_oracle_document_loader_streams_large_top_level_arrays(tmp_path: Path) -
         encoding="utf-8",
     )
     assert _load_oracle_document(path, chunk_size=13) == expected
+
+
+def test_declared_reads_receives_transition_evidence_explicitly() -> None:
+    source = (ROOT / "scripts" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function declaredReads(action, transitions)" in source
+    assert "declaredReads(action, transitions)" in source
+    assert "function declaredReads(action)" not in source
