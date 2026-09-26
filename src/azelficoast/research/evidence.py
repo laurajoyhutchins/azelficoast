@@ -34,7 +34,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def canonical_bundle_path(manifest_path: Path = DEFAULT_MANIFEST) -> tuple[Path, str]:
+def canonical_bundle_path(
+    manifest_path: Path = DEFAULT_MANIFEST,
+    *,
+    repository_root: Path = REPOSITORY_ROOT,
+) -> tuple[Path, str]:
     try:
         document = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
@@ -57,9 +61,9 @@ def canonical_bundle_path(manifest_path: Path = DEFAULT_MANIFEST) -> tuple[Path,
     ):
         raise EvidenceBundleError("canonical evidence SHA-256 is invalid")
 
-    path = REPOSITORY_ROOT / relative_path
+    path = repository_root / relative_path
     try:
-        path.resolve().relative_to(REPOSITORY_ROOT.resolve())
+        path.resolve().relative_to(repository_root.resolve())
     except ValueError as error:
         raise EvidenceBundleError(
             "canonical evidence bundle escapes the repository"
@@ -69,8 +73,13 @@ def canonical_bundle_path(manifest_path: Path = DEFAULT_MANIFEST) -> tuple[Path,
 
 def verify_canonical_evidence(
     manifest_path: Path = DEFAULT_MANIFEST,
+    *,
+    repository_root: Path = REPOSITORY_ROOT,
 ) -> Path:
-    bundle_path, expected = canonical_bundle_path(manifest_path)
+    bundle_path, expected = canonical_bundle_path(
+        manifest_path,
+        repository_root=repository_root,
+    )
     if not bundle_path.is_file():
         raise EvidenceBundleError(
             f"canonical evidence bundle is missing: {bundle_path}"
@@ -102,8 +111,12 @@ def unpack_canonical_evidence(
     *,
     manifest_path: Path = DEFAULT_MANIFEST,
     destination: Path = DEFAULT_DESTINATION,
+    repository_root: Path = REPOSITORY_ROOT,
 ) -> Path:
-    bundle_path = verify_canonical_evidence(manifest_path)
+    bundle_path = verify_canonical_evidence(
+        manifest_path,
+        repository_root=repository_root,
+    )
     shutil.rmtree(destination, ignore_errors=True)
     destination.mkdir(parents=True, exist_ok=True)
 
