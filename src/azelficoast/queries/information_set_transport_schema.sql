@@ -8,7 +8,7 @@ CREATE TABLE leaves (
 );
 
 CREATE TABLE edges (
-    leaf_index INTEGER NOT NULL,
-    world_index INTEGER NOT NULL,
+    leaf_index INTEGER NOT NULL REFERENCES leaves(leaf_index),
+    world_index INTEGER NOT NULL REFERENCES worlds(world_index),
     chance REAL NOT NULL CHECK (chance > 0)
 );

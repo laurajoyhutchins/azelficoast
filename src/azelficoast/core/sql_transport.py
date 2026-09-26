@@ -22,9 +22,11 @@ from importlib.resources import files
 import json
 import math
 import sqlite3
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
+from azelficoast.core.compiled_search import CompiledSearchTopology
 from azelficoast.core.planning import LogicalOperator, LogicalPlan
+from azelficoast.core.transition import sha256_json
 
 SQL_TRANSPORT_SCHEMA = "azelficoast.core.sql-information-set-transport"
 SQL_TRANSPORT_SCHEMA_VERSION = 1
@@ -70,7 +72,7 @@ INFORMATION_SET_TRANSPORT_PLAN = LogicalPlan(
 _INFORMATION_SET_TRANSPORT_SEMANTICS = {
     "schema": SQL_TRANSPORT_SEMANTIC_SCHEMA,
     "schema_version": SQL_TRANSPORT_SEMANTIC_VERSION,
-    "authority_boundary": "authorized leaf/world/chance incidence supplied by caller",
+    "authority_boundary": "content-addressed compiled search topology supplied by caller",
     "query_sha256": INFORMATION_SET_TRANSPORT_SQL_SHA256,
     "schema_sha256": INFORMATION_SET_TRANSPORT_SCHEMA_SHA256,
     "input_relations": {
@@ -114,6 +116,7 @@ class SQLTransportedMass:
     """Dense relational result corresponding to the compiled JAX transport."""
 
     normalized_world_weights: tuple[float, ...]
+    compiled_topology_digest: str | None
     leaf_mass: tuple[float, ...]
     leaf_world_mass: tuple[tuple[float, ...], ...]
     leaf_world_weights: tuple[tuple[float, ...], ...]
@@ -126,6 +129,7 @@ class SQLTransportedMass:
             "schema": SQL_TRANSPORT_SCHEMA,
             "schema_version": SQL_TRANSPORT_SCHEMA_VERSION,
             "semantic_identity": INFORMATION_SET_TRANSPORT_SEMANTIC_ID,
+            "compiled_topology_digest": self.compiled_topology_digest,
             "sql_sha256": INFORMATION_SET_TRANSPORT_SQL_SHA256,
             "schema_sha256": INFORMATION_SET_TRANSPORT_SCHEMA_SHA256,
             "logical_operators": [
@@ -141,7 +145,7 @@ class SQLTransportedMass:
                 "program_sha256": self.sqlite_program_sha256,
             },
             "authority": {
-                "topology": "caller-supplied-authorized-incidence",
+                "topology": "content-addressed-compiled-topology",
                 "mechanics": "outside-sql",
                 "numeric_transport": "sqlite-reference",
             },
@@ -164,10 +168,22 @@ def describe_information_set_transport() -> dict[str, Any]:
         ],
         "relations": _INFORMATION_SET_TRANSPORT_SEMANTICS["input_relations"],
         "operations": list(_INFORMATION_SET_TRANSPORT_SEMANTICS["operations"]),
+        "output": list(_INFORMATION_SET_TRANSPORT_SEMANTICS["output"]),
         "authority_boundary": _INFORMATION_SET_TRANSPORT_SEMANTICS[
             "authority_boundary"
         ],
     }
+
+
+def _validate_authorized_topology(topology: CompiledSearchTopology) -> None:
+    if not isinstance(topology, CompiledSearchTopology):
+        raise SQLTransportError("transport requires a compiled search topology")
+    material = topology.as_record()
+    material.pop("claim", None)
+    if sha256_json(material) != topology.topology_digest:
+        raise SQLTransportError(
+            "compiled topology digest does not match its incidence content"
+        )
 
 
 def _sqlite_program_sha256(rows: Sequence[Sequence[Any]]) -> str:
@@ -241,15 +257,17 @@ def _validate_transport_inputs(
         raise SQLTransportError("every leaf must receive positive chance mass")
 
 
-def transport_information_set_mass_sql(
+def _transport_information_set_mass_rows_sql(
     *,
     world_weights: Sequence[float],
     leaf_count: int,
     edge_world_index: Sequence[int],
     edge_leaf_index: Sequence[int],
     edge_chance: Sequence[float],
+    compiled_topology_digest: str | None = None,
+    expected_total_leaf_mass: float | None = None,
 ) -> SQLTransportedMass:
-    """Execute posterior mass transport through the packaged relational query."""
+    """Execute validated numeric rows through the packaged relational query."""
 
     _validate_transport_inputs(
         world_weights=world_weights,
@@ -262,6 +280,7 @@ def transport_information_set_mass_sql(
     world_count = len(world_weights)
     connection = sqlite3.connect(":memory:")
     try:
+        connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(_INFORMATION_SET_TRANSPORT_SCHEMA)
         connection.executemany(
             "INSERT INTO worlds(world_index, weight) VALUES (?, ?)",
@@ -368,12 +387,47 @@ def transport_information_set_mass_sql(
         if abs(math.fsum(leaf_world_weights[index]) - 1.0) > 1e-10:
             raise SQLTransportError("conditional leaf posterior does not sum to one")
 
+    if expected_total_leaf_mass is not None and abs(
+        math.fsum(leaf_mass_values) - expected_total_leaf_mass
+    ) > 1e-10:
+        raise SQLTransportError(
+            "relational transport lost or duplicated root-action probability mass"
+        )
+
     return SQLTransportedMass(
         normalized_world_weights=normalized_values,
+        compiled_topology_digest=compiled_topology_digest,
         leaf_mass=leaf_mass_values,
         leaf_world_mass=tuple(tuple(row) for row in leaf_world_mass),
         leaf_world_weights=tuple(tuple(row) for row in leaf_world_weights),
         sqlite_version=sqlite3.sqlite_version,
         sqlite_query_plan=tuple(str(row[3]) for row in query_plan_rows),
         sqlite_program_sha256=_sqlite_program_sha256(program_rows),
+    )
+
+
+
+def transport_information_set_mass_sql(
+    *,
+    topology: CompiledSearchTopology,
+    world_weights_by_id: Mapping[str, float],
+) -> SQLTransportedMass:
+    """Execute SQL transport only for incidence bound to one compiled topology."""
+
+    _validate_authorized_topology(topology)
+    if set(world_weights_by_id) != set(topology.world_ids):
+        raise SQLTransportError(
+            "world-weight support differs from compiled topology support"
+        )
+    world_weights = tuple(
+        world_weights_by_id[world_id] for world_id in topology.world_ids
+    )
+    return _transport_information_set_mass_rows_sql(
+        world_weights=world_weights,
+        leaf_count=topology.leaf_count,
+        edge_world_index=topology.edge_world_index,
+        edge_leaf_index=topology.edge_leaf_index,
+        edge_chance=topology.edge_chance,
+        compiled_topology_digest=topology.topology_digest,
+        expected_total_leaf_mass=float(topology.action_count),
     )

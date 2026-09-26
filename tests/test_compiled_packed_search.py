@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 import hashlib
 import json
 from typing import Any, Mapping, Sequence
@@ -30,7 +31,10 @@ from azelficoast.core.compiled_search import (
     compile_search_topology,
     transport_posterior_mass,
 )
-from azelficoast.core.sql_transport import transport_information_set_mass_sql
+from azelficoast.core.sql_transport import (
+    SQLTransportError,
+    transport_information_set_mass_sql,
+)
 from azelficoast.core.planning import LogicalOperator
 from azelficoast.core.search import search_transition_program
 from azelficoast.core.statistics import PlannerStatistics
@@ -360,16 +364,13 @@ def test_sql_transport_matches_compiled_jax_mass_transport() -> None:
         for world in posterior["worlds"]
     }
     sql = transport_information_set_mass_sql(
-        world_weights=tuple(
-            weights_by_id[world_id] for world_id in topology.world_ids
-        ),
-        leaf_count=topology.leaf_count,
-        edge_world_index=topology.edge_world_index,
-        edge_leaf_index=topology.edge_leaf_index,
-        edge_chance=topology.edge_chance,
+        topology=topology,
+        world_weights_by_id=weights_by_id,
     )
     jax = transport_posterior_mass(topology, posterior)
 
+    assert sql.compiled_topology_digest == topology.topology_digest
+    assert sql.as_record()["compiled_topology_digest"] == topology.topology_digest
     assert sql.normalized_world_weights == pytest.approx(
         jax.normalized_world_weights.tolist(),
         abs=1e-6,
@@ -387,6 +388,41 @@ def test_sql_transport_matches_compiled_jax_mass_transport() -> None:
         strict=True,
     ):
         assert sql_row == pytest.approx(jax_row, abs=1e-6)
+
+
+def test_sql_transport_rejects_incidence_not_bound_to_compiled_topology() -> None:
+    posterior = _posterior()
+    topology = compile_search_topology(
+        program_set=_program(),
+        posterior=posterior,
+        method="information_set",
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+    )
+    weights_by_id = {
+        str(world["world_id"]): float(world["weight"])
+        for world in posterior["worlds"]
+    }
+    assert topology.leaf_count > 1
+    alternate_leaf = (topology.edge_leaf_index[0] + 1) % topology.leaf_count
+    tampered = replace(
+        topology,
+        edge_leaf_index=(alternate_leaf, *topology.edge_leaf_index[1:]),
+    )
+
+    with pytest.raises(SQLTransportError, match="digest does not match"):
+        transport_information_set_mass_sql(
+            topology=tampered,
+            world_weights_by_id=weights_by_id,
+        )
+
+    incomplete_weights = dict(weights_by_id)
+    incomplete_weights.pop(topology.world_ids[0])
+    with pytest.raises(SQLTransportError, match="support differs"):
+        transport_information_set_mass_sql(
+            topology=topology,
+            world_weights_by_id=incomplete_weights,
+        )
 
 
 def test_shared_world_compiled_search_reuses_topology_across_prior_weights() -> None:
