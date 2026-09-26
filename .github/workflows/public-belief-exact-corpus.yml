@@ -17,6 +17,7 @@ on:
       - "scripts/probe_real_belief_trace.cjs"
       - "tests/hostile/test_transition_program_hostile.py"
       - ".github/workflows/public-belief-exact-corpus.yml"
+      - "experiments/showdown-revision.txt"
   workflow_dispatch:
 
 permissions:
