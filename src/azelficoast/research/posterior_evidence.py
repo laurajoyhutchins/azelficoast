@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
+import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from azelficoast.research.contracts import stable_digest
@@ -172,3 +174,47 @@ def bind_best_available_conditional(
     mutable_reconstruction["best_available_conditional_evidence"] = oracle_evidence
     mutable_reconstruction["generator_faithful_reference"] = reference_evidence
     return result
+
+
+def _load_object(path: str | Path) -> dict[str, Any]:
+    value = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise PosteriorEvidenceError(f"{path}: expected a JSON object")
+    return value
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("oracle", type=Path)
+    parser.add_argument("generator_reference", type=Path)
+    parser.add_argument("contract", type=Path)
+    parser.add_argument("--output", required=True, type=Path)
+    args = parser.parse_args(argv)
+
+    contract = _load_object(args.contract)
+    authority = contract.get("oracle_authority")
+    if not isinstance(authority, Mapping):
+        raise PosteriorEvidenceError("contract lacks oracle authority")
+    result = bind_best_available_conditional(
+        oracle=_load_object(args.oracle),
+        generator_reference=_load_object(args.generator_reference),
+        authority=authority,
+    )
+    args.output.write_text(
+        json.dumps(result, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    print(json.dumps({
+        "fixture_id": result.get("source_fixture_id"),
+        "posterior_authority": result["reconstruction"]["posterior_authority"],
+        "evidence_digest": (
+            result["reconstruction"]["best_available_conditional_evidence"][
+                "evidence_digest"
+            ]
+        ),
+    }, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
