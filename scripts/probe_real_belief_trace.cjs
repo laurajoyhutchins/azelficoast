@@ -1615,7 +1615,7 @@ const factoredHidden = benchFactor
   : {};
 
 const declared = Object.fromEntries(
-  legalActions.map(action => [action, declaredReads(action)])
+  legalActions.map(action => [action, declaredReads(action, transitions)])
 );
 void writeJsonStream({
   schema: "azelficoast.core.transition-oracle",
