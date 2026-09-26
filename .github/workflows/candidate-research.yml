@@ -71,8 +71,13 @@ jobs:
         with:
           simulator: true
 
-      - name: Type check compiled JAX search
-        run: uv run mypy --python-version 3.13 src/azelficoast/core/compiled_search.py
+      - name: Type check accelerator frontier
+        run: |
+          uv run mypy --python-version 3.13 \
+            src/azelficoast/core/compiled_search.py \
+            src/azelficoast/belief/showdown_packing.py \
+            src/azelficoast/belief/packed_evaluator.py \
+            src/azelficoast/belief/compiled_search.py
 
   exact:
     needs: plan
