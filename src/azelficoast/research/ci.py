@@ -619,6 +619,53 @@ EXPERIMENTS: tuple[CandidateExperiment, ...] = (
         ),
     ),
     _spec(
+        "posterior-stratified-population",
+        paths=(
+            "experiments/posterior-stratified-population-contract.json",
+            "experiments/showdown-revision.txt",
+            "src/azelficoast/research/posterior_population_contract.py",
+            "src/azelficoast/research/matched_population_run.py",
+            "src/azelficoast/research/matched_comparison.py",
+            "src/azelficoast/research/matched_population.py",
+            "src/azelficoast/research/matched_search.py",
+            "src/azelficoast/belief/treatments.py",
+            "src/azelficoast/research/experiments/posterior_stratified_population.py",
+            "tests/test_posterior_population_contract.py",
+        ),
+        artifact="posterior-stratified-population-contract-evidence",
+        tests=("tests/test_posterior_population_contract.py",),
+        modules=(
+            (
+                "azelficoast.research.experiments.posterior_stratified_population",
+                "posterior-stratified-population-contract.json",
+                None,
+                "run_experiment",
+            ),
+        ),
+        checks=(
+            Check(
+                "posterior-stratified-population-contract.json",
+                ("passed",),
+                "eq",
+                True,
+            ),
+            Check(
+                "posterior-stratified-population-contract.json",
+                ("minimum_selected_states",),
+                "ge",
+                100,
+            ),
+            Check(
+                "posterior-stratified-population-contract.json",
+                ("oracle_authority_required",),
+                "eq",
+                True,
+            ),
+        ),
+        simulator=False,
+        showdown=False,
+    ),
+    _spec(
         "candidate-research-contract",
         paths=(
             "src/azelficoast/research/ci.py",
