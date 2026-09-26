@@ -31,11 +31,12 @@ def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> N
     assert "cancel-in-progress: true" in source
 
 
-def test_ci_syntax_checks_both_showdown_probe_entrypoints() -> None:
+def test_ci_syntax_checks_showdown_probe_runtime() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
 
     assert "node --check scripts/probe_real_belief_trace.cjs" in source
     assert "node --check scripts/probe_real_belief_worker.cjs" in source
+    assert "node --check scripts/transition_successor_delta.cjs" in source
 
 
 def test_expensive_pr_workflows_are_exact_head_fenced() -> None:

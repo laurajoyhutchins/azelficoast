@@ -549,6 +549,12 @@ def transition_program_belief_result(
             "public_projection_cache_hits": producer_diagnostics.get(
                 "public_projection_cache_hits"
             ),
+            "transition_delta_rehydrations": producer_diagnostics.get(
+                "transition_delta_rehydrations"
+            ),
+            "public_successor_delta_schema": producer_diagnostics.get(
+                "public_successor_delta_schema"
+            ),
             "public_root_dependency_schema": producer_diagnostics.get(
                 "public_root_dependency_schema"
             ),

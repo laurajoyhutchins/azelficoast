@@ -452,6 +452,8 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
         "transition_execution_cache_hits": 4,
         "exact_transition_execution_cache_hits": 1,
         "public_projection_cache_hits": 3,
+        "transition_delta_rehydrations": 3,
+        "public_successor_delta_schema": 1,
         "public_root_dependency_schema": 1,
         "public_read_fields": ["battle.turn", "p1.pokemon.0.hp"],
         "public_trace_incomplete_executions": 0,
@@ -476,6 +478,8 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.diagnostics["transition_execution_cache_hits"] == 4
     assert result.diagnostics["exact_transition_execution_cache_hits"] == 1
     assert result.diagnostics["public_projection_cache_hits"] == 3
+    assert result.diagnostics["transition_delta_rehydrations"] == 3
+    assert result.diagnostics["public_successor_delta_schema"] == 1
     assert result.diagnostics["public_root_dependency_schema"] == 1
     assert result.diagnostics["public_read_fields"] == [
         "battle.turn",
