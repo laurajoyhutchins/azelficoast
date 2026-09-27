@@ -4,17 +4,16 @@ from dataclasses import replace
 
 import pytest
 
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
-    ComputeBudget,
     FrozenJSONObject,
-    MatchedExperimentSpec,
     MechanicsIdentity,
     PublicDecisionInput,
     ResearchContractError,
     parse_belief_artifact,
     stable_digest,
 )
+from azelficoast.research.matched_contracts import ComputeBudget, MatchedExperimentSpec
 
 
 def _public_state(public_state: dict[str, object] | None = None) -> dict[str, object]:
