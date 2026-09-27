@@ -56,9 +56,6 @@ if (posteriorOnly && transitionProgramOnly) {
 if (historicalShowdownCommit && !posteriorOnly) {
   fail("--historical-showdown-commit is allowed only with --posterior-only");
 }
-if (generatorCacheDir && !posteriorOnly) {
-  fail("--generator-cache-dir is allowed only with --posterior-only");
-}
 if (
   historicalShowdownCommit &&
   !/^[0-9a-f]{40}$/.test(historicalShowdownCommit)
@@ -68,7 +65,11 @@ if (
 
 const {PINNED_SHOWDOWN_COMMIT} = require("../shared/revision.cjs");
 const SHOWDOWN_COMMIT = historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT;
-const GENERATOR_ROUNDS = 2048;
+const GENERATOR_ROUNDS = environmentInteger(
+  "AZELFICOAST_GENERATOR_ROUNDS",
+  2048,
+  {min: 1}
+);
 
 function environmentInteger(name, fallback, {min = 0} = {}) {
   const raw = process.env[name];
@@ -1418,15 +1419,31 @@ function factoredBenchAudit(worlds, legalActions, transitions) {
 
 const {matched, itemCounts, variants} = generatorVariants();
 const mechanicsProjectionCount = mechanicsProjectionVariantCount(variants);
+const referenceGeneratorRounds =
+  source.expected_generator_rounds == null
+    ? null
+    : Number(source.expected_generator_rounds);
+const authorizedGeneratorRounds = Array.isArray(source.authorized_generator_rounds)
+  ? source.authorized_generator_rounds.map(Number)
+  : referenceGeneratorRounds == null
+    ? [GENERATOR_ROUNDS]
+    : [referenceGeneratorRounds];
 if (
-  source.expected_generator_rounds != null &&
-  Number(source.expected_generator_rounds) !== GENERATOR_ROUNDS
+  authorizedGeneratorRounds.some(
+    value => !Number.isSafeInteger(value) || value < 1
+  ) ||
+  !authorizedGeneratorRounds.includes(GENERATOR_ROUNDS)
 ) {
   fail(
-    `expected generator rounds ${source.expected_generator_rounds}, probe uses ${GENERATOR_ROUNDS}`
+    "generator sweep is not authorized by frozen source: " +
+    JSON.stringify(authorizedGeneratorRounds) +
+    ", got " + GENERATOR_ROUNDS
   );
 }
-if (source.expected_item_counts != null) {
+if (
+  source.expected_item_counts != null &&
+  referenceGeneratorRounds === GENERATOR_ROUNDS
+) {
   const expectedCounts = stable(source.expected_item_counts);
   const observedCounts = stable(itemCounts);
   if (JSON.stringify(expectedCounts) !== JSON.stringify(observedCounts)) {
@@ -1493,6 +1510,8 @@ if (posteriorOnly) {
     treatment: "generator_faithful",
     reconstruction: {
       generator_rounds: GENERATOR_ROUNDS,
+      generator_seed_schedule: "diagonal-counter-[i,i,i,i]",
+      generator_seed_start: 0,
       generator_matches: matched,
       generator_variant_count: variants.length,
       mechanics_projection_variant_count: mechanicsProjectionCount,
@@ -1647,6 +1666,8 @@ return {
   },
   reconstruction: {
     generator_rounds: GENERATOR_ROUNDS,
+    generator_seed_schedule: "diagonal-counter-[i,i,i,i]",
+    generator_seed_start: 0,
     generator_matches: matched,
     generator_variant_count: variants.length,
     mechanics_projection_variant_count: mechanicsProjectionCount,
