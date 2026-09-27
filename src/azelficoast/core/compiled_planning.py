@@ -34,7 +34,6 @@ class CompiledSearchError(ValueError):
     """Raised when an authorized search topology cannot be compiled or transported."""
 
 
-
 @dataclass(frozen=True, slots=True)
 class OutcomeWorldJoinPlan:
     """Costed ordering for outcome aggregation versus the class-member join."""
