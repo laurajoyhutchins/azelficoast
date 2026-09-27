@@ -201,15 +201,15 @@ def transport_posterior_mass(
 
     _, jnp = _require_jax()
     _, world_weights = _posterior_for_topology(topology, posterior)
-    arrays = topology.as_numpy()
+    arrays = topology.materialize_arrays()
     raw_leaf_mass, raw_leaf_world_mass, raw_leaf_world_weights = _transport_kernel(
         topology.leaf_count,
         topology.world_count,
     )(
         jnp.asarray(world_weights, dtype=jnp.float32),
-        jnp.asarray(arrays["edge_world_index"], dtype=jnp.int32),
-        jnp.asarray(arrays["edge_leaf_index"], dtype=jnp.int32),
-        jnp.asarray(arrays["edge_chance"], dtype=jnp.float32),
+        jnp.asarray(arrays.edges.world_index, dtype=jnp.int32),
+        jnp.asarray(arrays.edges.leaf_index, dtype=jnp.int32),
+        jnp.asarray(arrays.edges.chance, dtype=jnp.float32),
     )
     leaf_mass = np.asarray(raw_leaf_mass, dtype=np.float64)
     leaf_world_mass = np.asarray(raw_leaf_world_mass, dtype=np.float64)
@@ -302,11 +302,11 @@ def reduce_compiled_root_values(
         raise _CompiledSearchError("leaf values must be finite")
 
     _, jnp = _require_jax()
-    arrays = topology.as_numpy()
+    arrays = topology.materialize_arrays()
     raw = _reduction_kernel(topology.action_count)(
         jnp.asarray(values, dtype=jnp.float32),
         jnp.asarray(transported.leaf_mass, dtype=jnp.float32),
-        jnp.asarray(arrays["leaf_action_index"], dtype=jnp.int32),
+        jnp.asarray(arrays.leaves.action_index, dtype=jnp.int32),
     )
     root = np.asarray(raw, dtype=np.float64)
     if root.shape != (topology.action_count,) or np.any(~np.isfinite(root)):
