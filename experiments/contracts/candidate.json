@@ -795,6 +795,74 @@
           "expected": true
         }
       ]
+    },
+    "posterior-stratified-population": {
+      "paths": [
+        "experiments/data/posterior-stratified-population-contract.json",
+        "showdown/revision.json",
+        "showdown/runtime/probe_real_belief_trace.cjs",
+        "showdown/runtime/real_belief_probe/**",
+        "src/azelficoast/research/posterior_population_contract.py",
+        "src/azelficoast/research/posterior_population_selection.py",
+        "src/azelficoast/research/posterior_evidence.py",
+        "src/azelficoast/research/matched_population_run.py",
+        "src/azelficoast/research/matched_comparison.py",
+        "src/azelficoast/research/matched_population.py",
+        "src/azelficoast/research/matched_search.py",
+        "src/azelficoast/research/contracts.py",
+        "src/azelficoast/research/population_cohort.py",
+        "src/azelficoast/research/natural_disagreements.py",
+        "src/azelficoast/belief/treatments.py",
+        "src/azelficoast/research/experiments/posterior_stratified_population.py",
+        "tests/test_posterior_population_contract.py",
+        "tests/test_posterior_evidence.py",
+        "tests/test_posterior_treatments.py",
+        "tests/test_matched_oracle_search.py"
+      ],
+      "artifact_name": "posterior-stratified-population-contract-evidence",
+      "simulator": false,
+      "showdown": true,
+      "generators": [],
+      "tests": [
+        "tests/test_posterior_population_contract.py",
+        "tests/test_posterior_evidence.py",
+        "tests/test_posterior_treatments.py",
+        "tests/test_matched_oracle_search.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.posterior_stratified_population",
+          "output": "posterior-stratified-population-contract.json",
+          "input": null,
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "posterior-stratified-population-contract.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "posterior-stratified-population-contract.json",
+          "path": [
+            "minimum_selected_states"
+          ],
+          "operator": "ge",
+          "expected": 100
+        },
+        {
+          "output": "posterior-stratified-population-contract.json",
+          "path": [
+            "oracle_authority_kind"
+          ],
+          "operator": "eq",
+          "expected": "best_available_conditional"
+        }
+      ]
     }
   }
 }
