@@ -11,7 +11,7 @@ from typing import Any
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.live.corpus import load_corpus
-from azelficoast.research.contracts import stable_digest
+from azelficoast.research.decision_contracts import stable_digest
 from azelficoast.research.population_cohort import freeze_population
 from azelficoast.research.posterior_population_contract import (
     PosteriorPopulationContractError,
