@@ -73,6 +73,7 @@ async def run_promotion_panel(
     common_metadata = {
         "candidate_checkpoint_digest": candidate_digest,
         "incumbent_checkpoint_digest": incumbent_digest,
+        "search_policy_margin": float(search_policy_margin),
     }
     half = policy.expected_battles // 2
 
@@ -130,6 +131,7 @@ async def run_promotion_panel(
         _read_jsonl_objects(results),
         candidate_checkpoint_digest=candidate_digest,
         incumbent_checkpoint_digest=incumbent_digest,
+        search_policy_margin=search_policy_margin,
         policy=policy,
     )
     evidence = {

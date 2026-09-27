@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 BATTLE_PROMOTION_SCHEMA = "azelficoast.battle-promotion-panel"
-BATTLE_PROMOTION_SCHEMA_VERSION = 1
+BATTLE_PROMOTION_SCHEMA_VERSION = 2
 CANDIDATE_PRIMARY_MODE = "promotion:candidate-primary"
 INCUMBENT_PRIMARY_MODE = "promotion:incumbent-primary"
 
@@ -84,11 +84,23 @@ def _one_sided_superiority_p_value(wins: int, losses: int) -> float:
     return float(numerator) / float(2**decisive)
 
 
+def _search_policy_margin(value: object) -> float:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(float(value))
+        or not 0.0 <= float(value) <= 1.0
+    ):
+        raise BattlePromotionError("search_policy_margin must be within [0, 1]")
+    return float(value)
+
+
 def settle_battle_panel(
     records: Sequence[Mapping[str, Any]],
     *,
     candidate_checkpoint_digest: str,
     incumbent_checkpoint_digest: str,
+    search_policy_margin: float = 1.0,
     policy: BattlePromotionPolicy = BattlePromotionPolicy(),
 ) -> dict[str, Any]:
     """Settle a side-balanced candidate-vs-incumbent superiority experiment."""
@@ -97,6 +109,7 @@ def settle_battle_panel(
         raise BattlePromotionError("checkpoint digests must be non-empty")
     if candidate_checkpoint_digest == incumbent_checkpoint_digest:
         raise BattlePromotionError("candidate and incumbent checkpoint digests must differ")
+    deployment_margin = _search_policy_margin(search_policy_margin)
     if len(records) != policy.expected_battles:
         raise BattlePromotionError(
             f"expected {policy.expected_battles} battle results, found {len(records)}"
@@ -117,6 +130,8 @@ def settle_battle_panel(
             raise BattlePromotionError("candidate checkpoint identity drifted in battle panel")
         if row.get("incumbent_checkpoint_digest") != incumbent_checkpoint_digest:
             raise BattlePromotionError("incumbent checkpoint identity drifted in battle panel")
+        if _search_policy_margin(row.get("search_policy_margin")) != deployment_margin:
+            raise BattlePromotionError("search policy margin drifted in battle panel")
         mode = row.get("mode")
         if mode not in role_counts:
             raise BattlePromotionError(f"unexpected promotion battle mode {mode!r}")
@@ -144,6 +159,9 @@ def settle_battle_panel(
         "schema_version": BATTLE_PROMOTION_SCHEMA_VERSION,
         "candidate_checkpoint_digest": candidate_checkpoint_digest,
         "incumbent_checkpoint_digest": incumbent_checkpoint_digest,
+        "deployment": {
+            "search_policy_margin": deployment_margin,
+        },
         "policy": policy.as_record(),
         "battle_count": len(records),
         "role_counts": dict(sorted(role_counts.items())),
@@ -178,7 +196,7 @@ def verify_battle_panel_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
         payload = path.read_bytes()
     except OSError as error:
         raise BattlePromotionError(f"cannot read raw promotion results: {error}") from error
-    actual_digest = hashlib.sha256(payload).hexdigest()
+    actual_digest = "sha256:" + hashlib.sha256(payload).hexdigest()
     if actual_digest != expected_digest:
         raise BattlePromotionError("raw promotion results digest drifted")
 
@@ -210,6 +228,13 @@ def verify_battle_panel_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
     except (KeyError, TypeError, ValueError) as error:
         raise BattlePromotionError("battle evidence contains an invalid frozen policy") from error
 
+    raw_deployment = evidence.get("deployment")
+    if not isinstance(raw_deployment, Mapping):
+        raise BattlePromotionError("battle evidence does not bind deployment routing")
+    deployment_margin = _search_policy_margin(
+        raw_deployment.get("search_policy_margin")
+    )
+
     candidate = evidence.get("candidate_checkpoint_digest")
     incumbent = evidence.get("incumbent_checkpoint_digest")
     if not isinstance(candidate, str) or not candidate:
@@ -221,6 +246,7 @@ def verify_battle_panel_evidence(evidence: Mapping[str, Any]) -> dict[str, Any]:
         records,
         candidate_checkpoint_digest=candidate,
         incumbent_checkpoint_digest=incumbent,
+        search_policy_margin=deployment_margin,
         policy=policy,
     )
     if bool(evidence.get("admitted")) != bool(recomputed["admitted"]):

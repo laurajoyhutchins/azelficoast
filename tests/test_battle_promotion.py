@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+import json
+
 import pytest
 
 from azelficoast.belief.battle_promotion import (
@@ -9,6 +12,7 @@ from azelficoast.belief.battle_promotion import (
     CANDIDATE_PRIMARY_MODE,
     INCUMBENT_PRIMARY_MODE,
     settle_battle_panel,
+    verify_battle_panel_evidence,
 )
 
 
@@ -30,6 +34,7 @@ def _row(index: int, mode: str, candidate_outcome: str):
         "lost": True if primary_outcome == "loss" else False if primary_outcome == "win" else None,
         "candidate_checkpoint_digest": CANDIDATE,
         "incumbent_checkpoint_digest": INCUMBENT,
+        "search_policy_margin": 1.0,
     }
 
 
@@ -101,3 +106,43 @@ def test_panel_requires_exact_side_balance() -> None:
 
     assert settled["admitted"] is False
     assert settled["checks"]["side_balance"] is False
+
+
+def test_panel_fails_closed_on_deployment_routing_drift() -> None:
+    rows = _panel(21, 11)
+    rows[0]["search_policy_margin"] = 0.0
+
+    with pytest.raises(BattlePromotionError, match="search policy margin drifted"):
+        settle_battle_panel(
+            rows,
+            candidate_checkpoint_digest=CANDIDATE,
+            incumbent_checkpoint_digest=INCUMBENT,
+            search_policy_margin=1.0,
+        )
+
+
+def test_panel_verification_reopens_prefixed_raw_results_digest(
+    tmp_path,
+) -> None:
+    rows = _panel(21, 11)
+    results = tmp_path / "results.jsonl"
+    results.write_text(
+        "".join(json.dumps(row, sort_keys=True) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    settled = settle_battle_panel(
+        rows,
+        candidate_checkpoint_digest=CANDIDATE,
+        incumbent_checkpoint_digest=INCUMBENT,
+        search_policy_margin=1.0,
+    )
+    evidence = {
+        **settled,
+        "results": str(results),
+        "results_digest": "sha256:" + hashlib.sha256(results.read_bytes()).hexdigest(),
+    }
+
+    verified = verify_battle_panel_evidence(evidence)
+
+    assert verified["admitted"] is True
+    assert verified["deployment"]["search_policy_margin"] == 1.0

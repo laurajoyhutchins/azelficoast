@@ -193,6 +193,7 @@ def test_training_auto_parsing() -> None:
     assert args.generations == 3
     assert args.battles_per_generation == 20
     assert args.battle_search_policy_margin == 0.0
+    assert args.search_policy_margin == 1.0
     assert args.max_teacher_fixtures == 48
     assert args.teacher_challenger_uncertainty == 0.75
 
@@ -299,3 +300,26 @@ def test_promotion_evidence_identity_names_are_stable() -> None:
     assert "incumbent_checkpoint_digest=" in source
     assert "candidatecheckpoint_digest" not in source
     assert "incumbentcheckpoint_digest" not in source
+
+
+def test_training_and_promotion_routing_are_deliberately_separate() -> None:
+    args = build_parser().parse_args(
+        [
+            "--search-policy-margin",
+            "0.35",
+            "training",
+            "auto",
+        ]
+    )
+
+    assert args.battle_search_policy_margin == 0.0
+    assert args.search_policy_margin == 0.35
+
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "azelficoast"
+        / "live"
+        / "self_improvement_runtime.py"
+    ).read_text(encoding="utf-8")
+    assert "search_policy_margin=args.search_policy_margin" in source

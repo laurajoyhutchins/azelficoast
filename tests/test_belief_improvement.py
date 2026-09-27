@@ -351,6 +351,7 @@ def test_deferred_candidate_cannot_mutate_authority_before_battle_gate(tmp_path)
             "lost": index >= 2,
             "candidate_checkpoint_digest": improvement["candidate_checkpoint_digest"],
             "incumbent_checkpoint_digest": improvement["incumbent_checkpoint_digest"],
+            "search_policy_margin": 1.0,
         }
         for index in range(4)
     ]
@@ -367,7 +368,7 @@ def test_deferred_candidate_cannot_mutate_authority_before_battle_gate(tmp_path)
     battle_evidence = {
         **battle_evidence,
         "results": str(raw_results),
-        "results_digest": hashlib.sha256(raw_results.read_bytes()).hexdigest(),
+        "results_digest": "sha256:" + hashlib.sha256(raw_results.read_bytes()).hexdigest(),
     }
     settled = promote_deferred_candidate(
         improvement,
@@ -409,6 +410,7 @@ def test_deferred_promotion_rejects_mismatched_battle_identity(tmp_path) -> None
             "lost": index >= 2,
             "candidate_checkpoint_digest": "sha256:other",
             "incumbent_checkpoint_digest": "sha256:incumbent",
+            "search_policy_margin": 1.0,
         }
         for index in range(4)
     ]
@@ -425,7 +427,7 @@ def test_deferred_promotion_rejects_mismatched_battle_identity(tmp_path) -> None
     battle_evidence = {
         **battle_evidence,
         "results": str(raw_results),
-        "results_digest": hashlib.sha256(raw_results.read_bytes()).hexdigest(),
+        "results_digest": "sha256:" + hashlib.sha256(raw_results.read_bytes()).hexdigest(),
     }
 
     with pytest.raises(ImprovementError, match="candidate checkpoint does not match"):
