@@ -75,7 +75,8 @@ files = [
   "src/azelficoast/belief",
 
   # Research contracts and matched experiment settlement.
-  "src/azelficoast/research/contracts.py",
+  "src/azelficoast/research/decision_contracts.py",
+  "src/azelficoast/research/matched_contracts.py",
   "src/azelficoast/research/matched_comparison.py",
   "src/azelficoast/research/matched_search.py",
   "src/azelficoast/research/matched_population_run.py",
