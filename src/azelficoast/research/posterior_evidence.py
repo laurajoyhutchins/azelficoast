@@ -10,7 +10,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from azelficoast.research.contracts import stable_digest
+from azelficoast.research.decision_contracts import stable_digest
 
 REFERENCE_SCHEMA = "azelficoast.live-belief-posterior"
 REFERENCE_SCHEMA_VERSION = 1
