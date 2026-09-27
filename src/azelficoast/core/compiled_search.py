@@ -264,16 +264,16 @@ def materialize_compiled_frontier(
             leaves.append(
                 EvaluationLeaf(
                     public_state=copy.deepcopy(
-                        dict(topology.leaf_public_states[leaf_index])
+                        dict(topology.leaves.public_states[leaf_index])
                     ),
                     posterior=tuple(posterior_worlds),
-                    legal_actions=topology.leaf_legal_actions[leaf_index],
+                    legal_actions=topology.leaves.legal_actions[leaf_index],
                 )
             )
             contributions.append(
                 EvaluationContribution(
                     root_action=topology.root_actions[
-                        topology.leaf_action_index[leaf_index]
+                        topology.leaves.action_index[leaf_index]
                     ],
                     leaf_index=leaf_index,
                     coefficient=mass,
