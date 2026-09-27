@@ -6,12 +6,14 @@ from typing import Any, Mapping, Sequence
 
 import pytest
 
-from azelficoast.core.compiled_search import (
+from azelficoast.core.compiled_planning import (
     CardinalityEnvelope,
     JOIN_ORDER_AGGREGATE_FIRST,
     JOIN_ORDER_EXPAND_FIRST,
-    compile_search_topology,
     estimate_search_cardinality_lower_bound,
+)
+from azelficoast.core.compiled_search import (
+    compile_search_topology,
     materialize_compiled_frontier,
     reduce_compiled_root_values,
     search_transition_program_adaptive,
