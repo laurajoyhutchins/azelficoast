@@ -411,7 +411,10 @@ def test_sql_transport_rejects_incidence_not_bound_to_compiled_topology() -> Non
     alternate_leaf = (topology.edge_leaf_index[0] + 1) % topology.leaf_count
     tampered = replace(
         topology,
-        edge_leaf_index=(alternate_leaf, *topology.edge_leaf_index[1:]),
+        edges=replace(
+            topology.edges,
+            leaf_index=(alternate_leaf, *topology.edges.leaf_index[1:]),
+        ),
     )
 
     with pytest.raises(SQLTransportError, match="digest does not match"):
