@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import copy
 import math
-from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Callable, Mapping, Protocol, Sequence, cast
@@ -53,15 +52,7 @@ from azelficoast.core.evaluation import (
     EvaluationFrontierError,
     EvaluationLeaf,
 )
-from azelficoast.core.search import (
-    PartialInformationSearchError,
-    SEARCH_METHODS,
-    _EvaluatorMeter,
-    _normalized_inputs,
-    _validated_classes,
-    search_transition_program,
-)
-from azelficoast.core.transition import canonical_json, sha256_json
+from azelficoast.core.search import _EvaluatorMeter, search_transition_program
 
 COMPILED_SEARCH_SCHEMA = "azelficoast.core.compiled-partial-information-search"
 COMPILED_SEARCH_SCHEMA_VERSION = 2
