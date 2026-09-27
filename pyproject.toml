@@ -80,6 +80,8 @@ files = [
   "src/azelficoast/research/matched_search.py",
   "src/azelficoast/research/matched_population_run.py",
   "src/azelficoast/research/posterior_population_contract.py",
+  "src/azelficoast/research/posterior_population_selection.py",
+  "src/azelficoast/research/posterior_evidence.py",
   "src/azelficoast/research/typed_search.py",
   "src/azelficoast/research/population_cohort.py",
 ]
