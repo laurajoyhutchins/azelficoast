@@ -40,7 +40,7 @@ from azelficoast.core.compiled_search import (
     transport_posterior_mass,
 )
 from azelficoast.core.compiled_topology import compile_search_topology
-from azelficoast.research.contracts import PublicSuccessorState, ResearchContractError
+from azelficoast.research.decision_contracts import PublicSuccessorState, ResearchContractError
 
 PACKED_COMPILED_SEARCH_SCHEMA = "azelficoast.packed-compiled-partial-information-search"
 PACKED_COMPILED_SEARCH_SCHEMA_VERSION = 2
