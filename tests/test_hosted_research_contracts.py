@@ -132,6 +132,37 @@ def test_hosted_cli_exposes_only_generic_execution_commands() -> None:
         assert f'commands.add_parser("{command}")' in source
 
 
+def test_hosted_data_consumers_follow_experiments_data_layout() -> None:
+    root = Path(__file__).resolve().parents[1]
+    population = (
+        root / "src" / "azelficoast" / "research" / "hosted" / "population.py"
+    ).read_text(encoding="utf-8")
+    mechanics = (
+        root / "src" / "azelficoast" / "research" / "hosted" / "mechanics.py"
+    ).read_text(encoding="utf-8")
+    probe = (
+        root / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
+    ).read_text(encoding="utf-8")
+
+    for name in (
+        "natural-depth-regret-plan.json",
+        "natural-population-strategy-fusion-plan.json",
+    ):
+        assert (root / "experiments" / "data" / name).is_file()
+        assert f'/ "data" / "{name}"' in population
+
+    for name in (
+        "policy-boundary-refinement-results.json",
+        "protect-action-survival.json",
+        "protect-speed-forks.json",
+    ):
+        assert (root / "experiments" / "data" / name).is_file()
+        assert f"experiments/data/{name}" in mechanics
+
+    assert (root / "experiments" / "data" / "opponent-policy-semantics.json").is_file()
+    assert '"experiments", "data", "opponent-policy-semantics.json"' in probe
+
+
 def test_population_runner_derives_frozen_values_from_plan_contracts() -> None:
     root = Path(__file__).resolve().parents[1]
     source = (
