@@ -134,9 +134,6 @@ def test_hosted_cli_exposes_only_generic_execution_commands() -> None:
 
 def test_hosted_data_consumers_follow_experiments_data_layout() -> None:
     root = Path(__file__).resolve().parents[1]
-    population = (
-        root / "src" / "azelficoast" / "research" / "hosted" / "population.py"
-    ).read_text(encoding="utf-8")
     mechanics = (
         root / "src" / "azelficoast" / "research" / "hosted" / "mechanics.py"
     ).read_text(encoding="utf-8")
