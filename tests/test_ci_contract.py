@@ -57,7 +57,8 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "src/azelficoast/belief/showdown_packing.py",
     ]
     required = {
-        "src/azelficoast/research/contracts.py",
+        "src/azelficoast/research/decision_contracts.py",
+        "src/azelficoast/research/matched_contracts.py",
         "src/azelficoast/research/matched_comparison.py",
         "src/azelficoast/research/matched_search.py",
         "src/azelficoast/research/typed_search.py",

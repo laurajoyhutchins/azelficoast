@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
-from azelficoast.research.contracts import stable_digest
+from azelficoast.research.decision_contracts import stable_digest
 from azelficoast.research.matched_comparison import (
     PLAN_SCHEMA,
     PLAN_SCHEMA_VERSION,

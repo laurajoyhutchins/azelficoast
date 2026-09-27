@@ -28,7 +28,7 @@ from azelficoast.belief.showdown_packing import (
     ShowdownVocabulary,
     pack_joint_posterior,
 )
-from azelficoast.research.contracts import PublicSuccessorState, ResearchContractError
+from azelficoast.research.decision_contracts import PublicSuccessorState, ResearchContractError
 
 PACKED_EVALUATOR_SCHEMA = "azelficoast.showdown-packed-belief-evaluator"
 PACKED_EVALUATOR_SCHEMA_VERSION = 1

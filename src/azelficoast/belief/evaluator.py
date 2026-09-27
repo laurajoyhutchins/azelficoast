@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.core.evaluation import EvaluationLeaf
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
     PublicDecisionInput,
     PublicSuccessorState,

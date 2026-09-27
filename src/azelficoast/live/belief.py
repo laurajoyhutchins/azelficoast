@@ -28,7 +28,7 @@ from azelficoast.core.mechanics import (
     MechanicsContractError,
     VerifiedTransitionProgramSet,
 )
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     MechanicsIdentity,
     ResearchContractError,
     parse_belief_artifact,

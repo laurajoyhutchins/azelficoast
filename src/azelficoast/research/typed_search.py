@@ -18,7 +18,7 @@ from azelficoast.core.mechanics import (
     MechanicsExecutor,
     MechanicsContractError,
 )
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
     BeliefTransportIndex,
     PublicSuccessorState,
