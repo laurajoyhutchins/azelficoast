@@ -348,9 +348,9 @@ def test_compiled_topology_carries_successor_and_legal_action_tensors() -> None:
         len(topology.successor_action_vocabulary),
     )
     assert len(topology.successor_states) == 2
-    assert len(topology.edge_successor_index) == topology.edge_count
-    assert len(topology.leaf_successor_index) == topology.leaf_count
-    assert all(any(row) for row in topology.leaf_legal_mask)
+    assert len(topology.edges.successor_index) == topology.edge_count
+    assert len(topology.leaves.successor_index) == topology.leaf_count
+    assert all(any(row) for row in topology.leaves.legal_mask)
 
 
 def test_sql_transport_matches_compiled_jax_mass_transport() -> None:
@@ -408,7 +408,7 @@ def test_sql_transport_rejects_incidence_not_bound_to_compiled_topology() -> Non
         for world in posterior["worlds"]
     }
     assert topology.leaf_count > 1
-    alternate_leaf = (topology.edge_leaf_index[0] + 1) % topology.leaf_count
+    alternate_leaf = (topology.edges.leaf_index[0] + 1) % topology.leaf_count
     tampered = replace(
         topology,
         edges=replace(
