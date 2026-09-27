@@ -13,12 +13,12 @@ from azelficoast.core.compiled_planning import (
     estimate_search_cardinality_lower_bound,
 )
 from azelficoast.core.compiled_search import (
-    compile_search_topology,
     materialize_compiled_frontier,
     reduce_compiled_root_values,
     search_transition_program_adaptive,
     search_transition_program_compiled,
 )
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.search import search_transition_program
 
 
