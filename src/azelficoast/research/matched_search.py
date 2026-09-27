@@ -30,15 +30,17 @@ from azelficoast.core.mechanics import (
     MechanicsExecutionRequest,
     VerifiedTransitionProgramSet,
 )
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
     BeliefTransportIndex,
-    COMPUTE_BUDGET_UNIT_DEFINITION,
-    EVALUATOR_CALL_UNIT_DEFINITION,
-    MatchedExperimentSpec,
     PublicDecisionInput,
     ResearchContractError,
     parse_belief_artifact,
+)
+from azelficoast.research.matched_contracts import (
+    COMPUTE_BUDGET_UNIT_DEFINITION,
+    EVALUATOR_CALL_UNIT_DEFINITION,
+    MatchedExperimentSpec,
 )
 from azelficoast.research.typed_search import (
     TransitionProgramSearchError,
