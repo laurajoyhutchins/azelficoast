@@ -24,7 +24,7 @@ import math
 import sqlite3
 from typing import Any, Mapping, Sequence
 
-from azelficoast.core.compiled_search import CompiledSearchTopology
+from azelficoast.core.compiled_topology import CompiledSearchTopology
 from azelficoast.core.planning import LogicalOperator, LogicalPlan
 from azelficoast.core.transition import sha256_json
 
@@ -424,9 +424,9 @@ def transport_information_set_mass_sql(
     return _transport_information_set_mass_rows_sql(
         world_weights=world_weights,
         leaf_count=topology.leaf_count,
-        edge_world_index=topology.edge_world_index,
-        edge_leaf_index=topology.edge_leaf_index,
-        edge_chance=topology.edge_chance,
+        edge_world_index=topology.edges.world_index,
+        edge_leaf_index=topology.edges.leaf_index,
+        edge_chance=topology.edges.chance,
         compiled_topology_digest=topology.topology_digest,
         expected_total_leaf_mass=float(topology.action_count),
     )
