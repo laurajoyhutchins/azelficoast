@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
+import numpy as np
 import pytest
 
 import azelficoast.belief.compiled_search as compiled_search_module
@@ -347,6 +348,14 @@ def test_compiled_topology_carries_successor_and_legal_action_tensors() -> None:
         topology.leaf_count,
         len(topology.successor_action_vocabulary),
     )
+    assert arrays.classes.world_to_class.dtype == np.int32
+    assert arrays.edges.chance.dtype == np.float32
+    assert arrays.leaves.legal_mask.dtype == np.bool_
+    assert not arrays.classes.world_to_class.flags.writeable
+    assert not arrays.edges.world_index.flags.writeable
+    assert not arrays.leaves.legal_mask.flags.writeable
+    with pytest.raises(ValueError, match="read-only"):
+        arrays.edges.world_index[0] = 0
     assert len(topology.successor_states) == 2
     assert len(topology.edges.successor_index) == topology.edge_count
     assert len(topology.leaves.successor_index) == topology.leaf_count
