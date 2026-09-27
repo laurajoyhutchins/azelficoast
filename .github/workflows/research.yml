@@ -153,7 +153,7 @@ jobs:
           if-no-files-found: error
 
   hosted-plan:
-    if: github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review'
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
       prepare_matrix: ${{ steps.plan.outputs.prepare_matrix }}
