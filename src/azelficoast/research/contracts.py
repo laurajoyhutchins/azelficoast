@@ -1060,6 +1060,7 @@ class ComputeReceipt:
         if values["transition_program_source"] not in {
             "verified-transition-program",
             "compiled-legacy-oracle",
+            "verified-material-oracle",
         }:
             raise ResearchContractError("receipt declares an unsupported mechanics source")
         if values["transition_oracle_digest"] != values["transition_artifact_digest"]:
