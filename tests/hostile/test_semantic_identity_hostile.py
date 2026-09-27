@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from azelficoast.research.contracts import BeliefInput
+from azelficoast.research.decision_contracts import BeliefInput
 from azelficoast.core.transition import sha256_json
 from hostile.fixtures import hostile_case, matched_posterior
 from hostile.transforms import (
