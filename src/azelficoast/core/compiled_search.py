@@ -28,17 +28,17 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 import numpy as np
 
 from azelficoast.core.compiled_planning import (
-    _CardinalityEnvelope as _CardinalityEnvelope,
-    _CompiledSearchError as _CompiledSearchError,
-    _SEARCH_PATH_COMPILED as _SEARCH_PATH_COMPILED,
-    _SEARCH_PATH_PYTHON as _SEARCH_PATH_PYTHON,
-    _SearchCardinality as _SearchCardinality,
+    CardinalityEnvelope as _CardinalityEnvelope,
+    CompiledSearchError as _CompiledSearchError,
+    SEARCH_PATH_COMPILED as _SEARCH_PATH_COMPILED,
+    SEARCH_PATH_PYTHON as _SEARCH_PATH_PYTHON,
+    SearchCardinality as _SearchCardinality,
     _cardinality_plan,
-    _estimate_search_cardinality_lower_bound as _estimate_search_cardinality_lower_bound,
+    estimate_search_cardinality_lower_bound as _estimate_search_cardinality_lower_bound,
 )
 from azelficoast.core.compiled_topology import (
-    _CompiledSearchTopology as _CompiledSearchTopology,
-    _compile_search_topology as _compile_search_topology,
+    CompiledSearchTopology as _CompiledSearchTopology,
+    compile_search_topology as _compile_search_topology,
 )
 from azelficoast.core.evaluation import (
     EvaluationContribution,
