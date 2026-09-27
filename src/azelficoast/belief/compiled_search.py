@@ -32,14 +32,14 @@ from azelficoast.belief.showdown_packing import (
     pack_joint_posterior,
 )
 from azelficoast.core.evaluation import choose_bounded_action
+from azelficoast.core.compiled_planning import CompiledSearchError
 from azelficoast.core.compiled_search import (
     COMPILED_SEARCH_SCHEMA,
     COMPILED_SEARCH_SCHEMA_VERSION,
-    CompiledSearchError,
-    compile_search_topology,
     reduce_compiled_root_values,
     transport_posterior_mass,
 )
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.research.contracts import PublicSuccessorState, ResearchContractError
 
 PACKED_COMPILED_SEARCH_SCHEMA = "azelficoast.packed-compiled-partial-information-search"
