@@ -85,7 +85,7 @@ def policy_boundary_refinement() -> None:
         stdout="/tmp/policy-boundary-refinement-results.json",
     )
     actual = load_json("/tmp/policy-boundary-refinement-results.json")
-    expected = load_json("experiments/policy-boundary-refinement-results.json")
+    expected = load_json("experiments/data/policy-boundary-refinement-results.json")
     assert actual == expected
     result = as_dict(actual, label="policy boundary result")
     assert result["case_count"] == 9
@@ -99,7 +99,7 @@ def policy_boundary_refinement() -> None:
 def protect_action_survival() -> None:
     python_module(
         "azelficoast.research.action_survival",
-        "experiments/protect-action-survival.json",
+        "experiments/data/protect-action-survival.json",
         stdout="/tmp/protect-action-survival.json",
     )
     result = as_dict(
@@ -174,7 +174,7 @@ def protect_speed_fork() -> None:
     node(
         "showdown/research/mechanics/probe_protect_speed_forks.cjs",
         str(SHOWDOWN_ROOT),
-        "experiments/protect-speed-forks.json",
+        "experiments/data/protect-speed-forks.json",
         stdout="/tmp/protect-speed-fork-mechanics.json",
     )
     result = as_dict(
