@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from azelficoast.research.hosted import belief
+from azelficoast.research.hosted import belief, population
 from azelficoast.research.hosted.contracts import (
     STUDIES,
     STUDIES_BY_NAME,
@@ -144,12 +144,14 @@ def test_hosted_data_consumers_follow_experiments_data_layout() -> None:
         root / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
     ).read_text(encoding="utf-8")
 
-    for name in (
-        "natural-depth-regret-plan.json",
-        "natural-population-strategy-fusion-plan.json",
-    ):
-        assert (root / "experiments" / "data" / name).is_file()
-        assert f'/ "data" / "{name}"' in population
+    assert population.DEPTH_PLAN_PATH == (
+        root / "experiments" / "data" / "natural-depth-regret-plan.json"
+    )
+    assert population.POPULATION_PLAN_PATH == (
+        root / "experiments" / "data" / "natural-population-strategy-fusion-plan.json"
+    )
+    assert population.DEPTH_PLAN_PATH.is_file()
+    assert population.POPULATION_PLAN_PATH.is_file()
 
     for name in (
         "policy-boundary-refinement-results.json",
