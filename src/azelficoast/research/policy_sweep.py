@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.core.sql import PreparedSQLQuery, prepare_policy_query
-from azelficoast.research.contracts import stable_digest
+from azelficoast.research.decision_contracts import stable_digest
 
 PLAN_SCHEMA = "azelficoast.sql-policy-parameter-sweep-plan"
 PLAN_SCHEMA_VERSION = 1
