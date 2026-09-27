@@ -101,7 +101,7 @@ def search_packed_compiled_transition_program(
 
     public_features: list[tuple[float, ...]] = []
     try:
-        for successor in topology.leaf_public_states:
+        for successor in topology.leaves.public_states:
             public = PublicSuccessorState.from_record(successor)
             public_features.append(
                 hashed_features(
@@ -228,7 +228,7 @@ def choose_packed_compiled_action_bounded(
 
     public_features: list[tuple[float, ...]] = []
     try:
-        for successor in topology.leaf_public_states:
+        for successor in topology.leaves.public_states:
             public = PublicSuccessorState.from_record(successor)
             public_features.append(
                 hashed_features(
@@ -250,7 +250,7 @@ def choose_packed_compiled_action_bounded(
 
     decision = choose_bounded_action(
         root_actions=topology.root_actions,
-        leaf_action_index=topology.leaf_action_index,
+        leaf_action_index=topology.leaves.action_index,
         coefficients=tuple(float(value) for value in transported.leaf_mass),
         evaluate=evaluate,
         value_lower_bound=PACKED_VALUE_LOWER_BOUND,
