@@ -156,6 +156,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     outputs:
+      prepare_matrix: ${{ steps.plan.outputs.prepare_matrix }}
+      prepare_count: ${{ steps.plan.outputs.prepare_count }}
       run_matrix: ${{ steps.plan.outputs.run_matrix }}
       run_count: ${{ steps.plan.outputs.run_count }}
       aggregate_matrix: ${{ steps.plan.outputs.aggregate_matrix }}
@@ -179,18 +181,51 @@ jobs:
           else
             plan="$(uv run python -m azelficoast.research.hosted plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
+          prepare_matrix="$(uv run python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["prepare"], separators=(",",":")))' "${plan}")"
           run_matrix="$(uv run python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["run"], separators=(",",":")))' "${plan}")"
           aggregate_matrix="$(uv run python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["aggregate"], separators=(",",":")))' "${plan}")"
+          prepare_count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${prepare_matrix}")"
           run_count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${run_matrix}")"
           aggregate_count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${aggregate_matrix}")"
+          echo "prepare_matrix=${prepare_matrix}" >> "${GITHUB_OUTPUT}"
+          echo "prepare_count=${prepare_count}" >> "${GITHUB_OUTPUT}"
           echo "run_matrix=${run_matrix}" >> "${GITHUB_OUTPUT}"
           echo "run_count=${run_count}" >> "${GITHUB_OUTPUT}"
           echo "aggregate_matrix=${aggregate_matrix}" >> "${GITHUB_OUTPUT}"
           echo "aggregate_count=${aggregate_count}" >> "${GITHUB_OUTPUT}"
 
-  hosted-run:
+  hosted-prepare:
     needs: hosted-plan
-    if: needs.hosted-plan.outputs.run_count != '0'
+    if: needs.hosted-plan.outputs.prepare_count != '0'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.hosted-plan.outputs.prepare_matrix) }}
+    name: prepare (${{ matrix.study }})
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-python-environment
+      - name: Setup canonical research evidence
+        if: matrix.evidence == true
+        uses: ./.github/actions/setup-research-evidence
+      - name: Restore verified pinned Pokémon Showdown
+        if: matrix.showdown == true
+        uses: ./.github/actions/setup-showdown
+      - name: Prepare hosted research inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python -m azelficoast.research.hosted prepare-run "${{ matrix.study }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: ${{ matrix.if_no_files }}
+
+  hosted-run:
+    needs: [hosted-plan, hosted-prepare]
+    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.run_count != '0' && needs.hosted-prepare.result != 'failure' && needs.hosted-prepare.result != 'cancelled'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.hosted-plan.outputs.run_matrix) }}
@@ -207,6 +242,11 @@ jobs:
       - name: Restore verified pinned Pokémon Showdown
         if: matrix.showdown == true
         uses: ./.github/actions/setup-showdown
+      - uses: actions/download-artifact@v4
+        if: matrix.prepare_artifact_name != ''
+        with:
+          name: ${{ matrix.prepare_artifact_name }}
+          path: /tmp/hosted-preparation
       - name: Execute hosted research unit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -219,8 +259,8 @@ jobs:
           if-no-files-found: ${{ matrix.if_no_files }}
 
   hosted-aggregate:
-    needs: [hosted-plan, hosted-run]
-    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-run.result != 'cancelled'
+    needs: [hosted-plan, hosted-prepare, hosted-run]
+    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-prepare.result != 'failure' && needs.hosted-prepare.result != 'cancelled' && needs.hosted-run.result != 'cancelled'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.hosted-plan.outputs.aggregate_matrix) }}
@@ -237,6 +277,11 @@ jobs:
       - name: Restore verified pinned Pokémon Showdown
         if: matrix.showdown == true
         uses: ./.github/actions/setup-showdown
+      - uses: actions/download-artifact@v4
+        if: matrix.prepare_artifact_name != ''
+        with:
+          name: ${{ matrix.prepare_artifact_name }}
+          path: /tmp/hosted-preparation
       - name: Prepare aggregate inputs
         env:
           GH_TOKEN: ${{ github.token }}
