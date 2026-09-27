@@ -111,15 +111,17 @@ def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
     assert "cancel-in-progress: true" in source
 
 
-def test_hosted_research_preserves_candidate_only_cadence() -> None:
+def test_hosted_research_follows_every_ready_pr_head() -> None:
     source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    pull_request = _event_block(source, "pull_request")
     hosted = source[source.index("  hosted-plan:\n") : source.index("  hosted-run:\n")]
 
+    assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
     assert (
         "if: github.event_name == 'workflow_dispatch' "
-        "|| github.event.action == 'ready_for_review'"
+        "|| github.event.pull_request.draft == false"
     ) in hosted
-    assert "github.event.pull_request.draft == false" not in hosted
+    assert "github.event.action == 'ready_for_review'" not in hosted
 
 
 def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
