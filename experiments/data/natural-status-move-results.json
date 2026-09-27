@@ -2,7 +2,7 @@
   "schema": "azelficoast.natural-status-move-results",
   "schema_version": 1,
   "source": {
-    "treatment": "experiments/natural-status-move-treatment.json",
+    "treatment": "experiments/data/natural-status-move-treatment.json",
     "workflow_run_id": 36075547586,
     "artifact_id": 10840097547,
     "artifact_digest": "sha256:6f71233d3d0053b26e55cafee350bfe298ca0d6f351e3bbd7be72ebfed0f599c",

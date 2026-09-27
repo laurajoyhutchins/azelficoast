@@ -3,7 +3,7 @@
   "schema_version": 1,
   "cases": [
     {
-      "fixture": "experiments/real-belief-source-gliscor-urshifu.json",
+      "fixture": "experiments/data/real-belief-source-gliscor-urshifu.json",
       "source_fixture_id": "0f5fd1d00371410b75e722768b9bbddd0fdacd24725e6a60c142bcc87783c92a",
       "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
       "expected": {

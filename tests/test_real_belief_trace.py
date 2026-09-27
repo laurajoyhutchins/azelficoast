@@ -476,16 +476,16 @@ def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
 
 
 def test_showdown_probe_preserves_semantic_support_before_execution_projection() -> None:
-    showdown_runtime = Path(__file__).resolve().parents[1] / "showdown" / "runtime"
-    source = (showdown_runtime / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
+    scripts = Path(__file__).resolve().parents[1] / "showdown" / "runtime"
+    source = (scripts / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
     generator_source = (
-        showdown_runtime / "real_belief_probe" / "generator_population.cjs"
+        scripts / "real_belief_probe" / "generator_population.cjs"
     ).read_text(encoding="utf-8")
     opponent_source = (
-        showdown_runtime / "real_belief_probe" / "opponent_policy.cjs"
+        scripts / "real_belief_probe" / "opponent_policy.cjs"
     ).read_text(encoding="utf-8")
     compiler_source = (
-        showdown_runtime / "real_belief_probe" / "transition_program_compiler.cjs"
+        scripts / "real_belief_probe" / "transition_program_compiler.cjs"
     ).read_text(encoding="utf-8")
 
     assert '"--historical-showdown-commit"' in source
@@ -601,6 +601,19 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
 def test_oracle_document_loader_streams_large_top_level_arrays(tmp_path: Path) -> None:
     expected = _oracle()
     path = tmp_path / "oracle.json"
-    path.write_text(json.dumps(expected, separators=(",", ":")), encoding="utf-8")
-
+    path.write_text(
+        json.dumps(expected, separators=(",", ":")),
+        encoding="utf-8",
+    )
     assert _load_oracle_document(path, chunk_size=13) == expected
+
+
+def test_declared_reads_receives_transition_evidence_explicitly() -> None:
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "showdown" / "runtime" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function declaredReads(action, transitions)" in source
+    assert "declaredReads(action, transitions)" in source
+    assert "function declaredReads(action)" not in source

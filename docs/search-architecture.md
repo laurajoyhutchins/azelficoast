@@ -194,7 +194,7 @@ This search-time policy is separate from the opponent model used by the exact
 transition-oracle probe. Oracle documents carry
 `mechanics.opponent_policy_semantics_version` and the normalized policy settings;
 the versioned contract lives in
-`experiments/opponent-policy-semantics.json`. The current oracle semantics define
+`experiments/data/opponent-policy-semantics.json`. The current oracle semantics define
 uniform legal-move response and equal-active-strategy mixtures (including the
 explicit repeat-observed-move strategy). Results should be interpreted using that
 version and the emitted `opponent_policy` object.

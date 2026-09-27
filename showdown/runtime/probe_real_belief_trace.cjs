@@ -1272,7 +1272,7 @@ function continuationValues(rootSnapshot) {
   };
 }
 
-function declaredReads(action) {
+function declaredReads(action, transitions) {
   const reads = new Set();
   for (const transition of transitions) {
     if (transition.action !== action) continue;
@@ -1617,7 +1617,7 @@ const factoredHidden = benchFactor
   : {};
 
 const declared = Object.fromEntries(
-  legalActions.map(action => [action, declaredReads(action)])
+  legalActions.map(action => [action, declaredReads(action, transitions)])
 );
 return {
   schema: "azelficoast.core.transition-oracle",

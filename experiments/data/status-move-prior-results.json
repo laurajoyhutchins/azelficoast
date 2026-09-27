@@ -2,7 +2,7 @@
   "schema": "azelficoast.status-move-prior-results",
   "schema_version": 1,
   "source": {
-    "selection": "experiments/status-move-prior-selection.json",
+    "selection": "experiments/data/status-move-prior-selection.json",
     "workflow_run_id": 36069490554,
     "artifact_id": 10836754799,
     "artifact_digest": "sha256:79ab1b1c6d4326765bdbf09a3951763b05f2edf7fa370972dbaee34a05995992",

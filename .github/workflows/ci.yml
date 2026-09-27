@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Setup Azelficoast Python 3.11
+      - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
       - name: Type check Python static frontier
         run: uv run mypy
@@ -46,10 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
       - name: Lint Python
         run: uv run ruff check .
       - name: Test
