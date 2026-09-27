@@ -236,6 +236,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: ${{ matrix.simulator }}
       - name: Setup canonical research evidence
         if: matrix.evidence == true
         uses: ./.github/actions/setup-research-evidence
