@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any, Mapping, Sequence
 
+import numpy as np
 import pytest
 
 import azelficoast.belief.compiled_search as compiled_search_module
@@ -29,10 +30,8 @@ from azelficoast.belief.sql_compiled_search import (
     search_sql_packed_best_action,
     search_sql_packed_transition_program,
 )
-from azelficoast.core.compiled_search import (
-    compile_search_topology,
-    transport_posterior_mass,
-)
+from azelficoast.core.compiled_search import transport_posterior_mass
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.sql_transport import (
     SQLTransportError,
     transport_information_set_mass_sql,
@@ -338,21 +337,29 @@ def test_compiled_topology_carries_successor_and_legal_action_tensors() -> None:
         expected_program_schema="example.transition-program-set",
         expected_program_schema_version=1,
     )
-    arrays = topology.as_numpy()
+    arrays = topology.materialize_arrays()
 
     assert topology.successor_action_vocabulary == (
         "move:a",
         "move:b",
         "switch:b",
     )
-    assert arrays["leaf_legal_mask"].shape == (
+    assert arrays.leaves.legal_mask.shape == (
         topology.leaf_count,
         len(topology.successor_action_vocabulary),
     )
+    assert arrays.classes.world_to_class.dtype == np.int32
+    assert arrays.edges.chance.dtype == np.float32
+    assert arrays.leaves.legal_mask.dtype == np.bool_
+    assert not arrays.classes.world_to_class.flags.writeable
+    assert not arrays.edges.world_index.flags.writeable
+    assert not arrays.leaves.legal_mask.flags.writeable
+    with pytest.raises(ValueError, match="read-only"):
+        arrays.edges.world_index[0] = 0
     assert len(topology.successor_states) == 2
-    assert len(topology.edge_successor_index) == topology.edge_count
-    assert len(topology.leaf_successor_index) == topology.leaf_count
-    assert all(any(row) for row in topology.leaf_legal_mask)
+    assert len(topology.edges.successor_index) == topology.edge_count
+    assert len(topology.leaves.successor_index) == topology.leaf_count
+    assert all(any(row) for row in topology.leaves.legal_mask)
 
 
 def test_sql_transport_matches_compiled_jax_mass_transport() -> None:
@@ -410,10 +417,13 @@ def test_sql_transport_rejects_incidence_not_bound_to_compiled_topology() -> Non
         for world in posterior["worlds"]
     }
     assert topology.leaf_count > 1
-    alternate_leaf = (topology.edge_leaf_index[0] + 1) % topology.leaf_count
+    alternate_leaf = (topology.edges.leaf_index[0] + 1) % topology.leaf_count
     tampered = replace(
         topology,
-        edge_leaf_index=(alternate_leaf, *topology.edge_leaf_index[1:]),
+        edges=replace(
+            topology.edges,
+            leaf_index=(alternate_leaf, *topology.edges.leaf_index[1:]),
+        ),
     )
 
     with pytest.raises(SQLTransportError, match="digest does not match"):
