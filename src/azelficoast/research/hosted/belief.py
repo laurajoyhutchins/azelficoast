@@ -115,7 +115,7 @@ def _assert_same_policy(full: dict[str, object], quotient: dict[str, object]) ->
 def decision_relevance_quotient() -> None:
     sources = {
         "status": EVIDENCE_ROOT / "status-source.json",
-        "fusion": Path("experiments/real-belief-source-tinkaton-zapdosgalar-mid.json"),
+        "fusion": Path("experiments/data/real-belief-source-tinkaton-zapdosgalar-mid.json"),
     }
     for name, source in sources.items():
         oracle = Path(f"/tmp/{name}-oracle.json")
@@ -506,7 +506,7 @@ def live_belief_coverage() -> None:
 
 def natural_status_move() -> None:
     source_path = EVIDENCE_ROOT / "status-source.json"
-    treatment_path = Path("experiments/natural-status-move-treatment.json")
+    treatment_path = Path("experiments/data/natural-status-move-treatment.json")
     source = as_dict(load_json(source_path), label="status source")
     treatment = as_dict(load_json(treatment_path), label="status treatment")
     selection = as_dict(treatment["selection"], label="selection")
@@ -736,7 +736,7 @@ def public_belief_exact(name: str) -> None:
 
 
 def real_belief_decision_trace() -> None:
-    source = "experiments/real-belief-source-gliscor-urshifu.json"
+    source = "experiments/data/real-belief-source-gliscor-urshifu.json"
     node(
         "showdown/runtime/probe_real_belief_trace.cjs",
         str(SHOWDOWN_ROOT),
@@ -781,7 +781,7 @@ def real_belief_decision_trace() -> None:
 
     trace = as_dict(load_json("/tmp/real-belief-decision-trace.json"), label="real-belief trace")
     mining = as_dict(load_json("/tmp/real-belief-trace-mining.json"), label="real-belief mining")
-    corpus = as_dict(load_json("experiments/real-belief-negative-corpus.json"), label="negative corpus")
+    corpus = as_dict(load_json("experiments/data/real-belief-negative-corpus.json"), label="negative corpus")
     cases = corpus["cases"]
     assert isinstance(cases, list) and cases
     case = as_dict(cases[0], label="negative case")
@@ -875,7 +875,7 @@ def real_belief_survival_witness() -> None:
 def status_move_prior() -> None:
     python_module(
         "azelficoast.belief.status_move_prior",
-        "experiments/status-move-prior-selection.json",
+        "experiments/data/status-move-prior-selection.json",
         "--showdown-root",
         str(SHOWDOWN_ROOT),
         stdout="/tmp/status-move-prior-results.json",

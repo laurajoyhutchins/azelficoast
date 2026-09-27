@@ -45,7 +45,7 @@ def test_all_hosted_research_is_contract_registered() -> None:
 
 def test_hosted_runner_change_selects_every_study() -> None:
     assert _names(("src/azelficoast/research/hosted/common.py",)) == EXPECTED_STUDIES
-    assert _names(("experiments/hosted-research-contracts.json",)) == EXPECTED_STUDIES
+    assert _names(("experiments/contracts/hosted.json",)) == EXPECTED_STUDIES
     assert _names((".github/workflows/research.yml",)) == EXPECTED_STUDIES
     assert _names((".python-version",)) == EXPECTED_STUDIES
 

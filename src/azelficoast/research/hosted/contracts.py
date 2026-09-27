@@ -9,13 +9,13 @@ from typing import Iterable, Mapping, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "hosted-research-contracts.json"
+CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "contracts" / "hosted.json"
 
 _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
     ".python-version",
     ".github/workflows/research.yml",
-    "experiments/hosted-research-contracts.json",
+    "experiments/contracts/hosted.json",
     "src/azelficoast/research/hosted/**",
     "pyproject.toml",
     "uv.lock",

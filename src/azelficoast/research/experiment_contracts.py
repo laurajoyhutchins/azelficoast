@@ -8,7 +8,7 @@ from typing import Iterable, Mapping, Sequence
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
-CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "candidate-research-contracts.json"
+CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "contracts" / "candidate.json"
 
 
 class CandidateExperimentError(RuntimeError):
@@ -229,7 +229,7 @@ _SHARED_PYTHON_PATHS = {
     ".github/workflows/research.yml",
     "pyproject.toml",
     "uv.lock",
-    "experiments/candidate-research-contracts.json",
+    "experiments/contracts/candidate.json",
     "src/azelficoast/research/ci.py",
     "src/azelficoast/research/experiment_contracts.py",
 }

@@ -24,11 +24,11 @@
     },
     "decision-relevance-quotient": {
       "paths": [
-        "experiments/real-belief-source-tinkaton-zapdosgalar-mid.json",
+        "experiments/data/real-belief-source-tinkaton-zapdosgalar-mid.json",
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
+        "experiments/data/opponent-policy-semantics.json",
         "src/azelficoast/core/decision_relevance.py",
         "src/azelficoast/research/verification/real_belief_trace.py",
         "src/azelficoast/live/belief.py",
@@ -61,7 +61,7 @@
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json"
+        "experiments/data/opponent-policy-semantics.json"
       ],
       "showdown": true,
       "evidence": true,
@@ -91,7 +91,7 @@
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
+        "experiments/data/opponent-policy-semantics.json",
         "showdown/research/belief/evaluate_conditional_team_prior.cjs",
         "tests/test_real_belief_trace.py"
       ],
@@ -173,14 +173,14 @@
     },
     "natural-depth-regret": {
       "paths": [
-        "experiments/natural-depth-regret-plan.json",
+        "experiments/data/natural-depth-regret-plan.json",
         "src/azelficoast/research/depth_population.py",
         "src/azelficoast/research/depth.py",
         "src/azelficoast/research/verification/real_belief_trace.py",
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
+        "experiments/data/opponent-policy-semantics.json",
         "tests/test_depth_population.py",
         "tests/test_depth_study.py",
         "tests/test_real_belief_trace.py"
@@ -224,7 +224,7 @@
     },
     "natural-population-strategy-fusion": {
       "paths": [
-        "experiments/natural-population-strategy-fusion-plan.json",
+        "experiments/data/natural-population-strategy-fusion-plan.json",
         "src/azelficoast/research/population.py",
         "src/azelficoast/research/natural_disagreements.py",
         "src/azelficoast/search/fusion.py",
@@ -235,7 +235,7 @@
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
+        "experiments/data/opponent-policy-semantics.json",
         "tests/test_population_study.py",
         "tests/test_natural_disagreements.py"
       ],
@@ -279,11 +279,11 @@
     },
     "natural-status-move-public-belief": {
       "paths": [
-        "experiments/natural-status-move-treatment.json",
+        "experiments/data/natural-status-move-treatment.json",
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
+        "experiments/data/opponent-policy-semantics.json",
         "src/azelficoast/research/verification/real_belief_trace.py"
       ],
       "showdown": true,
@@ -330,7 +330,7 @@
     "policy-boundary-refinement-experiment": {
       "paths": [
         "src/azelficoast/research/experiments/policy_boundary_refinement_experiment.py",
-        "experiments/policy-boundary-refinement-results.json"
+        "experiments/data/policy-boundary-refinement-results.json"
       ],
       "showdown": false,
       "evidence": true,
@@ -351,7 +351,7 @@
     },
     "protect-action-survival-experiment": {
       "paths": [
-        "experiments/protect-action-survival.json",
+        "experiments/data/protect-action-survival.json",
         "src/azelficoast/research/action_survival.py",
         "src/azelficoast/research/mechanics/gen9_damage.py",
         "tests/test_action_survival.py"
@@ -405,7 +405,7 @@
     },
     "protect-speed-fork-mechanics": {
       "paths": [
-        "experiments/protect-speed-forks.json",
+        "experiments/data/protect-speed-forks.json",
         "showdown/research/mechanics/probe_protect_speed_forks.cjs"
       ],
       "showdown": true,
@@ -436,7 +436,7 @@
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
+        "experiments/data/opponent-policy-semantics.json",
         "tests/hostile/test_transition_program_hostile.py"
       ],
       "showdown": true,
@@ -475,10 +475,10 @@
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json",
-        "experiments/real-belief-source-fixture.json",
-        "experiments/real-belief-source-gliscor-urshifu.json",
-        "experiments/real-belief-negative-corpus.json",
+        "experiments/data/opponent-policy-semantics.json",
+        "experiments/data/real-belief-source-fixture.json",
+        "experiments/data/real-belief-source-gliscor-urshifu.json",
+        "experiments/data/real-belief-negative-corpus.json",
         "tests/test_real_belief_trace.py",
         "tests/test_whole_turn_program.py",
         "tests/test_real_belief_miner.py",
@@ -513,7 +513,7 @@
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
         "showdown/runtime/json_stream_writer.cjs",
-        "experiments/opponent-policy-semantics.json"
+        "experiments/data/opponent-policy-semantics.json"
       ],
       "showdown": true,
       "evidence": true,
@@ -562,7 +562,7 @@
     },
     "status-move-hidden-world-prior": {
       "paths": [
-        "experiments/status-move-prior-selection.json",
+        "experiments/data/status-move-prior-selection.json",
         "showdown/research/belief/sample_showdown_worlds.cjs",
         "src/azelficoast/belief/status_move_prior.py",
         "tests/test_status_move_prior.py"

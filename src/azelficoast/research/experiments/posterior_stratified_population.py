@@ -9,7 +9,7 @@ from typing import Any
 from azelficoast.research.posterior_population_contract import contract_readiness
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "posterior-stratified-population-contract.json"
+CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "data" / "posterior-stratified-population-contract.json"
 
 
 def run_experiment() -> dict[str, Any]:

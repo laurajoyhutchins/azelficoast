@@ -9,7 +9,7 @@ import pytest
 from azelficoast.research.action_survival import ActionSurvivalError, analyze_document
 
 
-EXPERIMENT = Path("experiments/protect-action-survival.json")
+EXPERIMENT = Path("experiments/data/protect-action-survival.json")
 
 
 def _document() -> dict[str, object]:

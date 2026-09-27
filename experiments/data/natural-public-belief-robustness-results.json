@@ -1,7 +1,7 @@
 {
   "schema": "azelficoast.natural-public-belief-robustness-results",
   "schema_version": 1,
-  "preregistered_plan": "experiments/natural-public-belief-robustness-plan.json",
+  "preregistered_plan": "experiments/data/natural-public-belief-robustness-plan.json",
   "source_fixture_id": "e3486d3564d1f2fe2310e86ce2acf2bfbc5ee4840b75308d7421893fafed5812",
   "showdown_commit": "a5df8274e85b0889bf2a9b3422a08b39732374fc",
   "source_exact_result": {
