@@ -1,0 +1,12 @@
+{
+  "schema": "overcenter-project-goal/v1",
+  "id": "project-goal:gen9-randombattle-rank-1",
+  "objective": "Make Azelficoast reach rank #1 on the Pokemon Showdown Gen 9 Random Battle ladder. Choose the highest-leverage next bounded source change supported by repository evidence. Preserve legal-information play, fail-closed behavior, experiment contracts, frozen evidence, verification boundaries, and promotion criteria. Treat local benchmarks as evidence toward external playing strength, never as the terminal result.",
+  "writable_paths": [],
+  "writable_trees": [
+    "src/azelficoast/belief",
+    "src/azelficoast/live",
+    "src/azelficoast/queries",
+    "src/azelficoast/search"
+  ]
+}
