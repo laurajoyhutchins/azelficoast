@@ -1,0 +1,102 @@
+name: Overcenter · advance Azelficoast
+
+on:
+  push:
+    branches: [main]
+  repository_dispatch:
+    types: [overcenter-advance]
+
+permissions: {}
+
+concurrency:
+  group: overcenter-azelficoast-advance
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    name: project.advance
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact Azelficoast source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Resolve trusted Overcenter runtime
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["repository"])')"
+          sha="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["sha"])')"
+          [[ "$repository" =~ ^[^/]+/[^/]+$ ]]
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact Overcenter runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ steps.runtime.outputs.repository }}
+          ref: ${{ steps.runtime.outputs.sha }}
+          path: .overcenter-runtime
+          persist-credentials: false
+
+      - name: Use Overcenter's pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .overcenter-runtime/.node-version
+          package-manager-cache: false
+
+      - name: Advance authoritative project
+        id: advance
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OVERCENTER_COMMAND_REPOSITORY_ID: ${{ github.repository_id }}
+          OVERCENTER_COMMAND_REPOSITORY: ${{ github.repository }}
+          OVERCENTER_COMMAND_SOURCE_SHA: ${{ steps.runtime.outputs.sha }}
+          OVERCENTER_PROJECT_SOURCE_SHA: ${{ github.sha }}
+          OVERCENTER_COMMAND_RUN_ID: ${{ github.run_id }}
+          OVERCENTER_COMMAND_RUN_ATTEMPT: ${{ github.run_attempt }}
+          OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
+          OVERCENTER_PROJECT_REMOTE: origin
+        run: |
+          node --experimental-strip-types \
+            .overcenter-runtime/src/cli/project-advance.ts \
+            --output-dir overcenter-response
+
+      - name: Publish reasoning work packet
+        if: steps.advance.outputs.state == 'AGENT_EXECUTION_REQUIRED'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: overcenter-work-packet-${{ steps.advance.outputs.run_id }}
+          path: overcenter-response
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Summarize authority state
+        if: always()
+        env:
+          STATE: ${{ steps.advance.outputs.state }}
+          AUTHORITY_HEAD: ${{ steps.advance.outputs.authority_head }}
+          OBLIGATION_ID: ${{ steps.advance.outputs.obligation_id }}
+          RUN_ID: ${{ steps.advance.outputs.run_id }}
+          DISPATCH_ROUTE: ${{ steps.advance.outputs.dispatch_route }}
+          DISPATCH_REASON: ${{ steps.advance.outputs.dispatch_reason_code }}
+        shell: bash
+        run: |
+          {
+            echo '## Overcenter'
+            echo
+            echo "- state: ${STATE:-failed}"
+            echo "- authority: ${AUTHORITY_HEAD:-none}"
+            echo "- obligation: ${OBLIGATION_ID:-none}"
+            echo "- run: ${RUN_ID:-none}"
+            echo "- route: ${DISPATCH_ROUTE:-none}"
+            echo "- reason: ${DISPATCH_REASON:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
