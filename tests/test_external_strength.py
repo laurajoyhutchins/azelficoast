@@ -61,6 +61,9 @@ def test_external_strength_contract_freezes_headline_claim_before_outcomes() -> 
     assert readiness["passed"] is True
     assert readiness["planned_battles"] == 1000
     assert readiness["shard_count"] == 10
+    assert readiness["evaluator_digest"] == (
+        "sha256:9a4b86802f676db276b5f9b988a3d3badda028b5ac6610b2fa7c424b93255a0c"
+    )
     assert readiness["opponent_revision"] == "6c467c081e862fb321adb405355beb41aba8e226"
     assert readiness["claim_scope"] == "playing_strength_only_unmatched_compute"
 
