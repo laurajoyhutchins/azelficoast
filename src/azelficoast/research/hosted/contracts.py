@@ -44,6 +44,12 @@ class Artifact:
 
 
 @dataclass(frozen=True, slots=True)
+class PrepareContract:
+    operation: str
+    artifact: Artifact
+
+
+@dataclass(frozen=True, slots=True)
 class RunContract:
     kind: str
     operation: str
@@ -68,6 +74,7 @@ class HostedStudy:
     showdown: bool
     evidence: bool
     run: RunContract
+    prepare: PrepareContract | None = None
     aggregate: AggregateContract | None = None
 
 
@@ -99,6 +106,17 @@ def _artifact(value: object, *, label: str) -> Artifact:
         name=name,
         paths=_strings(record.get("paths"), label=f"{label}.paths"),
         if_no_files=if_no_files,
+    )
+
+
+def _prepare_contract(value: object, *, label: str) -> PrepareContract:
+    record = _object(value, label=label)
+    operation = record.get("operation")
+    if not isinstance(operation, str) or not operation:
+        raise HostedResearchContractError(f"{label}.operation must be non-empty")
+    return PrepareContract(
+        operation=operation,
+        artifact=_artifact(record.get("artifact"), label=f"{label}.artifact"),
     )
 
 
@@ -169,6 +187,7 @@ def load_studies(path: Path = CONTRACT_PATH) -> tuple[HostedStudy, ...]:
             raise HostedResearchContractError(
                 f"{name} capability flags must be booleans"
             )
+        prepare_raw = record.get("prepare")
         aggregate_raw = record.get("aggregate")
         studies.append(
             HostedStudy(
@@ -177,6 +196,14 @@ def load_studies(path: Path = CONTRACT_PATH) -> tuple[HostedStudy, ...]:
                 showdown=showdown,
                 evidence=evidence,
                 run=_run_contract(record.get("run"), label=f"{name}.run"),
+                prepare=(
+                    None
+                    if prepare_raw is None
+                    else _prepare_contract(
+                        prepare_raw,
+                        label=f"{name}.prepare",
+                    )
+                ),
                 aggregate=(
                     None
                     if aggregate_raw is None
@@ -221,6 +248,25 @@ def _artifact_name(template: str, unit: str) -> str:
     return template.replace("{unit}", unit)
 
 
+def prepare_matrix(studies: Sequence[HostedStudy]) -> dict[str, object]:
+    include: list[dict[str, object]] = []
+    for study in studies:
+        prepare = study.prepare
+        if prepare is None:
+            continue
+        include.append(
+            {
+                "study": study.name,
+                "showdown": study.showdown,
+                "evidence": study.evidence,
+                "artifact_name": prepare.artifact.name,
+                "artifact_path": "\n".join(prepare.artifact.paths),
+                "if_no_files": prepare.artifact.if_no_files,
+            }
+        )
+    return {"include": include}
+
+
 def run_matrix(studies: Sequence[HostedStudy]) -> dict[str, object]:
     include: list[dict[str, object]] = []
     for study in studies:
@@ -237,6 +283,11 @@ def run_matrix(studies: Sequence[HostedStudy]) -> dict[str, object]:
                     ),
                     "artifact_path": "\n".join(study.run.artifact.paths),
                     "if_no_files": study.run.artifact.if_no_files,
+                    "prepare_artifact_name": (
+                        study.prepare.artifact.name
+                        if study.prepare is not None
+                        else ""
+                    ),
                 }
             )
     return {"include": include}
@@ -257,6 +308,11 @@ def aggregate_matrix(studies: Sequence[HostedStudy]) -> dict[str, object]:
                 "artifact_name": aggregate.artifact.name,
                 "artifact_path": "\n".join(aggregate.artifact.paths),
                 "if_no_files": aggregate.artifact.if_no_files,
+                "prepare_artifact_name": (
+                    study.prepare.artifact.name
+                    if study.prepare is not None
+                    else ""
+                ),
             }
         )
     return {"include": include}
