@@ -7,6 +7,7 @@ from azelficoast.research.hosted.contracts import (
     STUDIES,
     STUDIES_BY_NAME,
     aggregate_matrix,
+    prepare_matrix,
     run_matrix,
     studies_for_paths,
 )
@@ -24,6 +25,7 @@ EXPECTED_STUDIES = {
     "natural-status-move-public-belief",
     "opponent-team-completion-support",
     "policy-boundary-refinement-experiment",
+    "posterior-stratified-population",
     "protect-action-survival-experiment",
     "protect-continuation-experiment",
     "protect-speed-fork-mechanics",
@@ -83,15 +85,25 @@ def test_sharded_studies_compile_to_explicit_execution_units() -> None:
     population = run_matrix(
         (STUDIES_BY_NAME["natural-population-strategy-fusion"],)
     )["include"]
+    posterior = run_matrix(
+        (STUDIES_BY_NAME["posterior-stratified-population"],)
+    )["include"]
 
     assert isinstance(depth, list)
     assert isinstance(population, list)
+    assert isinstance(posterior, list)
     assert [entry["unit"] for entry in depth] == [str(index) for index in range(6)]
     assert [entry["unit"] for entry in population] == [
         str(index) for index in range(8)
     ]
     assert all(entry["showdown"] is True for entry in depth)
     assert all(entry["evidence"] is True for entry in population)
+    assert [entry["unit"] for entry in posterior] == [
+        str(index) for index in range(32)
+    ]
+    assert {
+        entry["prepare_artifact_name"] for entry in posterior
+    } == {"posterior-stratified-population-selection"}
 
 
 def test_only_population_studies_require_aggregation() -> None:
@@ -100,6 +112,7 @@ def test_only_population_studies_require_aggregation() -> None:
     assert {entry["study"] for entry in matrix} == {
         "natural-depth-regret",
         "natural-population-strategy-fusion",
+        "posterior-stratified-population",
     }
 
 
@@ -128,7 +141,7 @@ def test_hosted_cli_exposes_only_generic_execution_commands() -> None:
         'commands.add_parser("natural-depth-shard")',
     ):
         assert command not in source
-    for command in ("plan", "run-unit", "prepare-aggregate", "aggregate"):
+    for command in ("plan", "prepare-run", "run-unit", "prepare-aggregate", "aggregate"):
         assert f'commands.add_parser("{command}")' in source
 
 
@@ -186,3 +199,20 @@ def test_population_runner_derives_frozen_values_from_plan_contracts() -> None:
         / "hosted"
         / "__main__.py"
     ).read_text(encoding="utf-8")
+
+
+
+def test_posterior_population_preparation_is_a_single_contract_unit() -> None:
+    study = STUDIES_BY_NAME["posterior-stratified-population"]
+    matrix = prepare_matrix((study,))["include"]
+
+    assert matrix == [
+        {
+            "study": "posterior-stratified-population",
+            "showdown": True,
+            "evidence": False,
+            "artifact_name": "posterior-stratified-population-selection",
+            "artifact_path": "/tmp/hosted-preparation",
+            "if_no_files": "error",
+        }
+    ]
