@@ -250,6 +250,7 @@ def test_research_workflow_calls_only_generic_research_entrypoints() -> None:
     assert "azelficoast.research.ci run" in source
     assert "azelficoast.research.ci certify" in source
     assert "azelficoast.research.hosted plan" in source
+    assert "azelficoast.research.hosted prepare-run" in source
     assert "azelficoast.research.hosted run-unit" in source
     assert "azelficoast.research.hosted prepare-aggregate" in source
     assert "azelficoast.research.hosted aggregate" in source
@@ -312,7 +313,7 @@ def test_candidate_specs_are_repository_data_not_runner_code() -> None:
     assert "_spec(" not in loader
     assert "adaptive-execution-experiment.json" not in loader
     assert contract["schema"] == "azelficoast.candidate-research-contracts"
-    assert len(contract["experiments"]) == 16
+    assert len(contract["experiments"]) == 17
     assert '"experiments/contracts/candidate.json"' in loader
     assert '".github/workflows/research.yml"' in loader
     assert "candidate-research.yml" not in loader
@@ -369,3 +370,13 @@ def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
         "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION"
         in script
     )
+
+
+def test_hosted_preparation_is_generic_transport_not_scientific_authority() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    prepare = source[source.index("  hosted-prepare:\n") : source.index("  hosted-run:\n")]
+
+    assert "fromJson(needs.hosted-plan.outputs.prepare_matrix)" in prepare
+    assert "azelficoast.research.hosted prepare-run" in prepare
+    assert "posterior-stratified-population" not in prepare
+    assert "AZELFICOAST_GENERATOR_ROUNDS" not in prepare
