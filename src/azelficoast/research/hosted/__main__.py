@@ -9,6 +9,7 @@ from azelficoast.research.hosted.contracts import (
     STUDIES_BY_NAME,
     HostedResearchContractError,
     aggregate_matrix,
+    prepare_matrix,
     run_matrix,
     select_studies,
 )
@@ -36,6 +37,12 @@ COMMANDS: dict[str, Command] = {
     "natural-population-aggregate": population.natural_population_aggregate,
     "natural-depth-restore": population.natural_depth_restore,
     "natural-depth-aggregate": population.natural_depth_aggregate,
+    "posterior-stratified-population-prepare": (
+        population.posterior_stratified_population_prepare
+    ),
+    "posterior-stratified-population-aggregate": (
+        population.posterior_stratified_population_aggregate
+    ),
 }
 
 
@@ -49,6 +56,9 @@ def _parser() -> argparse.ArgumentParser:
     plan.add_argument("--base", default="")
     plan.add_argument("--head", default="")
     plan.add_argument("--requested", default="")
+
+    prepare_run = commands.add_parser("prepare-run")
+    prepare_run.add_argument("study", choices=tuple(STUDIES_BY_NAME))
 
     run_unit = commands.add_parser("run-unit")
     run_unit.add_argument("study", choices=tuple(STUDIES_BY_NAME))
@@ -100,9 +110,30 @@ def _run_study_unit(study_name: str, unit: str) -> None:
             shard_count=len(contract.units),
         )
         return
+    if contract.kind == "posterior-stratified-population-shard":
+        population.posterior_stratified_population_shard(
+            int(unit),
+            shard_count=len(contract.units),
+        )
+        return
     raise HostedResearchContractError(
         f"{study_name} uses unknown execution kind {contract.kind!r}"
     )
+
+
+def _prepare_run(study_name: str) -> None:
+    prepare = STUDIES_BY_NAME[study_name].prepare
+    if prepare is None:
+        raise HostedResearchContractError(
+            f"{study_name} has no run preparation contract"
+        )
+    command = COMMANDS.get(prepare.operation)
+    if command is None:
+        raise HostedResearchContractError(
+            f"{study_name} references unknown preparation operation "
+            f"{prepare.operation!r}"
+        )
+    command()
 
 
 def _prepare_aggregate(study_name: str) -> None:
@@ -148,12 +179,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(
             json.dumps(
                 {
+                    "prepare": prepare_matrix(selected),
                     "run": run_matrix(selected),
                     "aggregate": aggregate_matrix(selected),
                 },
                 separators=(",", ":"),
             )
         )
+    elif args.command == "prepare-run":
+        _prepare_run(args.study)
     elif args.command == "run-unit":
         _run_study_unit(args.study, args.unit)
     elif args.command == "prepare-aggregate":
