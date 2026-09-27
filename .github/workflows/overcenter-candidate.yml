@@ -1,0 +1,311 @@
+name: Overcenter · verify and settle candidate
+
+on:
+  push:
+    branches:
+      - 'overcenter/candidate/**'
+
+permissions: {}
+
+concurrency:
+  group: overcenter-candidate-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    name: Bind canonical candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    outputs:
+      run_id: ${{ steps.bind.outputs.run_id }}
+      base_sha: ${{ steps.bind.outputs.base_sha }}
+    steps:
+      - name: Check out exact canonical candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Bind run and single parent
+        id: bind
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="${GITHUB_REF_NAME#overcenter/candidate/}"
+          test -n "$run_id"
+          test "$run_id" != "$GITHUB_REF_NAME"
+          read -r commit parent extra < <(git rev-list --parents -n1 "$GITHUB_SHA")
+          test "$commit" = "$GITHUB_SHA"
+          test -n "$parent"
+          test -z "${extra:-}"
+          changed="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
+          test -n "$changed"
+          if grep -Eq '^(\.github|\.overcenter)(/|$)' <<<"$changed"; then
+            echo "canonical source candidate mutated control plane" >&2
+            exit 1
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$parent" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify Azelficoast candidate
+    needs: classify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact canonical candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Azelficoast simulator Python
+        uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: true
+
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
+
+      - name: Restore verified pinned Pokemon Showdown
+        uses: ./.github/actions/setup-showdown
+
+      - name: Type check Python static frontier
+        run: uv run mypy
+
+      - name: Install pinned JavaScript static tooling
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+
+      - name: Lint JavaScript script frontier
+        run: npm run lint:showdown
+
+      - name: Type check JavaScript script frontier
+        run: npm run typecheck:showdown
+
+      - name: Check JavaScript syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' scripts < <(find showdown -type f -name '*.cjs' -print0 | sort -z)
+          (( ${#scripts[@]} > 0 ))
+          for script in "${scripts[@]}"; do
+            node --check "$script"
+          done
+
+      - name: Lint Python
+        run: uv run ruff check .
+
+      - name: Test deterministic suite
+        run: uv run pytest
+
+      - name: Fast hostile correctness gate
+        run: uv run pytest tests/hostile -m hostile_fast
+
+      - name: Imperfect-information reference experiment
+        run: uv run python -m azelficoast.search.imperfect_information
+
+      - name: Pokemon-shaped counterexample
+        run: uv run python -m azelficoast.research.verification.pokemon_counterexample
+
+      - name: Simulator dependency experiment
+        run: uv run python -m azelficoast.research.experiments.simulator_experiment
+
+      - name: Type check accelerator frontier
+        run: |
+          uv run mypy \
+            src/azelficoast/core/compiled_search.py \
+            src/azelficoast/belief/showdown_packing.py \
+            src/azelficoast/belief/packed_evaluator.py \
+            src/azelficoast/belief/compiled_search.py
+
+      - name: Execute affected experiment contracts
+        env:
+          BASE_SHA: ${{ needs.classify.outputs.base_sha }}
+          HEAD_SHA: ${{ github.sha }}
+          AZELFICOAST_GIT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          matrix="$(uv run python -m azelficoast.research.ci plan --base "$BASE_SHA" --head "$HEAD_SHA")"
+          count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "$matrix")"
+          while IFS= read -r experiment; do
+            test -n "$experiment"
+            uv run python -m azelficoast.research.ci run "$experiment"
+          done < <(uv run python -c 'import json,sys; [print(x["experiment"]) for x in json.loads(sys.argv[1])["include"]]' "$matrix")
+          SELECTED_COUNT="$count" \
+          EXACT_RESULT=success \
+          ACCELERATOR_STATIC_RESULT=success \
+          HEAD_SHA="$HEAD_SHA" \
+          MATRIX="$matrix" \
+            uv run python -m azelficoast.research.ci certify
+
+      - name: Publish exact-head research certificate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: overcenter-candidate-research-certificate
+          path: /tmp/candidate-research-certificate/certificate.json
+          if-no-files-found: error
+          retention-days: 7
+
+  record:
+    name: Record source verification
+    needs: [classify, verify]
+    if: always() && needs.classify.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      contents: read
+    env:
+      CANDIDATE_SHA: ${{ github.sha }}
+      CANDIDATE_RUN_ID: ${{ needs.classify.outputs.run_id }}
+      BASE_SHA: ${{ needs.classify.outputs.base_sha }}
+      EVIDENCE_RESULT: ${{ needs.verify.result }}
+    steps:
+      - name: Check out exact canonical candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Record exact verification result
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$EVIDENCE_RESULT" = "success" ]; then
+            state="verified"
+            reason=""
+            tree_sha="$(git rev-parse "$CANDIDATE_SHA^{tree}")"
+          else
+            state="rejected"
+            reason="AZELFICOAST_CANDIDATE_VERIFICATION_FAILED"
+            tree_sha=""
+          fi
+          mkdir -p source-verification
+          STATE="$state" REASON="$reason" TREE_SHA="$tree_sha" python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          value = {
+              "schema": "overcenter-source-verification/v1",
+              "state": os.environ["STATE"],
+              "run_id": os.environ["CANDIDATE_RUN_ID"],
+              "candidate_sha": os.environ["CANDIDATE_SHA"],
+              "base_sha": os.environ["BASE_SHA"],
+              "tree_sha": os.environ["TREE_SHA"] or None,
+              "reason": os.environ["REASON"] or None,
+          }
+          Path("source-verification/source-verification.json").write_text(
+              json.dumps(value, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Publish source verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: overcenter-source-verification
+          path: source-verification/source-verification.json
+          if-no-files-found: error
+          retention-days: 7
+
+  submit:
+    name: project.submit
+    needs: [classify, record]
+    if: always() && needs.classify.result == 'success' && needs.record.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Check out trusted Azelficoast main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Resolve trusted Overcenter runtime
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["repository"])')"
+          sha="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["sha"])')"
+          [[ "$repository" =~ ^[^/]+/[^/]+$ ]]
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact Overcenter runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ steps.runtime.outputs.repository }}
+          ref: ${{ steps.runtime.outputs.sha }}
+          path: .overcenter-runtime
+          persist-credentials: false
+
+      - name: Use Overcenter's pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .overcenter-runtime/.node-version
+          package-manager-cache: false
+
+      - name: Fetch exact candidate
+        env:
+          CANDIDATE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$CANDIDATE_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$CANDIDATE_SHA"
+
+      - name: Download source verification
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: overcenter-source-verification
+          path: source-verification
+
+      - name: Settle exact candidate
+        id: submit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OVERCENTER_COMMAND_REPOSITORY_ID: ${{ github.repository_id }}
+          OVERCENTER_COMMAND_REPOSITORY: ${{ github.repository }}
+          OVERCENTER_COMMAND_SOURCE_SHA: ${{ steps.runtime.outputs.sha }}
+          OVERCENTER_COMMAND_RUN_ID: ${{ github.run_id }}
+          OVERCENTER_COMMAND_RUN_ATTEMPT: ${{ github.run_attempt }}
+          OVERCENTER_CANDIDATE_SHA: ${{ github.sha }}
+          OVERCENTER_CANDIDATE_RUN_ID: ${{ needs.classify.outputs.run_id }}
+          OVERCENTER_SOURCE_VERIFICATION_PATH: ${{ github.workspace }}/source-verification/source-verification.json
+          OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
+          OVERCENTER_PROJECT_REMOTE: origin
+        run: |
+          mkdir -p overcenter-submit
+          node --experimental-strip-types \
+            .overcenter-runtime/src/cli/project-submit.ts \
+            --receipt overcenter-submit/receipt.json
+
+      - name: Publish settlement receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: overcenter-project-submit-${{ needs.classify.outputs.run_id }}
+          path: overcenter-submit/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Re-enter project loop after rejected candidate
+        if: steps.submit.outputs.disposition == 'READY'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            -f event_type=overcenter-advance
