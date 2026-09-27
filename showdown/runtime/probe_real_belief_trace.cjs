@@ -504,7 +504,7 @@ function normalizedOpponentPolicy() {
 
 const opponentPolicySemantics = JSON.parse(
   fs.readFileSync(
-    path.join(__dirname, "..", "..", "experiments", "opponent-policy-semantics.json"),
+    path.join(__dirname, "..", "..", "experiments", "data", "opponent-policy-semantics.json"),
     "utf8"
   )
 );

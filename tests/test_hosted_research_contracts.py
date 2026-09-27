@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from azelficoast.research.hosted import belief
+from azelficoast.research.hosted import belief, population as population_runner
 from azelficoast.research.hosted.contracts import (
     STUDIES,
     STUDIES_BY_NAME,
@@ -130,6 +130,36 @@ def test_hosted_cli_exposes_only_generic_execution_commands() -> None:
         assert command not in source
     for command in ("plan", "run-unit", "prepare-aggregate", "aggregate"):
         assert f'commands.add_parser("{command}")' in source
+
+
+def test_hosted_data_consumers_follow_experiments_data_layout() -> None:
+    root = Path(__file__).resolve().parents[1]
+    mechanics = (
+        root / "src" / "azelficoast" / "research" / "hosted" / "mechanics.py"
+    ).read_text(encoding="utf-8")
+    probe = (
+        root / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
+    ).read_text(encoding="utf-8")
+
+    assert population_runner.DEPTH_PLAN_PATH == (
+        root / "experiments" / "data" / "natural-depth-regret-plan.json"
+    )
+    assert population_runner.POPULATION_PLAN_PATH == (
+        root / "experiments" / "data" / "natural-population-strategy-fusion-plan.json"
+    )
+    assert population_runner.DEPTH_PLAN_PATH.is_file()
+    assert population_runner.POPULATION_PLAN_PATH.is_file()
+
+    for name in (
+        "policy-boundary-refinement-results.json",
+        "protect-action-survival.json",
+        "protect-speed-forks.json",
+    ):
+        assert (root / "experiments" / "data" / name).is_file()
+        assert f"experiments/data/{name}" in mechanics
+
+    assert (root / "experiments" / "data" / "opponent-policy-semantics.json").is_file()
+    assert '"experiments", "data", "opponent-policy-semantics.json"' in probe
 
 
 def test_population_runner_derives_frozen_values_from_plan_contracts() -> None:

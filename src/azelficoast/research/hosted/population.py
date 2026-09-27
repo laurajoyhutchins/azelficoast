@@ -22,9 +22,10 @@ from azelficoast.research.hosted.common import (
 POPULATION_PLAN_PATH = (
     REPOSITORY_ROOT
     / "experiments"
+    / "data"
     / "natural-population-strategy-fusion-plan.json"
 )
-DEPTH_PLAN_PATH = REPOSITORY_ROOT / "experiments" / "natural-depth-regret-plan.json"
+DEPTH_PLAN_PATH = REPOSITORY_ROOT / "experiments" / "data" / "natural-depth-regret-plan.json"
 
 
 def _positive_int(value: object, *, label: str) -> int:
