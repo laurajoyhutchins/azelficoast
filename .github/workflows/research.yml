@@ -15,6 +15,9 @@ on:
       - "src/**"
       - "showdown/**"
       - "tests/**"
+  push:
+    branches:
+      - 'overcenter/candidate/**'
   workflow_dispatch:
     inputs:
       candidate:
@@ -33,12 +36,17 @@ permissions:
   actions: read
 
 concurrency:
-  group: research-${{ github.event.pull_request.number || github.ref }}
+  group: research-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   candidate-plan:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false &&
+       !startsWith(github.head_ref, 'overcenter/proposal/'))
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -54,11 +62,14 @@ jobs:
         id: plan
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           REQUESTED: ${{ inputs.candidate }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             matrix="$(uv run python -m azelficoast.research.ci plan --requested "${REQUESTED:-all}")"
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            base_sha="$(git rev-parse "${HEAD_SHA}^")"
+            matrix="$(uv run python -m azelficoast.research.ci plan --base "${base_sha}" --head "${HEAD_SHA}")"
           else
             matrix="$(uv run python -m azelficoast.research.ci plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
@@ -142,7 +153,10 @@ jobs:
           if-no-files-found: error
 
   hosted-plan:
-    if: github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.action == 'ready_for_review' &&
+       !startsWith(github.head_ref, 'overcenter/proposal/'))
     runs-on: ubuntu-latest
     outputs:
       run_matrix: ${{ steps.plan.outputs.run_matrix }}
@@ -242,3 +256,148 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: ${{ matrix.if_no_files }}
+
+  overcenter-settle:
+    name: Overcenter project.submit
+    needs: [candidate-certify]
+    if: >-
+      always() &&
+      github.event_name == 'push' &&
+      startsWith(github.ref_name, 'overcenter/candidate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      RESEARCH_RESULT: ${{ needs.candidate-certify.result }}
+    steps:
+      - name: Check out exact canonical candidate
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Wait for ordinary CI evidence
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          conclusion="missing"
+          for _ in {1..60}; do
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=20")"
+            conclusion="$(jq -r --arg sha "$GITHUB_SHA" '
+              [.workflow_runs[] | select(.head_sha == $sha)]
+              | sort_by(.run_number)
+              | last
+              | if . == null then "missing"
+                elif .status != "completed" then "pending"
+                else (.conclusion // "unknown")
+                end
+            ' <<<"$runs")"
+            if [[ "$conclusion" != "missing" && "$conclusion" != "pending" ]]; then
+              break
+            fi
+            sleep 5
+          done
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+      - name: Record exact verification result
+        id: verification
+        env:
+          CI_RESULT: ${{ steps.ci.outputs.conclusion }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="${GITHUB_REF_NAME#overcenter/candidate/}"
+          test -n "$run_id"
+          test "$run_id" != "$GITHUB_REF_NAME"
+          read -r commit parent extra < <(git rev-list --parents -n1 "$GITHUB_SHA")
+          test "$commit" = "$GITHUB_SHA"
+          test -n "$parent"
+          test -z "${extra:-}"
+          if [[ "$RESEARCH_RESULT" == "success" && "$CI_RESULT" == "success" ]]; then
+            state="verified"
+            reason=""
+            tree_sha="$(git rev-parse "$GITHUB_SHA^{tree}")"
+          else
+            state="rejected"
+            reason="AZELFICOAST_CANDIDATE_VERIFICATION_FAILED"
+            tree_sha=""
+          fi
+          mkdir -p overcenter-verification
+          jq -n \
+            --arg state "$state" \
+            --arg run_id "$run_id" \
+            --arg candidate_sha "$GITHUB_SHA" \
+            --arg base_sha "$parent" \
+            --arg tree_sha "$tree_sha" \
+            --arg reason "$reason" \
+            '{
+              schema: "overcenter-source-verification/v1",
+              state: $state,
+              run_id: $run_id,
+              candidate_sha: $candidate_sha,
+              base_sha: $base_sha,
+              tree_sha: (if $tree_sha == "" then null else $tree_sha end),
+              reason: (if $reason == "" then null else $reason end)
+            }' > overcenter-verification/source-verification.json
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "state=$state" >> "$GITHUB_OUTPUT"
+      - name: Resolve trusted Overcenter runtime
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["repository"])')"
+          sha="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["sha"])')"
+          [[ "$repository" =~ ^[^/]+/[^/]+$ ]]
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Check out exact Overcenter runtime
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.runtime.outputs.repository }}
+          ref: ${{ steps.runtime.outputs.sha }}
+          path: .overcenter-runtime
+          persist-credentials: false
+      - name: Use Overcenter pinned Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .overcenter-runtime/.node-version
+          package-manager-cache: false
+      - name: Settle exact candidate
+        id: submit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OVERCENTER_COMMAND_REPOSITORY_ID: ${{ github.repository_id }}
+          OVERCENTER_COMMAND_REPOSITORY: ${{ github.repository }}
+          OVERCENTER_COMMAND_SOURCE_SHA: ${{ steps.runtime.outputs.sha }}
+          OVERCENTER_COMMAND_RUN_ID: ${{ github.run_id }}
+          OVERCENTER_COMMAND_RUN_ATTEMPT: ${{ github.run_attempt }}
+          OVERCENTER_CANDIDATE_SHA: ${{ github.sha }}
+          OVERCENTER_CANDIDATE_RUN_ID: ${{ steps.verification.outputs.run_id }}
+          OVERCENTER_SOURCE_VERIFICATION_PATH: ${{ github.workspace }}/overcenter-verification/source-verification.json
+          OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
+          OVERCENTER_PROJECT_REMOTE: origin
+        run: |
+          mkdir -p overcenter-submit
+          node --experimental-strip-types \
+            .overcenter-runtime/src/cli/project-submit.ts \
+            --receipt overcenter-submit/receipt.json
+      - name: Publish settlement receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: overcenter-project-submit-${{ steps.verification.outputs.run_id }}
+          path: overcenter-submit/receipt.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Re-enter project loop after rejected candidate
+        if: steps.submit.outputs.disposition == 'READY'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method POST "repos/${{ github.repository }}/dispatches" \
+            -f event_type=overcenter-advance
