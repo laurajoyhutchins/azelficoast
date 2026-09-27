@@ -36,7 +36,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: research-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  group: research-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -153,10 +153,7 @@ jobs:
           if-no-files-found: error
 
   hosted-plan:
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.action == 'ready_for_review' &&
-       !startsWith(github.head_ref, 'overcenter/proposal/'))
+    if: github.event_name == 'workflow_dispatch' || github.event.action == 'ready_for_review'
     runs-on: ubuntu-latest
     outputs:
       run_matrix: ${{ steps.plan.outputs.run_matrix }}
