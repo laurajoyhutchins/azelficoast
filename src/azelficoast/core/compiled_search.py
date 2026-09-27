@@ -64,6 +64,7 @@ COMPILED_TOPOLOGY_SCHEMA_VERSION = 2
 COMPILED_SEARCH_SCHEMA = "azelficoast.core.compiled-partial-information-search"
 COMPILED_SEARCH_SCHEMA_VERSION = 2
 
+
 class _JaxModule(Protocol):
     """Typed surface used from JAX without making JAX part of the core contract."""
 
