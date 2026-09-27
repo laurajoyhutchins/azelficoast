@@ -28,20 +28,6 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 
 import numpy as np
 
-from azelficoast.core.evaluation import (
-    EvaluationContribution,
-    EvaluationFrontier,
-    EvaluationFrontierError,
-    EvaluationLeaf,
-)
-from azelficoast.core.search import (
-    PartialInformationSearchError,
-    SEARCH_METHODS,
-    _EvaluatorMeter,
-    _normalized_inputs,
-    _validated_classes,
-    search_transition_program,
-)
 from azelficoast.core.compiled_planning import (
     AdaptiveCardinalityPlan,
     CardinalityEnvelope,
@@ -57,16 +43,26 @@ from azelficoast.core.compiled_planning import (
     _plan_outcome_world_join,
     estimate_search_cardinality_lower_bound,
 )
+from azelficoast.core.evaluation import (
+    EvaluationContribution,
+    EvaluationFrontier,
+    EvaluationFrontierError,
+    EvaluationLeaf,
+)
+from azelficoast.core.search import (
+    PartialInformationSearchError,
+    SEARCH_METHODS,
+    _EvaluatorMeter,
+    _normalized_inputs,
+    _validated_classes,
+    search_transition_program,
+)
 from azelficoast.core.transition import canonical_json, sha256_json
 
 COMPILED_TOPOLOGY_SCHEMA = "azelficoast.core.compiled-search-topology"
 COMPILED_TOPOLOGY_SCHEMA_VERSION = 2
 COMPILED_SEARCH_SCHEMA = "azelficoast.core.compiled-partial-information-search"
 COMPILED_SEARCH_SCHEMA_VERSION = 2
-
-class CompiledSearchError(ValueError):
-    """Raised when an authorized search topology cannot be compiled or transported."""
-
 
 class _JaxModule(Protocol):
     """Typed surface used from JAX without making JAX part of the core contract."""
