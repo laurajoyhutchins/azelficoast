@@ -35,13 +35,75 @@ COMPILED_TOPOLOGY_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledSearchTopology:
-    """Dense incidence structure derived from one validated transition program.
+class CompiledClassIncidence:
+    """World-to-class incidence and verified class identity."""
 
-    `world_to_class[action][world]` identifies the verified execution class used by
-    that world. Chance edges then map an action/world/class to an already-authorized
-    public-observation partition and a method-specific evaluation leaf.
-    """
+    world_to_class: tuple[tuple[int, ...], ...]
+    action_index: tuple[int, ...]
+    local_index: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledEdgeIncidence:
+    """Chance-edge incidence columns for the authorized topology."""
+
+    action_index: tuple[int, ...]
+    world_index: tuple[int, ...]
+    class_index: tuple[int, ...]
+    outcome_index: tuple[int, ...]
+    observation_index: tuple[int, ...]
+    successor_index: tuple[int, ...]
+    leaf_index: tuple[int, ...]
+    chance: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        edge_count = len(self.world_index)
+        columns = (
+            self.action_index,
+            self.class_index,
+            self.outcome_index,
+            self.observation_index,
+            self.successor_index,
+            self.leaf_index,
+            self.chance,
+        )
+        if edge_count <= 0 or any(len(column) != edge_count for column in columns):
+            raise CompiledSearchError("compiled chance-edge arrays have inconsistent sizes")
+        if any(not math.isfinite(chance) or chance <= 0.0 for chance in self.chance):
+            raise CompiledSearchError("compiled chance edges must be positive and finite")
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledLeafIncidence:
+    """Evaluation-leaf incidence and authorized successor semantics."""
+
+    action_index: tuple[int, ...]
+    observation_index: tuple[int, ...]
+    successor_index: tuple[int, ...]
+    conditioned_world_index: tuple[int, ...]
+    public_states: tuple[Mapping[str, Any], ...]
+    legal_actions: tuple[tuple[str, ...], ...]
+    legal_mask: tuple[tuple[bool, ...], ...]
+
+    def __post_init__(self) -> None:
+        leaf_count = len(self.action_index)
+        columns = (
+            self.observation_index,
+            self.successor_index,
+            self.conditioned_world_index,
+            self.public_states,
+            self.legal_actions,
+            self.legal_mask,
+        )
+        if leaf_count <= 0 or any(len(column) != leaf_count for column in columns):
+            raise CompiledSearchError("compiled leaf arrays have inconsistent sizes")
+        if any(not actions for actions in self.legal_actions):
+            raise CompiledSearchError("compiled leaf has no legal actions")
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledSearchTopology:
+    """Immutable semantic topology consumed by numeric search backends."""
 
     method: str
     program_digest: str
@@ -49,24 +111,9 @@ class CompiledSearchTopology:
     outcome_world_join_plan: OutcomeWorldJoinPlan
     root_actions: tuple[str, ...]
     world_ids: tuple[str, ...]
-    world_to_class: tuple[tuple[int, ...], ...]
-    class_action_index: tuple[int, ...]
-    class_local_index: tuple[int, ...]
-    edge_action_index: tuple[int, ...]
-    edge_world_index: tuple[int, ...]
-    edge_class_index: tuple[int, ...]
-    edge_outcome_index: tuple[int, ...]
-    edge_observation_index: tuple[int, ...]
-    edge_successor_index: tuple[int, ...]
-    edge_leaf_index: tuple[int, ...]
-    edge_chance: tuple[float, ...]
-    leaf_action_index: tuple[int, ...]
-    leaf_observation_index: tuple[int, ...]
-    leaf_successor_index: tuple[int, ...]
-    leaf_conditioned_world_index: tuple[int, ...]
-    leaf_public_states: tuple[Mapping[str, Any], ...]
-    leaf_legal_actions: tuple[tuple[str, ...], ...]
-    leaf_legal_mask: tuple[tuple[bool, ...], ...]
+    classes: CompiledClassIncidence
+    edges: CompiledEdgeIncidence
+    leaves: CompiledLeafIncidence
     observation_keys: tuple[str, ...]
     successor_states: tuple[Mapping[str, Any], ...]
     successor_action_vocabulary: tuple[str, ...]
@@ -79,52 +126,29 @@ class CompiledSearchTopology:
             raise CompiledSearchError("compiled topology needs unique root actions")
         if not self.world_ids or len(set(self.world_ids)) != len(self.world_ids):
             raise CompiledSearchError("compiled topology needs unique hidden worlds")
-        if len(self.world_to_class) != len(self.root_actions):
+        if len(self.classes.world_to_class) != len(self.root_actions):
             raise CompiledSearchError("world-to-class action dimension is invalid")
-        if any(len(row) != len(self.world_ids) for row in self.world_to_class):
+        if any(len(row) != len(self.world_ids) for row in self.classes.world_to_class):
             raise CompiledSearchError("world-to-class world dimension is invalid")
-        class_count = len(self.class_action_index)
-        if class_count <= 0 or len(self.class_local_index) != class_count:
+
+        class_count = len(self.classes.action_index)
+        if class_count <= 0 or len(self.classes.local_index) != class_count:
             raise CompiledSearchError("compiled topology has invalid class metadata")
         if self.transition_evaluations != class_count:
             raise CompiledSearchError(
                 "transition evaluation count must equal verified execution classes"
             )
-        edge_count = len(self.edge_world_index)
-        edge_fields = (
-            self.edge_action_index,
-            self.edge_class_index,
-            self.edge_outcome_index,
-            self.edge_observation_index,
-            self.edge_successor_index,
-            self.edge_leaf_index,
-            self.edge_chance,
-        )
-        if edge_count <= 0 or any(len(field) != edge_count for field in edge_fields):
-            raise CompiledSearchError("compiled chance-edge arrays have inconsistent sizes")
-        leaf_count = len(self.leaf_action_index)
-        leaf_fields = (
-            self.leaf_observation_index,
-            self.leaf_successor_index,
-            self.leaf_conditioned_world_index,
-            self.leaf_public_states,
-            self.leaf_legal_actions,
-            self.leaf_legal_mask,
-        )
-        if leaf_count <= 0 or any(len(field) != leaf_count for field in leaf_fields):
-            raise CompiledSearchError("compiled leaf arrays have inconsistent sizes")
-        if any(not actions for actions in self.leaf_legal_actions):
-            raise CompiledSearchError("compiled leaf has no legal actions")
+
         if not self.successor_action_vocabulary:
             raise CompiledSearchError("compiled topology has no successor action vocabulary")
         if any(
             len(mask) != len(self.successor_action_vocabulary)
-            for mask in self.leaf_legal_mask
+            for mask in self.leaves.legal_mask
         ):
             raise CompiledSearchError("compiled legal-action mask width is invalid")
         for actions, mask in zip(
-            self.leaf_legal_actions,
-            self.leaf_legal_mask,
+            self.leaves.legal_actions,
+            self.leaves.legal_mask,
             strict=True,
         ):
             recovered = tuple(
@@ -140,32 +164,28 @@ class CompiledSearchTopology:
                 raise CompiledSearchError(
                     "compiled legal-action mask does not match semantic legal actions"
                 )
-        if any(not math.isfinite(chance) or chance <= 0.0 for chance in self.edge_chance):
-            raise CompiledSearchError("compiled chance edges must be positive and finite")
+
         if any(
             not 0 <= index < len(self.root_actions)
-            for index in self.edge_action_index + self.leaf_action_index
+            for index in self.edges.action_index + self.leaves.action_index
         ):
             raise CompiledSearchError("compiled topology references an unknown root action")
-        if any(
-            not 0 <= index < len(self.world_ids)
-            for index in self.edge_world_index
-        ):
+        if any(not 0 <= index < len(self.world_ids) for index in self.edges.world_index):
             raise CompiledSearchError("compiled topology references an unknown world")
-        if any(not 0 <= index < class_count for index in self.edge_class_index):
+        if any(not 0 <= index < class_count for index in self.edges.class_index):
             raise CompiledSearchError("compiled topology references an unknown class")
-        if any(not 0 <= index < leaf_count for index in self.edge_leaf_index):
+        if any(not 0 <= index < self.leaf_count for index in self.edges.leaf_index):
             raise CompiledSearchError("compiled topology references an unknown leaf")
         if any(
             not 0 <= index < len(self.observation_keys)
-            for index in self.edge_observation_index + self.leaf_observation_index
+            for index in self.edges.observation_index + self.leaves.observation_index
         ):
             raise CompiledSearchError(
                 "compiled topology references an unknown observation partition"
             )
         if any(
             not 0 <= index < len(self.successor_states)
-            for index in self.edge_successor_index + self.leaf_successor_index
+            for index in self.edges.successor_index + self.leaves.successor_index
         ):
             raise CompiledSearchError(
                 "compiled topology references an unknown successor state"
@@ -181,18 +201,92 @@ class CompiledSearchTopology:
 
     @property
     def class_count(self) -> int:
-        return len(self.class_action_index)
+        return len(self.classes.action_index)
 
     @property
     def edge_count(self) -> int:
-        return len(self.edge_world_index)
+        return len(self.edges.world_index)
 
     @property
     def leaf_count(self) -> int:
-        return len(self.leaf_action_index)
+        return len(self.leaves.action_index)
+
+    # Compatibility views keep existing consumers source-compatible while the
+    # authoritative representation remains grouped by incidence kind.
+    @property
+    def world_to_class(self) -> tuple[tuple[int, ...], ...]:
+        return self.classes.world_to_class
+
+    @property
+    def class_action_index(self) -> tuple[int, ...]:
+        return self.classes.action_index
+
+    @property
+    def class_local_index(self) -> tuple[int, ...]:
+        return self.classes.local_index
+
+    @property
+    def edge_action_index(self) -> tuple[int, ...]:
+        return self.edges.action_index
+
+    @property
+    def edge_world_index(self) -> tuple[int, ...]:
+        return self.edges.world_index
+
+    @property
+    def edge_class_index(self) -> tuple[int, ...]:
+        return self.edges.class_index
+
+    @property
+    def edge_outcome_index(self) -> tuple[int, ...]:
+        return self.edges.outcome_index
+
+    @property
+    def edge_observation_index(self) -> tuple[int, ...]:
+        return self.edges.observation_index
+
+    @property
+    def edge_successor_index(self) -> tuple[int, ...]:
+        return self.edges.successor_index
+
+    @property
+    def edge_leaf_index(self) -> tuple[int, ...]:
+        return self.edges.leaf_index
+
+    @property
+    def edge_chance(self) -> tuple[float, ...]:
+        return self.edges.chance
+
+    @property
+    def leaf_action_index(self) -> tuple[int, ...]:
+        return self.leaves.action_index
+
+    @property
+    def leaf_observation_index(self) -> tuple[int, ...]:
+        return self.leaves.observation_index
+
+    @property
+    def leaf_successor_index(self) -> tuple[int, ...]:
+        return self.leaves.successor_index
+
+    @property
+    def leaf_conditioned_world_index(self) -> tuple[int, ...]:
+        return self.leaves.conditioned_world_index
+
+    @property
+    def leaf_public_states(self) -> tuple[Mapping[str, Any], ...]:
+        return self.leaves.public_states
+
+    @property
+    def leaf_legal_actions(self) -> tuple[tuple[str, ...], ...]:
+        return self.leaves.legal_actions
+
+    @property
+    def leaf_legal_mask(self) -> tuple[tuple[bool, ...], ...]:
+        return self.leaves.legal_mask
 
     def as_record(self) -> dict[str, Any]:
-        """Return the content-addressed semantic topology record."""
+        """Return the unchanged content-addressed semantic topology record."""
 
         return {
             "schema": COMPILED_TOPOLOGY_SCHEMA,
@@ -202,24 +296,26 @@ class CompiledSearchTopology:
             "outcome_world_join_plan": self.outcome_world_join_plan.as_record(),
             "root_actions": list(self.root_actions),
             "world_ids": list(self.world_ids),
-            "world_to_class": [list(row) for row in self.world_to_class],
-            "class_action_index": list(self.class_action_index),
-            "class_local_index": list(self.class_local_index),
-            "edge_action_index": list(self.edge_action_index),
-            "edge_world_index": list(self.edge_world_index),
-            "edge_class_index": list(self.edge_class_index),
-            "edge_outcome_index": list(self.edge_outcome_index),
-            "edge_observation_index": list(self.edge_observation_index),
-            "edge_successor_index": list(self.edge_successor_index),
-            "edge_leaf_index": list(self.edge_leaf_index),
-            "edge_chance": list(self.edge_chance),
-            "leaf_action_index": list(self.leaf_action_index),
-            "leaf_observation_index": list(self.leaf_observation_index),
-            "leaf_successor_index": list(self.leaf_successor_index),
-            "leaf_conditioned_world_index": list(self.leaf_conditioned_world_index),
-            "leaf_public_states": [copy.deepcopy(dict(row)) for row in self.leaf_public_states],
-            "leaf_legal_actions": [list(row) for row in self.leaf_legal_actions],
-            "leaf_legal_mask": [list(row) for row in self.leaf_legal_mask],
+            "world_to_class": [list(row) for row in self.classes.world_to_class],
+            "class_action_index": list(self.classes.action_index),
+            "class_local_index": list(self.classes.local_index),
+            "edge_action_index": list(self.edges.action_index),
+            "edge_world_index": list(self.edges.world_index),
+            "edge_class_index": list(self.edges.class_index),
+            "edge_outcome_index": list(self.edges.outcome_index),
+            "edge_observation_index": list(self.edges.observation_index),
+            "edge_successor_index": list(self.edges.successor_index),
+            "edge_leaf_index": list(self.edges.leaf_index),
+            "edge_chance": list(self.edges.chance),
+            "leaf_action_index": list(self.leaves.action_index),
+            "leaf_observation_index": list(self.leaves.observation_index),
+            "leaf_successor_index": list(self.leaves.successor_index),
+            "leaf_conditioned_world_index": list(self.leaves.conditioned_world_index),
+            "leaf_public_states": [
+                copy.deepcopy(dict(row)) for row in self.leaves.public_states
+            ],
+            "leaf_legal_actions": [list(row) for row in self.leaves.legal_actions],
+            "leaf_legal_mask": [list(row) for row in self.leaves.legal_mask],
             "observation_keys": list(self.observation_keys),
             "successor_states": [
                 copy.deepcopy(dict(row)) for row in self.successor_states
@@ -233,38 +329,38 @@ class CompiledSearchTopology:
         }
 
     def as_numpy(self) -> dict[str, np.ndarray]:
-        """Materialize the integer incidence arrays used by JAX."""
+        """Materialize the unchanged dense-array interface used by JAX."""
 
         return {
-            "world_to_class": np.asarray(self.world_to_class, dtype=np.int32),
-            "class_action_index": np.asarray(self.class_action_index, dtype=np.int32),
-            "class_local_index": np.asarray(self.class_local_index, dtype=np.int32),
-            "edge_action_index": np.asarray(self.edge_action_index, dtype=np.int32),
-            "edge_world_index": np.asarray(self.edge_world_index, dtype=np.int32),
-            "edge_class_index": np.asarray(self.edge_class_index, dtype=np.int32),
-            "edge_outcome_index": np.asarray(self.edge_outcome_index, dtype=np.int32),
+            "world_to_class": np.asarray(self.classes.world_to_class, dtype=np.int32),
+            "class_action_index": np.asarray(self.classes.action_index, dtype=np.int32),
+            "class_local_index": np.asarray(self.classes.local_index, dtype=np.int32),
+            "edge_action_index": np.asarray(self.edges.action_index, dtype=np.int32),
+            "edge_world_index": np.asarray(self.edges.world_index, dtype=np.int32),
+            "edge_class_index": np.asarray(self.edges.class_index, dtype=np.int32),
+            "edge_outcome_index": np.asarray(self.edges.outcome_index, dtype=np.int32),
             "edge_observation_index": np.asarray(
-                self.edge_observation_index,
+                self.edges.observation_index,
                 dtype=np.int32,
             ),
             "edge_successor_index": np.asarray(
-                self.edge_successor_index,
+                self.edges.successor_index,
                 dtype=np.int32,
             ),
-            "edge_leaf_index": np.asarray(self.edge_leaf_index, dtype=np.int32),
-            "edge_chance": np.asarray(self.edge_chance, dtype=np.float32),
-            "leaf_action_index": np.asarray(self.leaf_action_index, dtype=np.int32),
+            "edge_leaf_index": np.asarray(self.edges.leaf_index, dtype=np.int32),
+            "edge_chance": np.asarray(self.edges.chance, dtype=np.float32),
+            "leaf_action_index": np.asarray(self.leaves.action_index, dtype=np.int32),
             "leaf_observation_index": np.asarray(
-                self.leaf_observation_index,
+                self.leaves.observation_index,
                 dtype=np.int32,
             ),
             "leaf_successor_index": np.asarray(
-                self.leaf_successor_index,
+                self.leaves.successor_index,
                 dtype=np.int32,
             ),
-            "leaf_legal_mask": np.asarray(self.leaf_legal_mask, dtype=np.bool_),
+            "leaf_legal_mask": np.asarray(self.leaves.legal_mask, dtype=np.bool_),
             "leaf_conditioned_world_index": np.asarray(
-                self.leaf_conditioned_world_index,
+                self.leaves.conditioned_world_index,
                 dtype=np.int32,
             ),
         }
