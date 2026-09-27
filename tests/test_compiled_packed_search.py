@@ -336,14 +336,14 @@ def test_compiled_topology_carries_successor_and_legal_action_tensors() -> None:
         expected_program_schema="example.transition-program-set",
         expected_program_schema_version=1,
     )
-    arrays = topology.as_numpy()
+    arrays = topology.materialize_arrays()
 
     assert topology.successor_action_vocabulary == (
         "move:a",
         "move:b",
         "switch:b",
     )
-    assert arrays["leaf_legal_mask"].shape == (
+    assert arrays.leaves.legal_mask.shape == (
         topology.leaf_count,
         len(topology.successor_action_vocabulary),
     )
