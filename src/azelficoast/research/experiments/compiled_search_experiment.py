@@ -12,14 +12,14 @@ import math
 import time
 from typing import Any, Sequence
 
+from azelficoast.core.compiled_planning import CardinalityEnvelope
 from azelficoast.core.compiled_search import (
-    CardinalityEnvelope,
-    compile_search_topology,
     materialize_compiled_frontier,
     reduce_compiled_root_values,
     search_transition_program_adaptive,
     transport_posterior_mass,
 )
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.search import search_transition_program
 
 WORLD_COUNT = 512
