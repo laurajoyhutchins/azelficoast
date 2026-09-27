@@ -29,11 +29,11 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 import numpy as np
 
 from azelficoast.core.compiled_planning import (
-    AdaptiveCardinalityPlan,
+    AdaptiveCardinalityPlan as AdaptiveCardinalityPlan,
     CardinalityEnvelope,
     CompiledSearchError,
     JOIN_ORDER_AGGREGATE_FIRST,
-    JOIN_ORDER_EXPAND_FIRST,
+    JOIN_ORDER_EXPAND_FIRST as JOIN_ORDER_EXPAND_FIRST,
     OutcomeWorldJoinPlan,
     SEARCH_PATH_COMPILED,
     SEARCH_PATH_PYTHON,
