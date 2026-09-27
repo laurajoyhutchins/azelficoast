@@ -113,18 +113,6 @@ jobs:
         with:
           node-version-file: .overcenter-runtime/.node-version
           package-manager-cache: false
-      - name: Build exact Overcenter worker client
-        shell: bash
-        run: |
-          set -euo pipefail
-          channel="$(sed -n 's/^channel = "\([^"]*\)"$/\1/p' .overcenter-runtime/rust-toolchain.toml)"
-          test -n "$channel"
-          rustup toolchain install "$channel" --profile minimal --no-self-update
-          test "$(rustc +"$channel" --version | awk '{print $2}')" = "$channel"
-          mkdir -p .overcenter-worker
-          RUSTUP_TOOLCHAIN="$channel" \
-            .overcenter-runtime/src/execution/worker-client/build.sh \
-            "$GITHUB_WORKSPACE/.overcenter-worker/overcenter"
       - name: Advance authoritative project
         id: advance
         env:
@@ -133,7 +121,6 @@ jobs:
           OVERCENTER_COMMAND_REPOSITORY: ${{ github.repository }}
           OVERCENTER_COMMAND_SOURCE_SHA: ${{ steps.runtime.outputs.sha }}
           OVERCENTER_PROJECT_SOURCE_SHA: ${{ github.sha }}
-          OVERCENTER_WORKER_CLIENT: ${{ github.workspace }}/.overcenter-worker/overcenter
           OVERCENTER_COMMAND_RUN_ID: ${{ github.run_id }}
           OVERCENTER_COMMAND_RUN_ATTEMPT: ${{ github.run_attempt }}
           OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
