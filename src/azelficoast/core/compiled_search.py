@@ -28,23 +28,17 @@ from typing import Any, Callable, Mapping, Protocol, Sequence, cast
 import numpy as np
 
 from azelficoast.core.compiled_planning import (
-    AdaptiveCardinalityPlan as AdaptiveCardinalityPlan,
-    CardinalityEnvelope as CardinalityEnvelope,
-    CompiledSearchError as CompiledSearchError,
-    JOIN_ORDER_AGGREGATE_FIRST as JOIN_ORDER_AGGREGATE_FIRST,
-    JOIN_ORDER_EXPAND_FIRST as JOIN_ORDER_EXPAND_FIRST,
-    OutcomeWorldJoinPlan as OutcomeWorldJoinPlan,
-    SEARCH_PATH_COMPILED as SEARCH_PATH_COMPILED,
-    SEARCH_PATH_PYTHON as SEARCH_PATH_PYTHON,
-    SearchCardinality as SearchCardinality,
+    _CardinalityEnvelope as _CardinalityEnvelope,
+    _CompiledSearchError as _CompiledSearchError,
+    _SEARCH_PATH_COMPILED as _SEARCH_PATH_COMPILED,
+    _SEARCH_PATH_PYTHON as _SEARCH_PATH_PYTHON,
+    _SearchCardinality as _SearchCardinality,
     _cardinality_plan,
-    estimate_search_cardinality_lower_bound as estimate_search_cardinality_lower_bound,
+    _estimate_search_cardinality_lower_bound as _estimate_search_cardinality_lower_bound,
 )
 from azelficoast.core.compiled_topology import (
-    COMPILED_TOPOLOGY_SCHEMA as COMPILED_TOPOLOGY_SCHEMA,
-    COMPILED_TOPOLOGY_SCHEMA_VERSION as COMPILED_TOPOLOGY_SCHEMA_VERSION,
-    CompiledSearchTopology as CompiledSearchTopology,
-    compile_search_topology as compile_search_topology,
+    _CompiledSearchTopology as _CompiledSearchTopology,
+    _compile_search_topology as _compile_search_topology,
 )
 from azelficoast.core.evaluation import (
     EvaluationContribution,
@@ -64,8 +58,8 @@ class _JaxModule(Protocol):
     def jit(self, function: Callable[..., Any]) -> Callable[..., Any]: ...
 
 
-def _observed_cardinality(topology: "CompiledSearchTopology") -> SearchCardinality:
-    return SearchCardinality(
+def _observed_cardinality(topology: "_CompiledSearchTopology") -> _SearchCardinality:
+    return _SearchCardinality(
         world_count=topology.world_count,
         class_count=topology.class_count,
         chance_edge_count=topology.edge_count,
@@ -84,41 +78,41 @@ class TransportedSearchMass:
 
     def __post_init__(self) -> None:
         if self.normalized_world_weights.ndim != 1:
-            raise CompiledSearchError("world weights must be one-dimensional")
+            raise _CompiledSearchError("world weights must be one-dimensional")
         if self.leaf_mass.ndim != 1:
-            raise CompiledSearchError("leaf mass must be one-dimensional")
+            raise _CompiledSearchError("leaf mass must be one-dimensional")
         if self.leaf_world_mass.ndim != 2 or self.leaf_world_weights.ndim != 2:
-            raise CompiledSearchError("leaf/world mass tensors must be two-dimensional")
+            raise _CompiledSearchError("leaf/world mass tensors must be two-dimensional")
         expected = (len(self.leaf_mass), len(self.normalized_world_weights))
         if self.leaf_world_mass.shape != expected or self.leaf_world_weights.shape != expected:
-            raise CompiledSearchError("transported leaf/world tensor shape is invalid")
+            raise _CompiledSearchError("transported leaf/world tensor shape is invalid")
         if np.any(~np.isfinite(self.leaf_mass)) or np.any(self.leaf_mass <= 0.0):
-            raise CompiledSearchError("every compiled leaf must carry positive finite mass")
+            raise _CompiledSearchError("every compiled leaf must carry positive finite mass")
         if np.any(~np.isfinite(self.leaf_world_weights)):
-            raise CompiledSearchError("transported posterior contains non-finite weights")
+            raise _CompiledSearchError("transported posterior contains non-finite weights")
 
 
 def _posterior_for_topology(
-    topology: CompiledSearchTopology,
+    topology: _CompiledSearchTopology,
     posterior: Mapping[str, Any],
 ) -> tuple[dict[str, Mapping[str, Any]], np.ndarray]:
     raw_worlds = posterior.get("worlds")
     if not isinstance(raw_worlds, list) or not raw_worlds:
-        raise CompiledSearchError("posterior has no hidden-world support")
+        raise _CompiledSearchError("posterior has no hidden-world support")
 
     worlds_by_id: dict[str, Mapping[str, Any]] = {}
     raw_weights: dict[str, float] = {}
     for raw_world in raw_worlds:
         if not isinstance(raw_world, Mapping):
-            raise CompiledSearchError("posterior world must be an object")
+            raise _CompiledSearchError("posterior world must be an object")
         world_id = raw_world.get("world_id")
         if not isinstance(world_id, str) or not world_id:
-            raise CompiledSearchError("posterior world has invalid identity")
+            raise _CompiledSearchError("posterior world has invalid identity")
         if world_id in worlds_by_id:
-            raise CompiledSearchError("posterior world ids must be unique")
+            raise _CompiledSearchError("posterior world ids must be unique")
         hidden = raw_world.get("hidden")
         if not isinstance(hidden, Mapping):
-            raise CompiledSearchError(
+            raise _CompiledSearchError(
                 f"{world_id}: posterior must retain correlated hidden state"
             )
         weight = raw_world.get("weight")
@@ -128,14 +122,14 @@ def _posterior_for_topology(
             or not math.isfinite(float(weight))
             or float(weight) <= 0.0
         ):
-            raise CompiledSearchError(
+            raise _CompiledSearchError(
                 f"{world_id}: posterior weight must be positive and finite"
             )
         worlds_by_id[world_id] = raw_world
         raw_weights[world_id] = float(weight)
 
     if set(worlds_by_id) != set(topology.world_ids):
-        raise CompiledSearchError(
+        raise _CompiledSearchError(
             "posterior support differs from compiled transition-program support"
         )
     total = math.fsum(raw_weights.values())
@@ -151,7 +145,7 @@ def _require_jax() -> tuple[_JaxModule, Any]:
         import jax
         import jax.numpy as jnp
     except ImportError as error:
-        raise CompiledSearchError(
+        raise _CompiledSearchError(
             "JAX is required for compiled search transport; install the simulator extra"
         ) from error
     return cast(_JaxModule, jax), jnp
@@ -200,7 +194,7 @@ def _reduction_kernel(action_count: int) -> Any:
 
 
 def transport_posterior_mass(
-    topology: CompiledSearchTopology,
+    topology: _CompiledSearchTopology,
     posterior: Mapping[str, Any],
 ) -> TransportedSearchMass:
     """Transport posterior mass through fixed chance/observation incidences in JAX."""
@@ -222,9 +216,9 @@ def transport_posterior_mass(
     leaf_world_weights = np.asarray(raw_leaf_world_weights, dtype=np.float64)
 
     if leaf_mass.shape != (topology.leaf_count,):
-        raise CompiledSearchError("compiled transport returned the wrong leaf shape")
+        raise _CompiledSearchError("compiled transport returned the wrong leaf shape")
     if abs(float(leaf_mass.sum()) - float(topology.action_count)) > 1e-5:
-        raise CompiledSearchError(
+        raise _CompiledSearchError(
             "compiled transport lost or duplicated root-action probability mass"
         )
 
@@ -237,7 +231,7 @@ def transport_posterior_mass(
 
 
 def materialize_compiled_frontier(
-    topology: CompiledSearchTopology,
+    topology: _CompiledSearchTopology,
     posterior: Mapping[str, Any],
 ) -> tuple[EvaluationFrontier, TransportedSearchMass]:
     """Build evaluator leaves from JAX-transported mass and Python-authorized metadata."""
@@ -258,7 +252,7 @@ def materialize_compiled_frontier(
             row["weight"] = weight
             posterior_worlds.append(row)
         if not posterior_worlds:
-            raise CompiledSearchError("compiled leaf has no posterior support")
+            raise _CompiledSearchError("compiled leaf has no posterior support")
 
         try:
             leaves.append(
@@ -280,7 +274,7 @@ def materialize_compiled_frontier(
                 )
             )
         except EvaluationFrontierError as error:
-            raise CompiledSearchError(str(error)) from error
+            raise _CompiledSearchError(str(error)) from error
 
     try:
         frontier = EvaluationFrontier(
@@ -290,22 +284,22 @@ def materialize_compiled_frontier(
             transition_evaluations=topology.transition_evaluations,
         )
     except EvaluationFrontierError as error:
-        raise CompiledSearchError(str(error)) from error
+        raise _CompiledSearchError(str(error)) from error
     return frontier, transported
 
 
 def reduce_compiled_root_values(
-    topology: CompiledSearchTopology,
+    topology: _CompiledSearchTopology,
     transported: TransportedSearchMass,
     leaf_values: Sequence[float],
 ) -> dict[str, float]:
     """Reduce fixed leaf values to root actions through JAX scatter-add."""
 
     if len(leaf_values) != topology.leaf_count:
-        raise CompiledSearchError("leaf-value count does not match compiled topology")
+        raise _CompiledSearchError("leaf-value count does not match compiled topology")
     values = np.asarray(tuple(float(value) for value in leaf_values), dtype=np.float32)
     if np.any(~np.isfinite(values)):
-        raise CompiledSearchError("leaf values must be finite")
+        raise _CompiledSearchError("leaf values must be finite")
 
     _, jnp = _require_jax()
     arrays = topology.as_numpy()
@@ -316,7 +310,7 @@ def reduce_compiled_root_values(
     )
     root = np.asarray(raw, dtype=np.float64)
     if root.shape != (topology.action_count,) or np.any(~np.isfinite(root)):
-        raise CompiledSearchError("compiled root reduction returned invalid values")
+        raise _CompiledSearchError("compiled root reduction returned invalid values")
     return {
         action: float(root[index])
         for index, action in enumerate(topology.root_actions)
@@ -325,7 +319,7 @@ def reduce_compiled_root_values(
 
 def _execute_compiled_topology(
     *,
-    topology: CompiledSearchTopology,
+    topology: _CompiledSearchTopology,
     posterior: Mapping[str, Any],
     evaluator: Any,
 ) -> dict[str, Any]:
@@ -384,7 +378,7 @@ def search_transition_program_compiled(
 ) -> dict[str, Any]:
     """Research path: compile topology, transport mass in JAX, then evaluate leaves."""
 
-    topology = compile_search_topology(
+    topology = _compile_search_topology(
         program_set=program_set,
         posterior=posterior,
         method=method,
@@ -404,7 +398,7 @@ def search_transition_program_adaptive(
     posterior: Mapping[str, Any],
     method: str,
     evaluator: Any,
-    envelope: CardinalityEnvelope,
+    envelope: _CardinalityEnvelope,
     expected_program_schema: str | None = None,
     expected_program_schema_version: int | None = None,
 ) -> dict[str, Any]:
@@ -416,7 +410,7 @@ def search_transition_program_adaptive(
     physical implementation, never the logical search or evaluator semantics.
     """
 
-    lower_bound = estimate_search_cardinality_lower_bound(
+    lower_bound = _estimate_search_cardinality_lower_bound(
         program_set=program_set,
         posterior=posterior,
         method=method,
@@ -427,7 +421,7 @@ def search_transition_program_adaptive(
         lower_bound=lower_bound,
         envelope=envelope,
     )
-    if plan.final_path == SEARCH_PATH_PYTHON:
+    if plan.final_path == _SEARCH_PATH_PYTHON:
         result = search_transition_program(
             program_set=program_set,
             posterior=posterior,
@@ -438,11 +432,11 @@ def search_transition_program_adaptive(
         )
         return {
             **result,
-            "physical_search_path": SEARCH_PATH_PYTHON,
+            "physical_search_path": _SEARCH_PATH_PYTHON,
             "cardinality_plan": plan.as_record(),
         }
 
-    topology = compile_search_topology(
+    topology = _compile_search_topology(
         program_set=program_set,
         posterior=posterior,
         method=method,
@@ -455,7 +449,7 @@ def search_transition_program_adaptive(
         envelope=envelope,
         observed=observed,
     )
-    if plan.final_path == SEARCH_PATH_PYTHON:
+    if plan.final_path == _SEARCH_PATH_PYTHON:
         result = search_transition_program(
             program_set=program_set,
             posterior=posterior,
@@ -466,7 +460,7 @@ def search_transition_program_adaptive(
         )
         return {
             **result,
-            "physical_search_path": SEARCH_PATH_PYTHON,
+            "physical_search_path": _SEARCH_PATH_PYTHON,
             "cardinality_plan": plan.as_record(),
         }
 
@@ -477,6 +471,6 @@ def search_transition_program_adaptive(
     )
     return {
         **result,
-        "physical_search_path": SEARCH_PATH_COMPILED,
+        "physical_search_path": _SEARCH_PATH_COMPILED,
         "cardinality_plan": plan.as_record(),
     }
