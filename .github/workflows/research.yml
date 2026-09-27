@@ -6,6 +6,7 @@ on:
     paths:
       - ".python-version"
       - ".github/actions/**"
+      - ".github/actions/setup-python-environment/action.yml"
       - ".github/workflows/research.yml"
       - "experiments/**"
       - "pyproject.toml"
