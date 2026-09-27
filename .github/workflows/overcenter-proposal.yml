@@ -1,0 +1,95 @@
+name: Overcenter · broker source proposal
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: overcenter-proposal-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  broker:
+    name: Broker untrusted source proposal
+    if: >-
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'overcenter/proposal/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      PROPOSAL_REF: ${{ github.event.pull_request.head.ref }}
+      PROPOSAL_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check out trusted project control plane
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Resolve trusted Overcenter runtime
+        id: runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          repository="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["repository"])')"
+          sha="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["sha"])')"
+          [[ "$repository" =~ ^[^/]+/[^/]+$ ]]
+          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact Overcenter runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: ${{ steps.runtime.outputs.repository }}
+          ref: ${{ steps.runtime.outputs.sha }}
+          path: .overcenter-runtime
+          persist-credentials: false
+
+      - name: Use Overcenter's pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .overcenter-runtime/.node-version
+          package-manager-cache: false
+
+      - name: Fetch proposal object without checking it out
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$PROPOSAL_SHA"
+          test "$(git rev-parse FETCH_HEAD)" = "$PROPOSAL_SHA"
+
+      - name: Broker exact proposal revision
+        id: broker
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
+          OVERCENTER_PROJECT_REMOTE: origin
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="${PROPOSAL_REF#overcenter/proposal/}"
+          test -n "$run_id"
+          test "$run_id" != "$PROPOSAL_REF"
+          node --experimental-strip-types \
+            .overcenter-runtime/src/cli/source-broker-ref.ts \
+            --run-id "$run_id" \
+            --proposal-sha "$PROPOSAL_SHA" \
+            --output overcenter-broker-receipt.json
+
+      - name: Close consumed proposal PR
+        if: steps.broker.outputs.publication_state == 'PUBLISHED' || steps.broker.outputs.publication_state == 'ALREADY_PUBLISHED'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_REF: ${{ steps.broker.outputs.candidate_ref }}
+        shell: bash
+        run: |
+          gh pr close "$PR_NUMBER" --comment "Overcenter brokered this proposal into \`$CANDIDATE_REF\`."
