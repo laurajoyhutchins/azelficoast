@@ -7,7 +7,7 @@ name = "azelficoast"
 version = "0.1.0"
 description = "Competitive Pokemon battle AI research and evaluation harness"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "poke-env==0.16.1",
 ]
@@ -35,7 +35,7 @@ packages = ["src/azelficoast"]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 
 [tool.uv]
@@ -55,7 +55,7 @@ extend-immutable-calls = [
 "tests/**/*.py" = ["RUF012"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 follow_imports = "silent"
 exclude = [

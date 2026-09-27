@@ -56,17 +56,25 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "src/azelficoast/belief/packed_evaluator.py",
         "src/azelficoast/belief/showdown_packing.py",
     ]
-    assert {
+    required = {
         "src/azelficoast/research/contracts.py",
         "src/azelficoast/research/matched_comparison.py",
         "src/azelficoast/research/matched_search.py",
         "src/azelficoast/research/typed_search.py",
         "src/azelficoast/research/population_cohort.py",
-    } <= checked
+    }
+    assert required <= checked
 
     ruff_rules = set(config["tool"]["ruff"]["lint"]["select"])
     assert {"E4", "E7", "E9", "F", "B", "RUF012"} <= ruff_rules
-
+    assert config["tool"]["ruff"]["lint"]["flake8-bugbear"]["extend-immutable-calls"] == [
+        "azelficoast.belief.battle_promotion.BattlePromotionPolicy",
+        "azelficoast.belief.evaluator.BeliefEvaluatorSpec",
+        "azelficoast.belief.improvement.AdmissionPolicy",
+    ]
+    assert config["tool"]["ruff"]["lint"]["per-file-ignores"] == {
+        "tests/**/*.py": ["RUF012"]
+    }
 
 def test_pr_ci_cancels_superseded_heads() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
@@ -85,8 +93,11 @@ def test_ci_checks_entire_javascript_script_frontier() -> None:
     assert "npm run typecheck:showdown" in source
     assert "find showdown -type f -name '*.cjs' -print0" in source
     assert 'node --check "$script"' in source
-    assert "node --check showdown/runtime/probe_real_belief_trace.cjs" not in source
 
+    # Script admission is directory-derived, not a hand-maintained trusted allowlist.
+    assert "node --check showdown/runtime/probe_real_belief_trace.cjs" not in source
+    assert "node --check showdown/runtime/probe_real_belief_worker.cjs" not in source
+    assert "node --check showdown/runtime/transition_successor_delta.cjs" not in source
 
 def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
     source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
@@ -117,35 +128,52 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
     ).read_text(encoding="utf-8")
 
     assert "uses: actions/setup-python@v7" in source
-    assert 'default: "3.13"' in source
+    assert 'python-version-file: ".python-version"' in source
+    assert "inputs.python-version" not in source
     assert "python -m pip install uv==0.12.18" in source
     assert "uv sync --locked" in source
     assert "uv sync --locked --extra simulator" in source
 
-
 def test_base_static_analysis_runs_in_declared_python_version() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+
     static = source[source.index("  static:\n") : source.index("  test:\n")]
-
     assert "uses: ./.github/actions/setup-python-environment" in static
-    assert 'python-version: "3.11"' in static
+    assert "python-version:" not in static
     assert "run: uv run mypy" in static
-
 
 def test_uv_managed_workflows_use_shared_python_environment() -> None:
     checked: list[str] = []
+
     for path in sorted(WORKFLOWS.glob("*.yml")):
         source = path.read_text(encoding="utf-8")
         if "uv run" not in source:
             continue
-        assert "uses: ./.github/actions/setup-python-environment" in source
+
+        assert "uses: ./.github/actions/setup-python-environment" in source, (
+            f"{path.name} must use the shared Python environment setup"
+        )
         assert "actions/setup-python@v7" not in source
         assert "pip install uv" not in source
         assert "uv sync --locked" not in source
+
+        if path.name != "ci.yml" and "    paths:\n" in source:
+            assert '- ".github/actions/setup-python-environment/action.yml"' in source, (
+                f"{path.name} must rerun when shared Python setup changes"
+            )
+            assert '- ".python-version"' in source, (
+                f"{path.name} must rerun when repository Python changes"
+            )
+
+        if '- "pyproject.toml"' in source:
+            assert '- "uv.lock"' in source, (
+                f"{path.name} treats pyproject.toml as dependency-sensitive "
+                "and must treat uv.lock the same way"
+            )
+
         checked.append(path.name)
 
     assert checked == ["ci.yml", "research.yml", "training.yml"]
-
 
 def test_evidence_setup_runs_after_python_environment() -> None:
     for workflow in ("ci.yml", "research.yml"):
@@ -259,6 +287,11 @@ def test_candidate_research_emits_one_exact_head_certificate() -> None:
     assert "uv run python -m azelficoast.research.ci certify" in source
     assert "name: candidate-research-certificate" in source
     assert "Type check accelerator frontier" in source
+    assert "python - <<'PY'" not in source
+    assert "src/azelficoast/core/compiled_search.py" in source
+    assert "src/azelficoast/belief/showdown_packing.py" in source
+    assert "src/azelficoast/belief/packed_evaluator.py" in source
+    assert "src/azelficoast/belief/compiled_search.py" in source
 
 
 def test_candidate_specs_are_repository_data_not_runner_code() -> None:

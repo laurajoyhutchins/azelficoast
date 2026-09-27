@@ -19,6 +19,12 @@ def test_shared_python_setup_selects_every_collapsed_experiment() -> None:
     }
 
 
+def test_repository_python_authority_selects_every_collapsed_experiment() -> None:
+    expected = {experiment.name for experiment in EXPERIMENTS}
+    for path in (".python-version", "pyproject.toml", "uv.lock"):
+        assert _names((path,)) == expected
+
+
 
 def test_candidate_runner_change_selects_every_contract() -> None:
     assert _names(("src/azelficoast/research/ci.py",)) == {

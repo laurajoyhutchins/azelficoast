@@ -19,10 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Setup Azelficoast Python 3.11
+      - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
-        with:
-          python-version: "3.11"
       - name: Type check Python static frontier
         run: uv run mypy
       - name: Install pinned JavaScript static tooling

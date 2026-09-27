@@ -13,6 +13,7 @@ CONTRACT_PATH = REPOSITORY_ROOT / "experiments" / "hosted-research-contracts.jso
 
 _SHARED_PYTHON_PATHS = {
     ".github/actions/setup-python-environment/action.yml",
+    ".python-version",
     ".github/workflows/research.yml",
     "experiments/hosted-research-contracts.json",
     "src/azelficoast/research/hosted/**",

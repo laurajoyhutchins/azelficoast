@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
+      - ".python-version"
       - ".github/actions/**"
       - ".github/workflows/research.yml"
       - "experiments/**"
@@ -46,6 +47,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
       - name: Select affected candidate experiments
         id: plan
         env:
@@ -54,11 +57,11 @@ jobs:
           REQUESTED: ${{ inputs.candidate }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            matrix="$(PYTHONPATH=src python -m azelficoast.research.ci plan --requested "${REQUESTED:-all}")"
+            matrix="$(uv run python -m azelficoast.research.ci plan --requested "${REQUESTED:-all}")"
           else
-            matrix="$(PYTHONPATH=src python -m azelficoast.research.ci plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+            matrix="$(uv run python -m azelficoast.research.ci plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
-          count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
+          count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${matrix}")"
           echo "matrix=${matrix}" >> "${GITHUB_OUTPUT}"
           echo "count=${count}" >> "${GITHUB_OUTPUT}"
 
@@ -77,7 +80,7 @@ jobs:
           simulator: true
       - name: Type check accelerator frontier
         run: |
-          uv run mypy --python-version 3.13 \
+          uv run mypy \
             src/azelficoast/core/compiled_search.py \
             src/azelficoast/belief/showdown_packing.py \
             src/azelficoast/belief/packed_evaluator.py \
@@ -150,6 +153,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
       - name: Select affected hosted research
         id: plan
         env:
@@ -158,14 +163,14 @@ jobs:
           REQUESTED: ${{ inputs.study }}
         run: |
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            plan="$(PYTHONPATH=src python -m azelficoast.research.hosted plan --requested "${REQUESTED:-all}")"
+            plan="$(uv run python -m azelficoast.research.hosted plan --requested "${REQUESTED:-all}")"
           else
-            plan="$(PYTHONPATH=src python -m azelficoast.research.hosted plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
+            plan="$(uv run python -m azelficoast.research.hosted plan --base "${BASE_SHA}" --head "${HEAD_SHA}")"
           fi
-          run_matrix="$(python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["run"], separators=(",",":")))' "${plan}")"
-          aggregate_matrix="$(python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["aggregate"], separators=(",",":")))' "${plan}")"
-          run_count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${run_matrix}")"
-          aggregate_count="$(python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${aggregate_matrix}")"
+          run_matrix="$(uv run python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["run"], separators=(",",":")))' "${plan}")"
+          aggregate_matrix="$(uv run python -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["aggregate"], separators=(",",":")))' "${plan}")"
+          run_count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${run_matrix}")"
+          aggregate_count="$(uv run python -c 'import json,sys; print(len(json.loads(sys.argv[1])["include"]))' "${aggregate_matrix}")"
           echo "run_matrix=${run_matrix}" >> "${GITHUB_OUTPUT}"
           echo "run_count=${run_count}" >> "${GITHUB_OUTPUT}"
           echo "aggregate_matrix=${aggregate_matrix}" >> "${GITHUB_OUTPUT}"
