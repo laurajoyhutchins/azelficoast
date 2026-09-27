@@ -14,7 +14,7 @@ from azelficoast.research.posterior_population_contract import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTRACT = ROOT / "experiments" / "posterior-stratified-population-contract.json"
+CONTRACT = ROOT / "experiments" / "data" / "posterior-stratified-population-contract.json"
 
 
 def _contract() -> dict[str, object]:

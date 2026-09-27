@@ -207,7 +207,7 @@ def test_repository_evidence_admission_is_owned_by_python() -> None:
 
 def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
     source = (
-        ROOT / "experiments" / "natural-population-strategy-fusion-plan.json"
+        ROOT / "experiments" / "data" / "natural-population-strategy-fusion-plan.json"
     ).read_text(encoding="utf-8")
     assert '"superseded_cohort"' not in source
     assert '"superseded_cohort_after_forme_bug"' not in source
@@ -302,7 +302,7 @@ def test_candidate_specs_are_repository_data_not_runner_code() -> None:
         ROOT / "src" / "azelficoast" / "research" / "experiment_contracts.py"
     ).read_text(encoding="utf-8")
     contract = json.loads(
-        (ROOT / "experiments" / "candidate-research-contracts.json").read_text(
+        (ROOT / "experiments" / "contracts" / "candidate.json").read_text(
             encoding="utf-8"
         )
     )
@@ -313,7 +313,7 @@ def test_candidate_specs_are_repository_data_not_runner_code() -> None:
     assert "adaptive-execution-experiment.json" not in loader
     assert contract["schema"] == "azelficoast.candidate-research-contracts"
     assert len(contract["experiments"]) == 16
-    assert '"experiments/candidate-research-contracts.json"' in loader
+    assert '"experiments/contracts/candidate.json"' in loader
     assert '".github/workflows/research.yml"' in loader
     assert "candidate-research.yml" not in loader
 
@@ -355,7 +355,7 @@ def test_showdown_workflow_triggers_observe_revision_contract() -> None:
 
 def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
     contract = json.loads(
-        (ROOT / "experiments" / "opponent-policy-semantics.json").read_text(
+        (ROOT / "experiments" / "data" / "opponent-policy-semantics.json").read_text(
             encoding="utf-8"
         )
     )
