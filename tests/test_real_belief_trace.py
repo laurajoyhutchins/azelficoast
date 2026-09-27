@@ -492,7 +492,8 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'historicalShowdownCommit && !posteriorOnly' in source
     assert 'historicalShowdownCommit || PINNED_SHOWDOWN_COMMIT' in source
     assert '"--generator-cache-dir"' in source
-    assert "generatorCacheDir && !posteriorOnly" in source
+    assert "generatorCacheDir && !posteriorOnly" not in source
+    assert '"AZELFICOAST_GENERATOR_ROUNDS"' in source
 
     cache_block = generator_source.split(
         "function generatorPopulationMaterial(species)", 1
