@@ -29,10 +29,8 @@ from azelficoast.belief.sql_compiled_search import (
     search_sql_packed_best_action,
     search_sql_packed_transition_program,
 )
-from azelficoast.core.compiled_search import (
-    compile_search_topology,
-    transport_posterior_mass,
-)
+from azelficoast.core.compiled_search import transport_posterior_mass
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.sql_transport import (
     SQLTransportError,
     transport_information_set_mass_sql,
