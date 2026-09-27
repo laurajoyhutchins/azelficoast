@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 import numpy as np
+from numpy.typing import NDArray
 
 from azelficoast.core.compiled_planning import (
     CompiledSearchError,
@@ -99,6 +100,67 @@ class CompiledLeafIncidence:
             raise CompiledSearchError("compiled leaf arrays have inconsistent sizes")
         if any(not actions for actions in self.legal_actions):
             raise CompiledSearchError("compiled leaf has no legal actions")
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledClassArrays:
+    """Fixed-dtype numeric class incidence for compiled kernels."""
+
+    world_to_class: NDArray[np.int32]
+    action_index: NDArray[np.int32]
+    local_index: NDArray[np.int32]
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledEdgeArrays:
+    """Fixed-dtype numeric chance-edge incidence for compiled kernels."""
+
+    action_index: NDArray[np.int32]
+    world_index: NDArray[np.int32]
+    class_index: NDArray[np.int32]
+    outcome_index: NDArray[np.int32]
+    observation_index: NDArray[np.int32]
+    successor_index: NDArray[np.int32]
+    leaf_index: NDArray[np.int32]
+    chance: NDArray[np.float32]
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledLeafArrays:
+    """Fixed-dtype numeric leaf incidence for compiled kernels."""
+
+    action_index: NDArray[np.int32]
+    observation_index: NDArray[np.int32]
+    successor_index: NDArray[np.int32]
+    conditioned_world_index: NDArray[np.int32]
+    legal_mask: NDArray[np.bool_]
+
+
+@dataclass(frozen=True, slots=True)
+class CompiledTopologyArrays:
+    """Read-only numeric projection of one authorized semantic topology."""
+
+    classes: CompiledClassArrays
+    edges: CompiledEdgeArrays
+    leaves: CompiledLeafArrays
+
+
+def _readonly_int32(values: Any) -> NDArray[np.int32]:
+    array = np.asarray(values, dtype=np.int32)
+    array.setflags(write=False)
+    return array
+
+
+def _readonly_float32(values: Any) -> NDArray[np.float32]:
+    array = np.asarray(values, dtype=np.float32)
+    array.setflags(write=False)
+    return array
+
+
+def _readonly_bool(values: Any) -> NDArray[np.bool_]:
+    array = np.asarray(values, dtype=np.bool_)
+    array.setflags(write=False)
+    return array
 
 
 @dataclass(frozen=True, slots=True)
@@ -254,42 +316,35 @@ class CompiledSearchTopology:
             ),
         }
 
-    def as_numpy(self) -> dict[str, np.ndarray]:
-        """Materialize the unchanged dense-array interface used by JAX."""
+    def materialize_arrays(self) -> CompiledTopologyArrays:
+        """Materialize the read-only fixed-dtype projection used by numeric kernels."""
 
-        return {
-            "world_to_class": np.asarray(self.classes.world_to_class, dtype=np.int32),
-            "class_action_index": np.asarray(self.classes.action_index, dtype=np.int32),
-            "class_local_index": np.asarray(self.classes.local_index, dtype=np.int32),
-            "edge_action_index": np.asarray(self.edges.action_index, dtype=np.int32),
-            "edge_world_index": np.asarray(self.edges.world_index, dtype=np.int32),
-            "edge_class_index": np.asarray(self.edges.class_index, dtype=np.int32),
-            "edge_outcome_index": np.asarray(self.edges.outcome_index, dtype=np.int32),
-            "edge_observation_index": np.asarray(
-                self.edges.observation_index,
-                dtype=np.int32,
+        return CompiledTopologyArrays(
+            classes=CompiledClassArrays(
+                world_to_class=_readonly_int32(self.classes.world_to_class),
+                action_index=_readonly_int32(self.classes.action_index),
+                local_index=_readonly_int32(self.classes.local_index),
             ),
-            "edge_successor_index": np.asarray(
-                self.edges.successor_index,
-                dtype=np.int32,
+            edges=CompiledEdgeArrays(
+                action_index=_readonly_int32(self.edges.action_index),
+                world_index=_readonly_int32(self.edges.world_index),
+                class_index=_readonly_int32(self.edges.class_index),
+                outcome_index=_readonly_int32(self.edges.outcome_index),
+                observation_index=_readonly_int32(self.edges.observation_index),
+                successor_index=_readonly_int32(self.edges.successor_index),
+                leaf_index=_readonly_int32(self.edges.leaf_index),
+                chance=_readonly_float32(self.edges.chance),
             ),
-            "edge_leaf_index": np.asarray(self.edges.leaf_index, dtype=np.int32),
-            "edge_chance": np.asarray(self.edges.chance, dtype=np.float32),
-            "leaf_action_index": np.asarray(self.leaves.action_index, dtype=np.int32),
-            "leaf_observation_index": np.asarray(
-                self.leaves.observation_index,
-                dtype=np.int32,
+            leaves=CompiledLeafArrays(
+                action_index=_readonly_int32(self.leaves.action_index),
+                observation_index=_readonly_int32(self.leaves.observation_index),
+                successor_index=_readonly_int32(self.leaves.successor_index),
+                conditioned_world_index=_readonly_int32(
+                    self.leaves.conditioned_world_index
+                ),
+                legal_mask=_readonly_bool(self.leaves.legal_mask),
             ),
-            "leaf_successor_index": np.asarray(
-                self.leaves.successor_index,
-                dtype=np.int32,
-            ),
-            "leaf_legal_mask": np.asarray(self.leaves.legal_mask, dtype=np.bool_),
-            "leaf_conditioned_world_index": np.asarray(
-                self.leaves.conditioned_world_index,
-                dtype=np.int32,
-            ),
-        }
+        )
 
 
 type _PreparedClass = tuple[Mapping[str, Any], tuple[dict[str, Any], ...]]
