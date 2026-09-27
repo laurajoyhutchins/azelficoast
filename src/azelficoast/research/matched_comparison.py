@@ -12,8 +12,13 @@ from azelficoast.belief.validity import (
     PosteriorValidityError,
     posterior_diagnostics,
 )
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
+    MechanicsIdentity,
+    PublicDecisionInput,
+    ResearchContractError,
+)
+from azelficoast.research.matched_contracts import (
     COMPUTE_BUDGET_UNIT_DEFINITION,
     COMPUTE_RECEIPT_SCHEMA,
     COMPUTE_RECEIPT_SCHEMA_VERSION,
@@ -21,9 +26,6 @@ from azelficoast.research.contracts import (
     ComputeBudget,
     ComputeReceipt,
     MatchedExperimentSpec,
-    MechanicsIdentity,
-    PublicDecisionInput,
-    ResearchContractError,
 )
 
 PLAN_SCHEMA = "azelficoast.matched-search-comparison-plan"
