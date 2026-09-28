@@ -151,6 +151,7 @@ def test_external_execution_units_preserve_frozen_shard_balance() -> None:
             unit_count=unit_count,
             contract=contract,
         )
+        assert battles == 25
         key = (shard, direction)
         totals[key] = totals.get(key, 0) + battles
 
