@@ -28,6 +28,8 @@ EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
 INPUT_SCHEMA = "azelficoast.public-belief-evaluator-input"
 INPUT_SCHEMA_VERSION = 1
+VALUE_CONTRACT_SCHEMA = "azelficoast.evaluator-value-contract"
+VALUE_CONTRACT_SCHEMA_VERSION = 1
 
 
 class BeliefEvaluatorError(ValueError):
@@ -189,14 +191,61 @@ def build_evaluator_input_for_contract(
     )
 
 
-def checkpoint_digest(params: Mapping[str, Any], spec: BeliefEvaluatorSpec) -> str:
-    """Content-address a parameter tree independent of container serialization."""
+def _validated_value_contract(
+    value_contract: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    if value_contract is None:
+        return None
+    contract = dict(value_contract)
+    if (
+        contract.get("schema") != VALUE_CONTRACT_SCHEMA
+        or contract.get("schema_version") != VALUE_CONTRACT_SCHEMA_VERSION
+    ):
+        raise BeliefEvaluatorError("unexpected evaluator value contract schema")
+    target = contract.get("target")
+    if target not in {"eventual_battle_outcome", "public_belief_search_return"}:
+        raise BeliefEvaluatorError("unsupported evaluator value target")
+    if target == "eventual_battle_outcome":
+        if contract.get("aggregation") != "empirical-continuation-mixture":
+            raise BeliefEvaluatorError(
+                "battle-outcome value contract must bind an empirical continuation mixture"
+            )
+        components = contract.get("components")
+        if not isinstance(components, list) or not components:
+            raise BeliefEvaluatorError(
+                "battle-outcome value contract must contain continuation components"
+            )
+    return contract
+
+
+def value_contract_digest(value_contract: Mapping[str, Any]) -> str:
+    """Content-address one validated value-semantics contract."""
+    contract = _validated_value_contract(value_contract)
+    assert contract is not None
+    return _sha256_bytes(_canonical(contract).encode("utf-8"))
+
+
+def checkpoint_digest(
+    params: Mapping[str, Any],
+    spec: BeliefEvaluatorSpec,
+    *,
+    value_contract: Mapping[str, Any] | None = None,
+) -> str:
+    """Content-address parameters together with any explicit value semantics."""
     try:
         import numpy as np
     except ImportError as error:
         raise BeliefEvaluatorError("numpy is required to digest evaluator parameters") from error
 
     chunks = [_canonical(spec.as_dict()).encode("utf-8")]
+    contract = _validated_value_contract(value_contract)
+    if contract is not None:
+        chunks.extend(
+            (
+                b"value-contract",
+                _canonical(contract).encode("utf-8"),
+            )
+        )
     for name in sorted(params):
         value = np.asarray(params[name])
         chunks.extend(
@@ -522,6 +571,7 @@ def write_checkpoint(
     spec: BeliefEvaluatorSpec,
     *,
     metadata: Mapping[str, Any] | None = None,
+    value_contract: Mapping[str, Any] | None = None,
     overwrite: bool = False,
 ) -> dict[str, Any]:
     """Write a content-addressed checkpoint and return its verified manifest."""
@@ -550,7 +600,8 @@ def write_checkpoint(
         arrays[key] = value
         parameter_map[name] = key
 
-    digest = checkpoint_digest(params, spec)
+    contract = _validated_value_contract(value_contract)
+    digest = checkpoint_digest(params, spec, value_contract=contract)
     identity = evaluator_identity(checkpoint_digest_value=digest, spec=spec)
     manifest = {
         "schema": CHECKPOINT_SCHEMA,
@@ -558,6 +609,7 @@ def write_checkpoint(
         "evaluator": identity,
         "parameter_map": parameter_map,
         "metadata": dict(metadata or {}),
+        **({"value_contract": contract} if contract is not None else {}),
     }
     np.savez_compressed(params_path, **arrays)
     manifest_path.write_text(
@@ -645,7 +697,13 @@ def load_checkpoint(
     finally:
         archive.close()
 
-    actual = checkpoint_digest(params, spec)
+    raw_value_contract = manifest.get("value_contract")
+    if raw_value_contract is not None and not isinstance(raw_value_contract, Mapping):
+        raise BeliefEvaluatorError("checkpoint value contract must be an object")
+    value_contract = _validated_value_contract(
+        raw_value_contract if isinstance(raw_value_contract, Mapping) else None
+    )
+    actual = checkpoint_digest(params, spec, value_contract=value_contract)
     if evaluator.get("checkpoint_digest") != actual:
         raise BeliefEvaluatorError("checkpoint content digest does not match manifest")
     if expected_promoted_digest is not None and actual != expected_promoted_digest:
@@ -666,21 +724,38 @@ class BeliefEvaluatorRuntime:
         params: Mapping[str, Any],
         spec: BeliefEvaluatorSpec,
         identity: Mapping[str, Any],
+        *,
+        value_contract: Mapping[str, Any] | None = None,
     ) -> None:
-        actual = checkpoint_digest(params, spec)
+        contract = _validated_value_contract(value_contract)
+        actual = checkpoint_digest(params, spec, value_contract=contract)
         expected = evaluator_identity(checkpoint_digest_value=actual, spec=spec)
         if dict(identity) != expected:
             raise BeliefEvaluatorError("runtime evaluator identity does not match parameters")
         self.params = dict(params)
         self.spec = spec
         self.identity = expected
+        self.value_contract = contract
+        self.value_contract_digest = (
+            value_contract_digest(contract) if contract is not None else None
+        )
 
     @classmethod
     def from_checkpoint(cls, directory: str | Path) -> "BeliefEvaluatorRuntime":
         params, spec, manifest = load_checkpoint(directory)
         evaluator = manifest["evaluator"]
         assert isinstance(evaluator, Mapping)
-        return cls(params, spec, evaluator)
+        raw_contract = manifest.get("value_contract")
+        if raw_contract is not None and not isinstance(raw_contract, Mapping):
+            raise BeliefEvaluatorError("checkpoint value contract must be an object")
+        return cls(
+            params,
+            spec,
+            evaluator,
+            value_contract=(
+                raw_contract if isinstance(raw_contract, Mapping) else None
+            ),
+        )
 
     def predict(self, inputs: BeliefEvaluatorInput) -> BeliefPrediction:
         return predict(self.params, inputs)
@@ -690,6 +765,23 @@ class BeliefEvaluatorRuntime:
         inputs: Sequence[BeliefEvaluatorInput],
     ) -> tuple[float, ...]:
         return predict_values(self.params, inputs)
+
+
+def require_value_target(evaluator: Any, target: str) -> Mapping[str, Any]:
+    """Fail closed unless an evaluator is cryptographically bound to target semantics."""
+    contract = getattr(evaluator, "value_contract", None)
+    if not isinstance(contract, Mapping):
+        raise BeliefEvaluatorError(
+            "learned evaluator lacks an explicit value-semantics contract"
+        )
+    validated = _validated_value_contract(contract)
+    assert validated is not None
+    if validated.get("target") != target:
+        raise BeliefEvaluatorError(
+            f"learned evaluator value target is {validated.get('target')!r}, "
+            f"expected {target!r}"
+        )
+    return validated
 
 
 class BeliefSearchValueAdapter:
