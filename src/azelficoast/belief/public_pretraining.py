@@ -413,7 +413,7 @@ def build_public_pretraining_records(
         "split_group_count": len({row["split_group_id"] for row in rows}),
         "split_record_counts": dict(sorted(Counter(row["split"] for row in rows).items())),
         "policy_target_source": "public-human-imitation",
-        "value_target_source": DEFAULT_VALUE_TARGET_SOURCE,
+        "value_target_source": "eventual-battle-outcome",
         "posterior_treatment": "generator_faithful",
         "showdown_commit": posterior_source.showdown_commit,
     }
