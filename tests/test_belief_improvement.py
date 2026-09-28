@@ -140,7 +140,22 @@ def _record(record_id: str, split: str) -> dict[str, object]:
                 "searched_action_values": {"attack": 0.8, "switch": 0.1},
             },
         },
-        "provenance": {},
+        "provenance": {
+            "value_target": {
+                "kind": "eventual-battle-outcome",
+                "continuation_contract": {
+                    "schema": "azelficoast.outcome-continuation-contract",
+                    "schema_version": 1,
+                    "behavior_policy": {
+                        "kind": "azelficoast-public-belief",
+                        "evaluator_checkpoint_digest": "sha256:" + "c" * 64,
+                        "search_policy_margin": 1.0,
+                    },
+                    "opponent_policy": {"kind": "simple-heuristics"},
+                    "source_kind": "generated-simple-heuristics",
+                },
+            },
+        },
     }
 
 
