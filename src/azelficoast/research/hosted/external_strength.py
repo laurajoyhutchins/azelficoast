@@ -31,6 +31,8 @@ OUTPUT_ROOT = Path("/tmp/external-playing-strength")
 EXTERNAL_ROOT = Path("/tmp/foul-play")
 EXTERNAL_VENV = Path("/tmp/foul-play-venv")
 EVALUATOR_WORKTREE = Path("/tmp/azelficoast-benchmark-state")
+EXECUTION_UNITS_PER_SHARD = 4
+UNIT_TIMEOUT_SECONDS = 4 * 60 * 60
 
 
 def _git_head() -> str:
@@ -210,19 +212,48 @@ async def _send_sequential_challenges(
         await player.send_challenges(opponent, n_challenges=1)
 
 
-async def _run_panel_shard(
-    shard: int,
+def _unit_spec(
+    unit: int,
+    *,
+    unit_count: int,
+    contract: Mapping[str, Any],
+) -> tuple[int, str, int]:
+    """Map bounded hosted work onto the frozen logical shard contract."""
+    shard_count = int(contract["shard_count"])
+    per_direction = int(contract["battles_per_direction_per_shard"])
+    expected_units = shard_count * EXECUTION_UNITS_PER_SHARD
+    if unit_count != expected_units or not 0 <= unit < unit_count:
+        raise HostedResearchError(
+            "hosted execution-unit matrix does not preserve the frozen shard contract"
+        )
+    if per_direction % 2:
+        raise HostedResearchError(
+            "frozen per-direction battle count must split evenly across hosted units"
+        )
+    shard = unit // EXECUTION_UNITS_PER_SHARD
+    lane = unit % EXECUTION_UNITS_PER_SHARD
+    direction = (
+        "foul_play_challenges" if lane < 2 else "azelficoast_challenges"
+    )
+    return shard, direction, per_direction // 2
+
+
+async def _run_panel_unit(
+    unit: int,
     contract: Mapping[str, Any],
     *,
+    shard: int,
+    direction: str,
+    battles: int,
     evaluator_checkpoint: Path,
     foul_play_python: Path,
 ) -> list[dict[str, Any]]:
-    shard_root = OUTPUT_ROOT / f"shard-{shard:02d}"
-    replays = shard_root / "replays"
-    decisions = shard_root / "decisions.jsonl"
+    unit_root = OUTPUT_ROOT / f"unit-{unit:02d}"
+    replays = unit_root / "replays"
+    decisions = unit_root / "decisions.jsonl"
     replays.mkdir(parents=True, exist_ok=True)
-    username = f"AzelfBench{shard:02d}"
-    external_username = f"FoulBench{shard:02d}"
+    username = f"AzelfUnit{unit:02d}"
+    external_username = f"FoulUnit{unit:02d}"
     player = AzelficoastPlayer(
         account_configuration=AccountConfiguration(username, None),
         server_configuration=LocalhostServerConfiguration,
@@ -235,111 +266,104 @@ async def _run_panel_shard(
         evaluator_checkpoint=evaluator_checkpoint,
         search_policy_margin=float(contract["azelficoast"]["search_policy_margin"]),
     )
-    per_direction = int(contract["battles_per_direction_per_shard"])
     head = _git_head()
-    rows: list[dict[str, Any]] = []
-    known: set[str] = set()
+    log_path = unit_root / f"{direction}.log"
 
-    first_log = shard_root / "foul-play-challenges.log"
-    accept_task = asyncio.create_task(
-        player.accept_challenges(external_username, n_challenges=per_direction)
-    )
-    first, first_handle = _foul_play_process(
-        foul_play_python,
-        contract,
-        username=external_username,
-        mode="challenge_user",
-        opponent_username=username,
-        battles=per_direction,
-        log_path=first_log,
-    )
-    try:
-        await asyncio.wait_for(accept_task, timeout=7200)
-        await asyncio.to_thread(first.wait, 120)
-        if first.returncode != 0:
-            raise HostedResearchError(f"Foul Play challenge phase exited {first.returncode}")
-    finally:
-        if first.poll() is None:
-            first.terminate()
-        first_handle.close()
-    phase = _phase_rows(
-        player,
-        known,
-        shard=shard,
-        direction="foul_play_challenges",
-        contract=contract,
-        git_head=head,
-    )
-    if len(phase) != per_direction:
-        raise HostedResearchError(
-            f"Foul Play challenge phase produced {len(phase)} battles; expected {per_direction}"
+    if direction == "foul_play_challenges":
+        task = asyncio.create_task(
+            player.accept_challenges(external_username, n_challenges=battles)
         )
-    rows.extend(phase)
-    known.update(row["battle_tag"] for row in phase)
-
-    second_log = shard_root / "azelficoast-challenges.log"
-    second, second_handle = _foul_play_process(
-        foul_play_python,
-        contract,
-        username=external_username,
-        mode="accept_challenge",
-        opponent_username=None,
-        battles=per_direction,
-        log_path=second_log,
-    )
-    try:
-        await asyncio.to_thread(
-            _wait_for_log,
-            second,
-            second_log,
-            f"Waiting for a {contract['format']} challenge",
+        process, handle = _foul_play_process(
+            foul_play_python,
+            contract,
+            username=external_username,
+            mode="challenge_user",
+            opponent_username=username,
+            battles=battles,
+            log_path=log_path,
         )
-        await asyncio.wait_for(
-            asyncio.create_task(
+        try:
+            await asyncio.wait_for(task, timeout=UNIT_TIMEOUT_SECONDS)
+            await asyncio.to_thread(process.wait, 120)
+            if process.returncode != 0:
+                raise HostedResearchError(
+                    f"Foul Play challenge unit exited {process.returncode}"
+                )
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            handle.close()
+    elif direction == "azelficoast_challenges":
+        process, handle = _foul_play_process(
+            foul_play_python,
+            contract,
+            username=external_username,
+            mode="accept_challenge",
+            opponent_username=None,
+            battles=battles,
+            log_path=log_path,
+        )
+        try:
+            await asyncio.to_thread(
+                _wait_for_log,
+                process,
+                log_path,
+                f"Waiting for a {contract['format']} challenge",
+            )
+            await asyncio.wait_for(
                 _send_sequential_challenges(
                     player,
                     external_username,
-                    battles=per_direction,
+                    battles=battles,
+                ),
+                timeout=UNIT_TIMEOUT_SECONDS,
+            )
+            await asyncio.to_thread(process.wait, 120)
+            if process.returncode != 0:
+                raise HostedResearchError(
+                    f"Foul Play accept unit exited {process.returncode}"
                 )
-            ),
-            timeout=7200,
-        )
-        await asyncio.to_thread(second.wait, 120)
-        if second.returncode != 0:
-            raise HostedResearchError(f"Foul Play accept phase exited {second.returncode}")
-    finally:
-        if second.poll() is None:
-            second.terminate()
-        second_handle.close()
-    phase = _phase_rows(
+        finally:
+            if process.poll() is None:
+                process.terminate()
+            handle.close()
+    else:
+        raise HostedResearchError(f"unknown external-strength direction {direction!r}")
+
+    rows = _phase_rows(
         player,
-        known,
+        set(),
         shard=shard,
-        direction="azelficoast_challenges",
+        direction=direction,
         contract=contract,
         git_head=head,
     )
-    if len(phase) != per_direction:
+    if len(rows) != battles:
         raise HostedResearchError(
-            f"Azelficoast challenge phase produced {len(phase)} battles; expected {per_direction}"
+            f"external-strength unit {unit} produced {len(rows)} battles; expected {battles}"
         )
-    rows.extend(phase)
     return rows
 
 
-def run_shard(shard: int, *, shard_count: int) -> None:
+def run_unit(unit: int, *, unit_count: int) -> None:
     contract = load_contract(CONTRACT_PATH)
-    if shard_count != contract["shard_count"] or not 0 <= shard < shard_count:
-        raise HostedResearchError("hosted shard matrix does not match frozen contract")
+    shard, direction, battles = _unit_spec(
+        unit,
+        unit_count=unit_count,
+        contract=contract,
+    )
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     evaluator = _restore_evaluator(contract)
     foul_play_python = _install_foul_play(contract)
     showdown = start_showdown_server()
     try:
         rows = asyncio.run(
-            _run_panel_shard(
-                shard,
+            _run_panel_unit(
+                unit,
                 contract,
+                shard=shard,
+                direction=direction,
+                battles=battles,
                 evaluator_checkpoint=evaluator,
                 foul_play_python=foul_play_python,
             )
@@ -351,17 +375,19 @@ def run_shard(shard: int, *, shard_count: int) -> None:
         except subprocess.TimeoutExpired:
             showdown.kill()
 
-    shard_root = OUTPUT_ROOT / f"shard-{shard:02d}"
-    result_path = shard_root / "results.jsonl"
+    unit_root = OUTPUT_ROOT / f"unit-{unit:02d}"
+    result_path = unit_root / "results.jsonl"
     with result_path.open("w", encoding="utf-8") as handle:
         for row in rows:
             handle.write(json.dumps(row, sort_keys=True) + "\n")
     write_json(
-        shard_root / "metadata.json",
+        unit_root / "metadata.json",
         {
-            "schema": "azelficoast.external-playing-strength-shard",
+            "schema": "azelficoast.external-playing-strength-unit",
             "schema_version": 1,
+            "unit": unit,
             "shard": shard,
+            "direction": direction,
             "battle_count": len(rows),
             "git_sha": _git_head(),
             "evaluator_digest": contract["azelficoast"]["evaluator_source"]["checkpoint_digest"],
@@ -371,14 +397,14 @@ def run_shard(shard: int, *, shard_count: int) -> None:
         pretty=True,
     )
 
-
 def aggregate() -> None:
     contract = load_contract(CONTRACT_PATH)
     rows: list[dict[str, Any]] = []
-    paths = sorted(Path("/tmp/exact").glob("shard-*/results.jsonl"))
-    if len(paths) != int(contract["shard_count"]):
+    paths = sorted(Path("/tmp/exact").glob("unit-*/results.jsonl"))
+    expected_units = int(contract["shard_count"]) * EXECUTION_UNITS_PER_SHARD
+    if len(paths) != expected_units:
         raise HostedResearchError(
-            f"aggregate received {len(paths)} shards; expected {contract['shard_count']}"
+            f"aggregate received {len(paths)} execution units; expected {expected_units}"
         )
     for path in paths:
         with path.open(encoding="utf-8") as handle:
