@@ -155,10 +155,16 @@ def _wait_for_log(process: subprocess.Popen[bytes], path: Path, needle: str) -> 
     raise HostedResearchError(f"Foul Play did not become ready for challenges\n{tail}")
 
 
+def _battle_identity(unit: int, source_tag: str) -> str:
+    if not source_tag:
+        raise HostedResearchError("external-strength battle tag is empty")
+    return f"unit-{unit:02d}:{source_tag}"
+
+
 def _phase_rows(
     player: AzelficoastPlayer,
-    known: set[str],
     *,
+    unit: int,
     shard: int,
     direction: str,
     contract: Mapping[str, Any],
@@ -167,9 +173,8 @@ def _phase_rows(
     source = contract["azelficoast"]["evaluator_source"]
     opponent = contract["opponent"]
     rows: list[dict[str, Any]] = []
-    for tag, battle in sorted(player.battles.items()):
-        if tag in known:
-            continue
+    for source_tag, battle in sorted(player.battles.items()):
+        tag = _battle_identity(unit, source_tag)
         if battle.won:
             outcome = "win"
         elif battle.lost:
@@ -179,6 +184,7 @@ def _phase_rows(
         rows.append(
             {
                 "battle_tag": tag,
+                "source_battle_tag": source_tag,
                 "format": contract["format"],
                 "shard": shard,
                 "direction": direction,
@@ -332,7 +338,7 @@ async def _run_panel_unit(
 
     rows = _phase_rows(
         player,
-        set(),
+        unit=unit,
         shard=shard,
         direction=direction,
         contract=contract,
@@ -396,6 +402,7 @@ def run_unit(unit: int, *, unit_count: int) -> None:
         },
         pretty=True,
     )
+
 
 def aggregate() -> None:
     contract = load_contract(CONTRACT_PATH)
