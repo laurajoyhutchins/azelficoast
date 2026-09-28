@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
-from azelficoast.research.hosted.external_strength import (\n    _send_sequential_challenges,\n    _unit_spec,\n)\nfrom azelficoast.research.external_strength import (
+from azelficoast.research.hosted.external_strength import (
+    _battle_identity,
+    _send_sequential_challenges,
+    _unit_spec,
+)
+from azelficoast.research.external_strength import (
     ExternalStrengthContractError,
     contract_readiness,
     exact_binomial_superiority_p_value,
@@ -125,6 +130,15 @@ def test_incomplete_duplicate_or_identity_drifted_panels_fail_closed() -> None:
 def test_exact_binomial_superiority_is_one_sided() -> None:
     assert exact_binomial_superiority_p_value(5, 5) > 0.5
     assert exact_binomial_superiority_p_value(9, 1) < 0.02
+
+
+def test_split_units_bind_raw_showdown_tags_to_unique_battle_identities() -> None:
+    assert _battle_identity(0, "battle-gen9randombattle-1") == (
+        "unit-00:battle-gen9randombattle-1"
+    )
+    assert _battle_identity(1, "battle-gen9randombattle-1") == (
+        "unit-01:battle-gen9randombattle-1"
+    )
 
 
 def test_external_execution_units_preserve_frozen_shard_balance() -> None:
