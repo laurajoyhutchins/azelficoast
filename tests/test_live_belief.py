@@ -26,6 +26,7 @@ _STRATEGIC_VALUE_CONTRACT = {
     "schema_version": 1,
     "target": "eventual_battle_outcome",
     "aggregation": "empirical-continuation-mixture",
+    "source_dataset_digest": "sha256:" + "e" * 64,
     "components": [
         {
             "continuation_contract_digest": "sha256:" + "b" * 64,
