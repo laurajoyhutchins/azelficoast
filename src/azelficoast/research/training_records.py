@@ -176,8 +176,7 @@ def _continuation_contract(
         }
         opponent_policy: dict[str, Any] = {
             "kind": "public-showdown-opponent",
-            "replay_id": source.get("replay_id"),
-            "side": source.get("side"),
+            "source_showdown_version": source.get("source_showdown_version"),
         }
     elif kind.startswith("generated-"):
         raw_player = source.get("player_policy")
