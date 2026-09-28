@@ -205,6 +205,19 @@ def _validated_value_contract(
     target = contract.get("target")
     if target not in {"eventual_battle_outcome", "public_belief_search_return"}:
         raise BeliefEvaluatorError("unsupported evaluator value target")
+    source_dataset_digest = contract.get("source_dataset_digest")
+    if not (
+        isinstance(source_dataset_digest, str)
+        and source_dataset_digest.startswith("sha256:")
+        and len(source_dataset_digest) == 71
+        and all(
+            character in "0123456789abcdef"
+            for character in source_dataset_digest[7:]
+        )
+    ):
+        raise BeliefEvaluatorError(
+            "evaluator value contract must bind a sha256 source dataset digest"
+        )
     if target == "eventual_battle_outcome":
         if contract.get("aggregation") != "empirical-continuation-mixture":
             raise BeliefEvaluatorError(
