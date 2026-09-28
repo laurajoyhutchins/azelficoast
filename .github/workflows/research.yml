@@ -60,7 +60,10 @@ jobs:
         run: |
           set -euo pipefail
           request=".github/research-dispatch.json"
-          test -f "$request"
+          if [[ ! -f "$request" ]]; then
+            echo "no research dispatch request"
+            exit 0
+          fi
 
           schema="$(jq -r '.schema' "$request")"
           pr_number="$(jq -r '.pr' "$request")"
