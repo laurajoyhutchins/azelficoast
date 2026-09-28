@@ -7,8 +7,7 @@ from pathlib import Path
 import pytest
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
-from azelficoast.research.hosted.external_strength import _send_sequential_challenges
-from azelficoast.research.external_strength import (
+from azelficoast.research.hosted.external_strength import (\n    _send_sequential_challenges,\n    _unit_spec,\n)\nfrom azelficoast.research.external_strength import (
     ExternalStrengthContractError,
     contract_readiness,
     exact_binomial_superiority_p_value,
@@ -126,6 +125,24 @@ def test_incomplete_duplicate_or_identity_drifted_panels_fail_closed() -> None:
 def test_exact_binomial_superiority_is_one_sided() -> None:
     assert exact_binomial_superiority_p_value(5, 5) > 0.5
     assert exact_binomial_superiority_p_value(9, 1) < 0.02
+
+
+def test_external_execution_units_preserve_frozen_shard_balance() -> None:
+    contract = _contract()
+    totals: dict[tuple[int, str], int] = {}
+    unit_count = int(contract["shard_count"]) * 4
+    for unit in range(unit_count):
+        shard, direction, battles = _unit_spec(
+            unit,
+            unit_count=unit_count,
+            contract=contract,
+        )
+        key = (shard, direction)
+        totals[key] = totals.get(key, 0) + battles
+
+    for shard in range(int(contract["shard_count"])):
+        assert totals[(shard, "foul_play_challenges")] == 50
+        assert totals[(shard, "azelficoast_challenges")] == 50
 
 
 def test_external_opponent_challenges_are_sent_only_after_each_battle_settles() -> None:
