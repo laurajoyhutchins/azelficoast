@@ -4,6 +4,8 @@ import json
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
+
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.core.evaluation import EvaluationFrontier
 from azelficoast.core.memo import SemanticMemo
@@ -544,6 +546,46 @@ def test_transition_program_uses_compiled_search_for_capable_runtime(monkeypatch
     assert result.diagnostics["compiled_shape"] == {"leaves": 3}
     assert result.diagnostics["numeric_backend"] == "jax"
     assert result.diagnostics["compiled_search_failure"] is None
+
+
+def test_transition_program_compiled_search_matches_typed_reference() -> None:
+    pytest.importorskip("jax")
+    pytest.importorskip("numpy")
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+
+    reference = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=_PosteriorSpreadEvaluator(),
+    )
+
+    class CompiledCapableEvaluator(_PosteriorSpreadEvaluator):
+        supports_compiled_search = True
+
+    compiled = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=CompiledCapableEvaluator(),
+    )
+
+    assert compiled.action == reference.action == "safe"
+    assert compiled.diagnostics["physical_search_path"] == "compiled-jax"
+    assert compiled.diagnostics["compiled_search_failure"] is None
+    assert compiled.diagnostics["public_belief_root_values"] == pytest.approx(
+        reference.diagnostics["public_belief_root_values"],
+        abs=1e-6,
+    )
 
 
 def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:
