@@ -219,11 +219,11 @@ def test_posterior_population_preparation_is_a_single_contract_unit() -> None:
         }
     ]
 
-def test_external_strength_compiles_to_ten_frozen_shards() -> None:
+def test_external_strength_compiles_to_bounded_execution_units() -> None:
     study = STUDIES_BY_NAME["external-playing-strength"]
     matrix = run_matrix((study,))["include"]
     assert isinstance(matrix, list)
-    assert [entry["unit"] for entry in matrix] == [str(index) for index in range(10)]
+    assert [entry["unit"] for entry in matrix] == [str(index) for index in range(40)]
     assert all(entry["showdown"] is True for entry in matrix)
     assert all(entry["simulator"] is True for entry in matrix)
     aggregate = aggregate_matrix((study,))["include"]
