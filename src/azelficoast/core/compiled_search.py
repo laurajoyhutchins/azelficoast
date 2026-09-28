@@ -12,9 +12,9 @@ This module lowers that already-authorized topology into dense incidence arrays.
 then transport posterior mass and reduce evaluated leaf values without deciding which
 worlds are equivalent or which observations belong to one information set.
 
-The first implementation is deliberately research-only. The existing
-`search_transition_program` remains the live/reference path until exact semantic
-comparison evidence justifies promotion.
+The compiled path is a physical optimization over already-authorized search semantics.
+Live callers may use the adaptive planner when a runtime explicitly advertises the
+accelerator capability. The ordinary Python search remains the reference and fallback.
 """
 
 from __future__ import annotations
@@ -401,6 +401,7 @@ def search_transition_program_adaptive(
     envelope: _CardinalityEnvelope,
     expected_program_schema: str | None = None,
     expected_program_schema_version: int | None = None,
+    fallback_search: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Choose dense compiled search only inside an explicit cardinality envelope.
 
@@ -409,6 +410,18 @@ def search_transition_program_adaptive(
     dense JAX posterior transport. A realized shape surprise therefore changes only the
     physical implementation, never the logical search or evaluator semantics.
     """
+
+    def python_fallback() -> dict[str, Any]:
+        if fallback_search is not None:
+            return fallback_search()
+        return search_transition_program(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            evaluator=evaluator,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
+        )
 
     lower_bound = _estimate_search_cardinality_lower_bound(
         program_set=program_set,
@@ -422,14 +435,7 @@ def search_transition_program_adaptive(
         envelope=envelope,
     )
     if plan.final_path == _SEARCH_PATH_PYTHON:
-        result = search_transition_program(
-            program_set=program_set,
-            posterior=posterior,
-            method=method,
-            evaluator=evaluator,
-            expected_program_schema=expected_program_schema,
-            expected_program_schema_version=expected_program_schema_version,
-        )
+        result = python_fallback()
         return {
             **result,
             "physical_search_path": _SEARCH_PATH_PYTHON,
@@ -450,14 +456,7 @@ def search_transition_program_adaptive(
         observed=observed,
     )
     if plan.final_path == _SEARCH_PATH_PYTHON:
-        result = search_transition_program(
-            program_set=program_set,
-            posterior=posterior,
-            method=method,
-            evaluator=evaluator,
-            expected_program_schema=expected_program_schema,
-            expected_program_schema_version=expected_program_schema_version,
-        )
+        result = python_fallback()
         return {
             **result,
             "physical_search_path": _SEARCH_PATH_PYTHON,
