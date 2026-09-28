@@ -41,7 +41,8 @@ IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 4
 POSTERIOR_STRESS_TREATMENTS = ("flattened", "sharpened")
 PROMOTION_SETTLEMENT_SCHEMA = "azelficoast.evaluator-promotion-settlement"
 PROMOTION_SETTLEMENT_SCHEMA_VERSION = 1
-VALUE_TARGET_SOURCES = ("public_belief_search_return", "eventual_battle_outcome")
+VALUE_TARGET_SOURCES = ("eventual_battle_outcome", "public_belief_search_return")
+DEFAULT_VALUE_TARGET_SOURCE = "eventual_battle_outcome"
 
 
 class ImprovementError(ValueError):
@@ -221,7 +222,7 @@ def load_training_dataset(
     path: str | Path,
     *,
     spec: BeliefEvaluatorSpec,
-    value_target_source: str = "public_belief_search_return",
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
 ) -> FrozenTrainingDataset:
     """Validate leakage boundaries and canonicalize record order before training."""
     if value_target_source not in VALUE_TARGET_SOURCES:
@@ -361,13 +362,16 @@ def evaluate_posterior_stress(
     examples: Sequence[TrainingExample],
     *,
     policy_weight: float = 1.0,
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
 ) -> dict[str, Any]:
     """Measure held-out evaluator sensitivity to plausible prior reweighting.
 
-    Teacher targets are intentionally held fixed. This is a robustness/sensitivity
-    check, not an alternate-posterior oracle-label experiment.
+    Value and policy targets are intentionally held fixed. This is a
+    robustness/sensitivity check, not an alternate-posterior oracle-label experiment.
     """
 
+    if value_target_source not in VALUE_TARGET_SOURCES:
+        raise ImprovementError("unsupported value target source")
     results: dict[str, dict[str, float | int]] = {}
     for treatment in POSTERIOR_STRESS_TREATMENTS:
         stressed = tuple(
@@ -391,7 +395,7 @@ def evaluate_posterior_stress(
         "treatments": results,
         "worst_treatment": worst_treatment,
         "worst_total_loss": float(results[worst_treatment]["total_loss"]),
-        "target_semantics": "nominal-settled-search-target-held-fixed",
+        "target_semantics": value_target_source,
     }
 
 
@@ -400,9 +404,12 @@ def evaluate_posterior_robustness(
     candidate: Mapping[str, Any],
     *,
     policy: AdmissionPolicy,
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
 ) -> dict[str, Any]:
     """Require the candidate not to become more fragile than the incumbent."""
 
+    if value_target_source not in VALUE_TARGET_SOURCES:
+        raise ImprovementError("unsupported value target source")
     incumbent_treatments = _mapping(incumbent.get("treatments"), "incumbent.treatments")
     candidate_treatments = _mapping(candidate.get("treatments"), "candidate.treatments")
     regressions: dict[str, float] = {}
@@ -433,7 +440,7 @@ def evaluate_posterior_robustness(
         "regressions": regressions,
         "worst_treatment": worst_treatment,
         "worst_regression": worst_regression,
-        "target_semantics": "nominal-settled-search-target-held-fixed",
+        "target_semantics": value_target_source,
     }
 
 
@@ -709,7 +716,7 @@ def improve_checkpoint(
     epochs: int = 1,
     learning_rate: float = 3e-4,
     policy_weight: float = 1.0,
-    value_target_source: str = "public_belief_search_return",
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
     admission_policy: AdmissionPolicy = AdmissionPolicy(),
     promote: bool = True,
 ) -> dict[str, Any]:
@@ -785,16 +792,19 @@ def improve_checkpoint(
         incumbent_params,
         dataset.examples("validation"),
         policy_weight=policy_weight,
+        value_target_source=value_target_source,
     )
     candidate_posterior_stress = evaluate_posterior_stress(
         candidate_params,
         dataset.examples("validation"),
         policy_weight=policy_weight,
+        value_target_source=value_target_source,
     )
     posterior_robustness = evaluate_posterior_robustness(
         incumbent_posterior_stress,
         candidate_posterior_stress,
         policy=admission_policy,
+        value_target_source=value_target_source,
     )
     admission = decide_admission(
         incumbent_validation,
@@ -894,6 +904,7 @@ def improve_checkpoint(
         "candidate_checkpoint_digest": candidate_digest,
         "incumbent_checkpoint_digest": incumbent_digest,
         "dataset_digest": dataset.digest,
+        "value_target_source": value_target_source,
         "receipt": str(receipt_path),
         "receipt_digest": receipt_digest,
         "promotion_file": str(promotion_path) if promotion_path is not None else None,
