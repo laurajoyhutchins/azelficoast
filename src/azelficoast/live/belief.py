@@ -13,13 +13,14 @@ from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
-from azelficoast.belief.evaluator import build_evaluator_input
+from azelficoast.belief.evaluator import BeliefSearchValueAdapter, build_evaluator_input
 from azelficoast.live.corpus import DecisionFixture
 from azelficoast.live.execution_planning import TransitionRouteHistory
 from azelficoast.live.showdown_probe import (
     PersistentShowdownProbe,
     ShowdownProbeRuntimeError,
 )
+from azelficoast.core.compiled_planning import CardinalityEnvelope
 from azelficoast.core.decision_relevance import DecisionRelevanceError
 from azelficoast.core.evaluation import EvaluationFrontier
 from azelficoast.core.memo import SemanticMemo
@@ -44,6 +45,13 @@ PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_FRONTIER_MEMO_ENTRIES = 128
+LIVE_COMPILED_SEARCH_ENVELOPE = CardinalityEnvelope(
+    max_world_count=8192,
+    max_class_count=65536,
+    max_chance_edge_count=262144,
+    max_leaf_count=8192,
+    max_dense_leaf_world_cells=1_048_576,
+)
 
 
 @dataclass(frozen=True)
@@ -506,14 +514,51 @@ def transition_program_belief_result(
             belief=belief,
             transport_index=transport_index,
         )
-        search = search_transition_program(
-            mechanics=mechanics,
-            belief=belief,
-            transport_index=transport_index,
-            method="information_set",
-            evaluator=evaluator,
-            frontier_memo=frontier_memo,
-        )
+        def reference_search() -> dict[str, Any]:
+            return search_transition_program(
+                mechanics=mechanics,
+                belief=belief,
+                transport_index=transport_index,
+                method="information_set",
+                evaluator=evaluator,
+                frontier_memo=frontier_memo,
+            )
+
+        if bool(getattr(evaluator, "supports_compiled_search", False)):
+            try:
+                # Keep the optional accelerator dependency out of the base runtime
+                # import graph. A configured learned runtime already requires the
+                # simulator extra; unconfigured/default installs retain Python search.
+                from azelficoast.core.compiled_search import (
+                    search_transition_program_adaptive,
+                )
+
+                search = search_transition_program_adaptive(
+                    program_set=transition_program,
+                    posterior=posterior,
+                    method="information_set",
+                    evaluator=BeliefSearchValueAdapter(evaluator),
+                    envelope=LIVE_COMPILED_SEARCH_ENVELOPE,
+                    expected_program_schema=PROGRAM_SET_SCHEMA,
+                    expected_program_schema_version=PROGRAM_SET_SCHEMA_VERSION,
+                    fallback_search=reference_search,
+                )
+            except Exception as error:
+                # Compiled search is physical machinery, not decision authority.
+                # Preserve the exact typed search as the recovery path.
+                search = {
+                    **reference_search(),
+                    "physical_search_path": "python-frontier",
+                    "compiled_search_failure": {
+                        "type": type(error).__name__,
+                        "error": str(error)[-1000:],
+                    },
+                }
+        else:
+            search = {
+                **reference_search(),
+                "physical_search_path": "python-frontier",
+            }
     except (
         TransitionProgramSearchError,
         MechanicsContractError,
@@ -550,6 +595,14 @@ def transition_program_belief_result(
             "transition_evaluations": search.get("transition_evaluations"),
             "evaluator_calls": search.get("evaluator_calls"),
             "evaluator_batches": search.get("evaluator_batches"),
+            "physical_search_path": search.get(
+                "physical_search_path",
+                "python-frontier",
+            ),
+            "cardinality_plan": search.get("cardinality_plan"),
+            "compiled_shape": search.get("compiled_shape"),
+            "numeric_backend": search.get("numeric_backend"),
+            "compiled_search_failure": search.get("compiled_search_failure"),
             "frontier_group_identity": search.get("frontier_group_identity"),
             "frontier_materialization": search.get("frontier_materialization"),
             "frontier_memo_hit": search.get("frontier_memo_hit"),
