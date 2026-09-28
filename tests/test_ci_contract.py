@@ -106,10 +106,28 @@ def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
 
     assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
     assert "  workflow_dispatch:\n" in source
+    assert "  issue_comment:\n" in source
+    assert "types: [created]" in _event_block(source, "issue_comment")
     assert "github.event.pull_request.draft == false" in source
     assert "github.event.pull_request.head.sha || github.sha" in source
     assert "group: research-${{ github.event.pull_request.number || github.ref }}" in source
     assert "cancel-in-progress: true" in source
+
+
+def test_research_operator_dispatch_is_owner_only_and_exact_head_fenced() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    operator = source[source.index("  operator-dispatch:\n") : source.index("  candidate-plan:\n")]
+
+    assert "github.actor == github.repository_owner" in operator
+    assert "github.event.issue.pull_request" in operator
+    assert "actions: write" in operator
+    assert "pull-requests: read" in operator
+    assert "actual_ref" in operator
+    assert "actual_sha" in operator
+    assert 'test "$actual_ref" = "$ref"' in operator
+    assert 'test "$actual_sha" = "$expected_sha"' in operator
+    assert "actions/workflows/research.yml/dispatches" in operator
+    assert "{ref: $ref, inputs: {study: $study, candidate: $candidate}}" in operator
 
 
 def test_hosted_research_follows_every_ready_pr_head() -> None:
@@ -118,9 +136,10 @@ def test_hosted_research_follows_every_ready_pr_head() -> None:
     hosted = source[source.index("  hosted-plan:\n") : source.index("  hosted-run:\n")]
 
     assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
+    assert "github.event_name == 'workflow_dispatch' ||" in hosted
     assert (
-        "if: github.event_name == 'workflow_dispatch' "
-        "|| github.event.pull_request.draft == false"
+        "(github.event_name == 'pull_request' &&\n"
+        "       github.event.pull_request.draft == false)"
     ) in hosted
     assert "github.event.action == 'ready_for_review'" not in hosted
 
