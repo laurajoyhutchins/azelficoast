@@ -227,6 +227,7 @@ def _dataset_value_contract(
     records: Sequence[Mapping[str, Any]],
     *,
     value_target_source: str,
+    source_dataset_digest: str,
 ) -> dict[str, Any]:
     if value_target_source == "public_belief_search_return":
         return {
@@ -234,6 +235,7 @@ def _dataset_value_contract(
             "schema_version": VALUE_CONTRACT_SCHEMA_VERSION,
             "target": value_target_source,
             "aggregation": "settled-information-set-search-return",
+            "source_dataset_digest": source_dataset_digest,
         }
 
     components: dict[str, tuple[dict[str, Any], int]] = {}
@@ -279,6 +281,7 @@ def _dataset_value_contract(
         "schema_version": VALUE_CONTRACT_SCHEMA_VERSION,
         "target": value_target_source,
         "aggregation": "empirical-continuation-mixture",
+        "source_dataset_digest": source_dataset_digest,
         "components": [
             {
                 "continuation_contract_digest": digest,
@@ -336,9 +339,17 @@ def load_training_dataset(
             raise ImprovementError(f"self-improvement requires a non-empty {split!r} split")
 
     records.sort(key=lambda row: str(row["record_id"]))
+    dataset_digest = _sha256(
+        {
+            "schema": TRAINING_SCHEMA,
+            "schema_version": TRAINING_SCHEMA_VERSION,
+            "records": records,
+        }
+    )
     value_contract = _dataset_value_contract(
         records,
         value_target_source=value_target_source,
+        source_dataset_digest=dataset_digest,
     )
     contract_digest = value_contract_digest(value_contract)
     examples: dict[str, list[TrainingExample]] = {split: [] for split in groups}
@@ -348,13 +359,7 @@ def load_training_dataset(
         )
 
     return FrozenTrainingDataset(
-        digest=_sha256(
-            {
-                "schema": TRAINING_SCHEMA,
-                "schema_version": TRAINING_SCHEMA_VERSION,
-                "records": records,
-            }
-        ),
+        digest=dataset_digest,
         examples_by_split={split: tuple(rows) for split, rows in examples.items()},
         record_counts={split: len(rows) for split, rows in examples.items()},
         split_group_counts={split: len(rows) for split, rows in groups.items()},
