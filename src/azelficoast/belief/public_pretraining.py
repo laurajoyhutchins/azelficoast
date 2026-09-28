@@ -23,6 +23,7 @@ from azelficoast.belief.evaluator import (
     write_checkpoint,
 )
 from azelficoast.belief.improvement import (
+    DEFAULT_VALUE_TARGET_SOURCE,
     AdmissionPolicy,
     ImprovementError,
     improve_checkpoint,
@@ -412,7 +413,7 @@ def build_public_pretraining_records(
         "split_group_count": len({row["split_group_id"] for row in rows}),
         "split_record_counts": dict(sorted(Counter(row["split"] for row in rows).items())),
         "policy_target_source": "public-human-imitation",
-        "value_target_source": "eventual-battle-outcome",
+        "value_target_source": DEFAULT_VALUE_TARGET_SOURCE,
         "posterior_treatment": "generator_faithful",
         "showdown_commit": posterior_source.showdown_commit,
     }
@@ -521,7 +522,7 @@ def run_public_pretraining(
             epochs=epochs,
             learning_rate=learning_rate,
             policy_weight=policy_weight,
-            value_target_source="eventual_battle_outcome",
+            value_target_source=DEFAULT_VALUE_TARGET_SOURCE,
             admission_policy=admission_policy,
         )
     except ImprovementError as error:
