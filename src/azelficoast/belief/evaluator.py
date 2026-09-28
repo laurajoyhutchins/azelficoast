@@ -661,6 +661,8 @@ def load_checkpoint(
 class BeliefEvaluatorRuntime:
     """Loaded learned evaluator with immutable, content-addressed identity."""
 
+    supports_compiled_search = True
+
     def __init__(
         self,
         params: Mapping[str, Any],
