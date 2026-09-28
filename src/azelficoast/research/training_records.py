@@ -120,11 +120,114 @@ def _terminal_outcomes(
             raise TrainingRecordError(
                 f"battle {key!r} terminal outcome is not exactly one of win/loss/tie"
             )
+        source = record.get("source")
+        if source is not None and not isinstance(source, Mapping):
+            raise TrainingRecordError(
+                f"battle {key!r} terminal source must be an object when supplied"
+            )
         terminals[key] = {
             "outcome": 1.0 if won else -1.0 if lost else 0.0,
             "event_index": record["event_index"],
+            "source": dict(source) if isinstance(source, Mapping) else None,
         }
     return terminals
+
+
+def _continuation_contract(
+    control: Mapping[str, Any],
+    terminal: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Bind a terminal outcome to the behavior policy and opponent population that produced it."""
+
+    raw_control_source = control.get("source")
+    raw_terminal_source = terminal.get("source")
+    if raw_control_source is not None and not isinstance(raw_control_source, Mapping):
+        raise TrainingRecordError("decision trace source must be an object when supplied")
+    if raw_terminal_source is not None and not isinstance(raw_terminal_source, Mapping):
+        raise TrainingRecordError("terminal trace source must be an object when supplied")
+    control_source = (
+        dict(raw_control_source) if isinstance(raw_control_source, Mapping) else None
+    )
+    terminal_source = (
+        dict(raw_terminal_source) if isinstance(raw_terminal_source, Mapping) else None
+    )
+    if (
+        control_source is not None
+        and terminal_source is not None
+        and _canonical_json(control_source) != _canonical_json(terminal_source)
+    ):
+        raise TrainingRecordError(
+            "decision and terminal trace sources disagree for battle outcome"
+        )
+    source = control_source or terminal_source
+    if source is None:
+        raise TrainingRecordError(
+            "eventual battle outcome lacks continuation-policy source authority"
+        )
+
+    kind = source.get("kind")
+    if not isinstance(kind, str) or not kind:
+        raise TrainingRecordError("battle outcome source lacks kind")
+
+    if kind == "public-showdown-replay":
+        behavior_policy: dict[str, Any] = {
+            "kind": "recorded-human",
+            "source_showdown_version": source.get("source_showdown_version"),
+        }
+        opponent_policy: dict[str, Any] = {
+            "kind": "public-showdown-opponent",
+            "replay_id": source.get("replay_id"),
+            "side": source.get("side"),
+        }
+    elif kind.startswith("generated-"):
+        raw_player = source.get("player_policy")
+        raw_opponent = source.get("opponent_policy")
+        if not isinstance(raw_player, Mapping) or not isinstance(raw_opponent, Mapping):
+            raise TrainingRecordError(
+                "generated battle outcome must bind player_policy and opponent_policy"
+            )
+        behavior_policy = dict(raw_player)
+        opponent_policy = dict(raw_opponent)
+        evaluator_digest = behavior_policy.get("evaluator_checkpoint_digest")
+        if (
+            behavior_policy.get("kind") != "azelficoast-public-belief"
+            or not isinstance(evaluator_digest, str)
+            or not evaluator_digest
+        ):
+            raise TrainingRecordError(
+                "generated battle outcome has an invalid Azelficoast continuation policy"
+            )
+    else:
+        metadata = control.get("decision_metadata")
+        if not isinstance(metadata, Mapping):
+            raise TrainingRecordError(
+                "battle outcome source is not a recognized continuation-policy authority"
+            )
+        selected_policy = metadata.get("selected_policy")
+        if not isinstance(selected_policy, str) or not selected_policy:
+            raise TrainingRecordError(
+                "battle outcome lacks a selected behavior-policy identity"
+            )
+        behavior_policy = {"kind": selected_policy}
+        belief = metadata.get("belief")
+        if isinstance(belief, Mapping):
+            diagnostics = belief.get("diagnostics")
+            if isinstance(diagnostics, Mapping):
+                evaluator = diagnostics.get("evaluator")
+                if isinstance(evaluator, Mapping):
+                    behavior_policy["evaluator"] = dict(evaluator)
+                search_gate = diagnostics.get("search_gate")
+                if isinstance(search_gate, Mapping):
+                    behavior_policy["search_gate"] = dict(search_gate)
+        opponent_policy = {"kind": kind}
+
+    return {
+        "schema": "azelficoast.outcome-continuation-contract",
+        "schema_version": 1,
+        "behavior_policy": behavior_policy,
+        "opponent_policy": opponent_policy,
+        "source_kind": kind,
+    }
 
 
 def _load_posteriors(
@@ -481,6 +584,7 @@ def build_training_records(
                 "packet_digest": packet["packet_digest"],
             }
             behavior_action = control.get("chosen_action")
+            continuation_contract = _continuation_contract(control, terminal)
             rows.append(
                 {
                     "schema": TRAINING_SCHEMA,
@@ -517,6 +621,10 @@ def build_training_records(
                         "run_id": run_id,
                         "battle_tag": battle_tag,
                         "terminal_event_index": terminal["event_index"],
+                        "value_target": {
+                            "kind": "eventual-battle-outcome",
+                            "continuation_contract": continuation_contract,
+                        },
                         "behavior_action": behavior_action,
                         "behavior_matches_policy_target": behavior_action == selected_action,
                         "search": {
@@ -604,6 +712,15 @@ def build_training_records(
             ).items())
         ),
         "search_target_source": "settled-matched-information-set-search",
+        "value_target_source": "eventual_battle_outcome",
+        "continuation_contract_count": len(
+            {
+                _canonical_json(
+                    row["provenance"]["value_target"]["continuation_contract"]
+                )
+                for row in rows
+            }
+        ),
     }
     return rows, summary
 
