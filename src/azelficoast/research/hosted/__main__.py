@@ -117,10 +117,10 @@ def _run_study_unit(study_name: str, unit: str) -> None:
             shard_count=len(contract.units),
         )
         return
-    if contract.kind == "external-strength-shard":
-        external_strength.run_shard(
+    if contract.kind == "external-strength-unit":
+        external_strength.run_unit(
             int(unit),
-            shard_count=len(contract.units),
+            unit_count=len(contract.units),
         )
         return
     raise HostedResearchContractError(
