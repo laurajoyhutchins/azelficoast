@@ -123,6 +123,7 @@ def test_research_operator_dispatch_is_push_driven_and_exact_head_fenced() -> No
     assert "actions: write" in operator
     assert "pull-requests: read" in operator
     assert '".github/research-dispatch.json"' in operator
+    assert 'echo "no research dispatch request"' in operator
     assert 'test "$actual_ref" = "$ref"' in operator
     assert 'test "$actual_sha" = "$expected_sha"' in operator
     assert "actions/workflows/research.yml/dispatches" in operator
