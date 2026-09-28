@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
+from azelficoast.belief.improvement import DEFAULT_VALUE_TARGET_SOURCE
 from azelficoast.live.harness import main as harness_main
 
 TRAINING_STATE_SCHEMA = "azelficoast.hosted-training-state"
@@ -195,6 +196,8 @@ def _automatic_generation(
             str(AUTO_PROMOTION_BATTLES),
             "--max-teacher-fixtures",
             str(AUTO_MAX_TEACHER_FIXTURES),
+            "--value-target",
+            DEFAULT_VALUE_TARGET_SOURCE,
         ]
     )
 
@@ -250,6 +253,7 @@ def run_training_iteration(
         "auto_public_replays_per_generation": AUTO_PUBLIC_REPLAYS_PER_GENERATION,
         "auto_promotion_battles": AUTO_PROMOTION_BATTLES,
         "auto_max_teacher_fixtures": AUTO_MAX_TEACHER_FIXTURES,
+        "value_target_source": DEFAULT_VALUE_TARGET_SOURCE,
     }
     summary = {
         "schema": TRAINING_RUN_SCHEMA,
