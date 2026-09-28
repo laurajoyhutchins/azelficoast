@@ -189,6 +189,7 @@ def test_checkpoint_identity_tracks_parameters_model_spec_and_value_contract(tmp
         "schema_version": 1,
         "target": "eventual_battle_outcome",
         "aggregation": "empirical-continuation-mixture",
+        "source_dataset_digest": "sha256:" + "e" * 64,
         "components": [
             {
                 "continuation_contract_digest": "sha256:" + "c" * 64,
