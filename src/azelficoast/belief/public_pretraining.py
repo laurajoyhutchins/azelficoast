@@ -383,8 +383,9 @@ def build_public_pretraining_records(
                                 },
                                 "opponent_policy": {
                                     "kind": "public-showdown-opponent",
-                                    "replay_id": metadata["source_replay_id"],
-                                    "side": metadata["source_side"],
+                                    "source_showdown_version": metadata[
+                                        "source_showdown_version"
+                                    ],
                                 },
                                 "source_kind": "public-showdown-replay",
                             },
