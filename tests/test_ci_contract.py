@@ -106,28 +106,28 @@ def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
 
     assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
     assert "  workflow_dispatch:\n" in source
-    assert "  issue_comment:\n" in source
-    assert "types: [created]" in _event_block(source, "issue_comment")
     assert "github.event.pull_request.draft == false" in source
     assert "github.event.pull_request.head.sha || github.sha" in source
     assert "group: research-${{ github.event.pull_request.number || github.ref }}" in source
     assert "cancel-in-progress: true" in source
 
 
-def test_research_operator_dispatch_is_owner_only_and_exact_head_fenced() -> None:
+def test_research_operator_dispatch_is_push_driven_and_exact_head_fenced() -> None:
     source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    push = _event_block(source, "push")
     operator = source[source.index("  operator-dispatch:\n") : source.index("  candidate-plan:\n")]
+    candidate = source[source.index("  candidate-plan:\n") : source.index("  accelerator-static:\n")]
 
-    assert "github.actor == github.repository_owner" in operator
-    assert "github.event.issue.pull_request" in operator
+    assert "'operator/research-dispatch'" in push
+    assert "github.ref_name == 'operator/research-dispatch'" in operator
     assert "actions: write" in operator
     assert "pull-requests: read" in operator
-    assert "actual_ref" in operator
-    assert "actual_sha" in operator
+    assert '".github/research-dispatch.json"' in operator
     assert 'test "$actual_ref" = "$ref"' in operator
     assert 'test "$actual_sha" = "$expected_sha"' in operator
     assert "actions/workflows/research.yml/dispatches" in operator
     assert "{ref: $ref, inputs: {study: $study, candidate: $candidate}}" in operator
+    assert "startsWith(github.ref_name, 'overcenter/candidate/')" in candidate
 
 
 def test_hosted_research_follows_every_ready_pr_head() -> None:
