@@ -382,6 +382,15 @@ def test_hosted_run_installs_only_declared_simulator_capability() -> None:
     assert "external-playing-strength" not in hosted
 
 
+def test_hosted_studies_are_not_globally_blocked_by_unrelated_preparation() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    hosted = source[source.index("  hosted-run:\n") : source.index("  overcenter-settle:\n")]
+
+    assert "needs: [hosted-plan, hosted-prepare]" in hosted
+    assert "needs.hosted-prepare.result != 'failure'" not in hosted
+    assert "needs.hosted-prepare.result != 'cancelled'" not in hosted
+
+
 def test_hosted_preparation_is_generic_transport_not_scientific_authority() -> None:
     source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
     prepare = source[source.index("  hosted-prepare:\n") : source.index("  hosted-run:\n")]
