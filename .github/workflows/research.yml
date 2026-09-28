@@ -1,6 +1,8 @@
 name: research
 
 on:
+  issue_comment:
+    types: [created]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -40,6 +42,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  operator-dispatch:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.actor == github.repository_owner &&
+      startsWith(github.event.comment.body, '/research-dispatch ')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Dispatch exact research request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$COMMENT_BODY" =~ ^/research-dispatch[[:space:]]+ref=([^[:space:]]+)[[:space:]]+sha=([0-9a-f]{40})[[:space:]]+study=([^[:space:]]+)[[:space:]]+candidate=([^[:space:]]+)[[:space:]]*$ ]]; then
+            echo "invalid research dispatch command" >&2
+            exit 2
+          fi
+
+          ref="${BASH_REMATCH[1]}"
+          expected_sha="${BASH_REMATCH[2]}"
+          study="${BASH_REMATCH[3]}"
+          candidate="${BASH_REMATCH[4]}"
+
+          pull="$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")"
+          actual_repo="$(jq -r '.head.repo.full_name' <<<"$pull")"
+          actual_ref="$(jq -r '.head.ref' <<<"$pull")"
+          actual_sha="$(jq -r '.head.sha' <<<"$pull")"
+
+          test "$actual_repo" = "$REPOSITORY"
+          test "$actual_ref" = "$ref"
+          test "$actual_sha" = "$expected_sha"
+
+          jq -n             --arg ref "$ref"             --arg study "$study"             --arg candidate "$candidate"             '{ref: $ref, inputs: {study: $study, candidate: $candidate}}'             > /tmp/research-dispatch.json
+
+          gh api             --method POST             "repos/${REPOSITORY}/actions/workflows/research.yml/dispatches"             --input /tmp/research-dispatch.json
+
   candidate-plan:
     if: >-
       github.event_name == 'workflow_dispatch' ||
@@ -153,7 +199,10 @@ jobs:
           if-no-files-found: error
 
   hosted-plan:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.draft == false
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.draft == false)
     runs-on: ubuntu-latest
     outputs:
       prepare_matrix: ${{ steps.plan.outputs.prepare_matrix }}
