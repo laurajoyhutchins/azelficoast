@@ -372,6 +372,22 @@ def build_public_pretraining_records(
                         },
                         "value_target": {
                             "kind": "eventual-battle-outcome",
+                            "continuation_contract": {
+                                "schema": "azelficoast.outcome-continuation-contract",
+                                "schema_version": 1,
+                                "behavior_policy": {
+                                    "kind": "recorded-human",
+                                    "source_showdown_version": metadata[
+                                        "source_showdown_version"
+                                    ],
+                                },
+                                "opponent_policy": {
+                                    "kind": "public-showdown-opponent",
+                                    "replay_id": metadata["source_replay_id"],
+                                    "side": metadata["source_side"],
+                                },
+                                "source_kind": "public-showdown-replay",
+                            },
                         },
                         "posterior": {
                             "kind": "pinned-showdown-generator-faithful",
