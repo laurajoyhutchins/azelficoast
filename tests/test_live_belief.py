@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
+import sys
+from types import ModuleType, SimpleNamespace
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
 from azelficoast.core.evaluation import EvaluationFrontier
@@ -493,7 +494,56 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.diagnostics["reused_showdown_turn_executions"] == 7
     assert result.diagnostics["evaluator_calls"] == 3
     assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
+    assert result.diagnostics["physical_search_path"] == "python-frontier"
 
+
+def test_transition_program_uses_compiled_search_for_capable_runtime(monkeypatch) -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+
+    class CompiledCapableEvaluator(_PosteriorSpreadEvaluator):
+        supports_compiled_search = True
+
+    compiled_module = ModuleType("azelficoast.core.compiled_search")
+
+    def adaptive_search(**kwargs):
+        reference = kwargs["fallback_search"]()
+        return {
+            **reference,
+            "physical_search_path": "compiled-jax",
+            "cardinality_plan": {"final_path": "compiled-jax"},
+            "compiled_shape": {"leaves": 3},
+            "numeric_backend": "jax",
+        }
+
+    compiled_module.search_transition_program_adaptive = adaptive_search
+    monkeypatch.setitem(
+        sys.modules,
+        "azelficoast.core.compiled_search",
+        compiled_module,
+    )
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=CompiledCapableEvaluator(),
+    )
+
+    assert result.action == "safe"
+    assert result.diagnostics["physical_search_path"] == "compiled-jax"
+    assert result.diagnostics["cardinality_plan"] == {"final_path": "compiled-jax"}
+    assert result.diagnostics["compiled_shape"] == {"leaves": 3}
+    assert result.diagnostics["numeric_backend"] == "jax"
+    assert result.diagnostics["compiled_search_failure"] is None
 
 
 def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:
