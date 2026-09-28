@@ -399,8 +399,17 @@ def learned_route_result(
         if callable(getattr(search_gate, "as_record", None))
         else {"kind": type(search_gate).__name__}
     )
+    value_contract = getattr(evaluator, "value_contract", None)
     common = {
         "evaluator": dict(identity) if isinstance(identity, Mapping) else {},
+        "value_contract": (
+            dict(value_contract) if isinstance(value_contract, Mapping) else None
+        ),
+        "value_contract_digest": getattr(
+            evaluator,
+            "value_contract_digest",
+            None,
+        ),
         "search_gate": gate_record,
     }
     try:
