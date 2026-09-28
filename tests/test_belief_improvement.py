@@ -14,6 +14,7 @@ from azelficoast.belief.evaluator import (
     write_checkpoint,
 )
 from azelficoast.belief.improvement import (
+    DEFAULT_VALUE_TARGET_SOURCE,
     AdmissionPolicy,
     EvaluationMetrics,
     ImprovementError,
@@ -176,6 +177,16 @@ def test_dataset_digest_is_invariant_to_record_order(tmp_path) -> None:
 
     assert a.digest == b.digest
     assert a.record_counts == {"train": 1, "validation": 1, "test": 1}
+
+
+def test_default_value_target_is_eventual_battle_outcome(tmp_path) -> None:
+    path = tmp_path / "training.jsonl"
+    _write(path, _records())
+
+    dataset = load_training_dataset(path, spec=_spec())
+
+    assert DEFAULT_VALUE_TARGET_SOURCE == "eventual_battle_outcome"
+    assert dataset.examples("train")[0].value_target == 1.0
 
 
 def test_dataset_rejects_split_group_leakage(tmp_path) -> None:
