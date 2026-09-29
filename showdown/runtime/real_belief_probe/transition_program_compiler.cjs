@@ -742,11 +742,12 @@ function compileLazyWholeTurnPrograms(
       );
       const memberWorldIds = members.map(world => world.world_id).sort();
       const projection = projectionKey(representativeWorld, dependencyFields);
+      const classSemanticHash = sha256PythonCanonical(execution.outcomes);
       const classId = "transition-class-" + sha256({
         action,
         read_fields: dependencyFields,
         key: projection,
-        semantic_hash: execution.semantic_hash,
+        semantic_hash: classSemanticHash,
       }).slice(0, 24);
       classes.push({
         class_id: classId,
@@ -755,7 +756,7 @@ function compileLazyWholeTurnPrograms(
         projection_key: projection,
         representative_world_id: representativeWorld.world_id,
         member_world_ids: memberWorldIds,
-        semantic_hash: execution.semantic_hash,
+        semantic_hash: classSemanticHash,
         outcomes: execution.outcomes,
       });
     }
