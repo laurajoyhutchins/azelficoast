@@ -7,11 +7,19 @@ def test_multihit_ranking_uses_showdown_expectation() -> None:
     source = r"""
 const assert = require("node:assert/strict");
 const {createOpponentPolicyEngine} = require("./showdown/runtime/real_belief_probe/opponent_policy.cjs");
-const attacker = {getStat(){return 100;}, getTypes(){return ["Normal"];}, hasAbility(id){return id === "skilllink" && this.linked;}, hasItem(){return false;}};
+const attacker = {
+  getStat(){return 100;},
+  getTypes(){return ["Normal"];},
+  hasAbility(id){return id === "skilllink" && this.linked;},
+  hasItem(id){return id === "loadeddice" && this.loadedDice;},
+  linked:false,
+  loadedDice:false,
+};
 const defender = {getStat(){return 100;}};
+const singleMove = {id:"single", exists:true, category:"Physical", basePower:94, accuracy:true, type:"Normal"};
 const moves = new Map([
   ["multi", {id:"multi", exists:true, category:"Physical", basePower:30, accuracy:true, type:"Normal", multihit:[2,5]}],
-  ["single", {id:"single", exists:true, category:"Physical", basePower:95, accuracy:true, type:"Normal"}],
+  ["single", singleMove],
 ]);
 const battle = {
   restart(){}, destroy(){},
@@ -26,9 +34,27 @@ const engine = createOpponentPolicyEngine({
   publicOpponentView(){return null;}, toID(value){return String(value).toLowerCase();},
 });
 const rank = () => engine.opponentDistributionForSnapshot({}).map(row => row.choice);
+
 assert.deepEqual(rank(), ["move single"]);
+singleMove.basePower = 92;
+assert.deepEqual(rank(), ["move multi"]);
+
+attacker.loadedDice = true;
+singleMove.basePower = 136;
+assert.deepEqual(rank(), ["move single"]);
+singleMove.basePower = 134;
+assert.deepEqual(rank(), ["move multi"]);
+
+attacker.loadedDice = false;
 attacker.linked = true;
+singleMove.basePower = 149;
 assert.deepEqual(rank(), ["move multi"]);
 """
-    result = subprocess.run(["node", "-e", source], cwd=root, check=True, capture_output=True, text=True)
+    result = subprocess.run(
+        ["node", "-e", source],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     assert result.stderr == ""
