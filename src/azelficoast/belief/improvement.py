@@ -18,6 +18,8 @@ from typing import Any, Mapping, Sequence
 from azelficoast.belief.evaluator import (
     PROMOTION_SCHEMA,
     PROMOTION_SCHEMA_VERSION,
+    VALUE_CONTRACT_SCHEMA,
+    VALUE_CONTRACT_SCHEMA_VERSION,
     BeliefEvaluatorError,
     BeliefEvaluatorInput,
     BeliefEvaluatorSpec,
@@ -25,6 +27,7 @@ from azelficoast.belief.evaluator import (
     checkpoint_digest,
     load_checkpoint,
     predict,
+    value_contract_digest,
     write_checkpoint,
 )
 from azelficoast.belief.battle_promotion import (
@@ -41,7 +44,8 @@ IMPROVEMENT_RECEIPT_SCHEMA_VERSION = 4
 POSTERIOR_STRESS_TREATMENTS = ("flattened", "sharpened")
 PROMOTION_SETTLEMENT_SCHEMA = "azelficoast.evaluator-promotion-settlement"
 PROMOTION_SETTLEMENT_SCHEMA_VERSION = 1
-VALUE_TARGET_SOURCES = ("public_belief_search_return", "eventual_battle_outcome")
+VALUE_TARGET_SOURCES = ("eventual_battle_outcome", "public_belief_search_return")
+DEFAULT_VALUE_TARGET_SOURCE = "eventual_battle_outcome"
 
 
 class ImprovementError(ValueError):
@@ -97,6 +101,8 @@ class FrozenTrainingDataset:
     examples_by_split: Mapping[str, tuple[TrainingExample, ...]]
     record_counts: Mapping[str, int]
     split_group_counts: Mapping[str, int]
+    value_contract: Mapping[str, Any]
+    value_contract_digest: str
 
     def examples(self, split: str) -> tuple[TrainingExample, ...]:
         return self.examples_by_split.get(split, ())
@@ -217,11 +223,81 @@ def _example(
         raise ImprovementError(str(error)) from error
 
 
+def _dataset_value_contract(
+    records: Sequence[Mapping[str, Any]],
+    *,
+    value_target_source: str,
+    source_dataset_digest: str,
+) -> dict[str, Any]:
+    if value_target_source == "public_belief_search_return":
+        return {
+            "schema": VALUE_CONTRACT_SCHEMA,
+            "schema_version": VALUE_CONTRACT_SCHEMA_VERSION,
+            "target": value_target_source,
+            "aggregation": "settled-information-set-search-return",
+            "source_dataset_digest": source_dataset_digest,
+        }
+
+    components: dict[str, tuple[dict[str, Any], int]] = {}
+    for record in records:
+        provenance = _mapping(record.get("provenance"), "provenance")
+        value_target = _mapping(
+            provenance.get("value_target"),
+            "provenance.value_target",
+        )
+        if value_target.get("kind") != "eventual-battle-outcome":
+            raise ImprovementError(
+                "eventual battle outcome lacks explicit value-target provenance"
+            )
+        continuation = _mapping(
+            value_target.get("continuation_contract"),
+            "provenance.value_target.continuation_contract",
+        )
+        if (
+            continuation.get("schema")
+            != "azelficoast.outcome-continuation-contract"
+            or continuation.get("schema_version") != 1
+        ):
+            raise ImprovementError("unexpected outcome continuation contract schema")
+        material = dict(continuation)
+        digest = _sha256(material)
+        existing = components.get(digest)
+        if existing is None:
+            components[digest] = (material, 1)
+        else:
+            prior, count = existing
+            if _canonical(prior) != _canonical(material):
+                raise ImprovementError(
+                    f"outcome continuation contract digest collision for {digest}"
+                )
+            components[digest] = (prior, count + 1)
+
+    if not components:
+        raise ImprovementError(
+            "eventual battle outcome training requires continuation-policy evidence"
+        )
+    return {
+        "schema": VALUE_CONTRACT_SCHEMA,
+        "schema_version": VALUE_CONTRACT_SCHEMA_VERSION,
+        "target": value_target_source,
+        "aggregation": "empirical-continuation-mixture",
+        "source_dataset_digest": source_dataset_digest,
+        "components": [
+            {
+                "continuation_contract_digest": digest,
+                "record_count": count,
+                "continuation_contract": contract,
+            }
+            for digest, (contract, count) in sorted(components.items())
+        ],
+    }
+
+
 def load_training_dataset(
     path: str | Path,
     *,
     spec: BeliefEvaluatorSpec,
-    value_target_source: str = "public_belief_search_return",
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
 ) -> FrozenTrainingDataset:
     """Validate leakage boundaries and canonicalize record order before training."""
     if value_target_source not in VALUE_TARGET_SOURCES:
@@ -263,6 +339,19 @@ def load_training_dataset(
             raise ImprovementError(f"self-improvement requires a non-empty {split!r} split")
 
     records.sort(key=lambda row: str(row["record_id"]))
+    dataset_digest = _sha256(
+        {
+            "schema": TRAINING_SCHEMA,
+            "schema_version": TRAINING_SCHEMA_VERSION,
+            "records": records,
+        }
+    )
+    value_contract = _dataset_value_contract(
+        records,
+        value_target_source=value_target_source,
+        source_dataset_digest=dataset_digest,
+    )
+    contract_digest = value_contract_digest(value_contract)
     examples: dict[str, list[TrainingExample]] = {split: [] for split in groups}
     for record in records:
         examples[str(record["split"])].append(
@@ -270,16 +359,12 @@ def load_training_dataset(
         )
 
     return FrozenTrainingDataset(
-        digest=_sha256(
-            {
-                "schema": TRAINING_SCHEMA,
-                "schema_version": TRAINING_SCHEMA_VERSION,
-                "records": records,
-            }
-        ),
+        digest=dataset_digest,
         examples_by_split={split: tuple(rows) for split, rows in examples.items()},
         record_counts={split: len(rows) for split, rows in examples.items()},
         split_group_counts={split: len(rows) for split, rows in groups.items()},
+        value_contract=value_contract,
+        value_contract_digest=contract_digest,
     )
 
 
@@ -361,13 +446,16 @@ def evaluate_posterior_stress(
     examples: Sequence[TrainingExample],
     *,
     policy_weight: float = 1.0,
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
 ) -> dict[str, Any]:
     """Measure held-out evaluator sensitivity to plausible prior reweighting.
 
-    Teacher targets are intentionally held fixed. This is a robustness/sensitivity
-    check, not an alternate-posterior oracle-label experiment.
+    Value and policy targets are intentionally held fixed. This is a
+    robustness/sensitivity check, not an alternate-posterior oracle-label experiment.
     """
 
+    if value_target_source not in VALUE_TARGET_SOURCES:
+        raise ImprovementError("unsupported value target source")
     results: dict[str, dict[str, float | int]] = {}
     for treatment in POSTERIOR_STRESS_TREATMENTS:
         stressed = tuple(
@@ -391,7 +479,7 @@ def evaluate_posterior_stress(
         "treatments": results,
         "worst_treatment": worst_treatment,
         "worst_total_loss": float(results[worst_treatment]["total_loss"]),
-        "target_semantics": "nominal-settled-search-target-held-fixed",
+        "target_semantics": value_target_source,
     }
 
 
@@ -400,9 +488,12 @@ def evaluate_posterior_robustness(
     candidate: Mapping[str, Any],
     *,
     policy: AdmissionPolicy,
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
 ) -> dict[str, Any]:
     """Require the candidate not to become more fragile than the incumbent."""
 
+    if value_target_source not in VALUE_TARGET_SOURCES:
+        raise ImprovementError("unsupported value target source")
     incumbent_treatments = _mapping(incumbent.get("treatments"), "incumbent.treatments")
     candidate_treatments = _mapping(candidate.get("treatments"), "candidate.treatments")
     regressions: dict[str, float] = {}
@@ -433,7 +524,7 @@ def evaluate_posterior_robustness(
         "regressions": regressions,
         "worst_treatment": worst_treatment,
         "worst_regression": worst_regression,
-        "target_semantics": "nominal-settled-search-target-held-fixed",
+        "target_semantics": value_target_source,
     }
 
 
@@ -559,16 +650,31 @@ def _candidate_checkpoint(
     params: Mapping[str, Any],
     spec: BeliefEvaluatorSpec,
     metadata: Mapping[str, Any],
+    value_contract: Mapping[str, Any],
 ) -> tuple[Path, str]:
-    digest = checkpoint_digest(params, spec)
+    digest = checkpoint_digest(params, spec, value_contract=value_contract)
     destination = models_dir / digest.removeprefix("sha256:")
     if destination.exists():
         _, existing_spec, manifest = load_checkpoint(destination)
         evaluator = _mapping(manifest.get("evaluator"), "candidate.evaluator")
-        if existing_spec != spec or evaluator.get("checkpoint_digest") != digest:
+        existing_contract = _mapping(
+            manifest.get("value_contract"),
+            "candidate.value_contract",
+        )
+        if (
+            existing_spec != spec
+            or evaluator.get("checkpoint_digest") != digest
+            or _canonical(existing_contract) != _canonical(value_contract)
+        ):
             raise ImprovementError("existing candidate checkpoint conflicts with candidate digest")
         return destination, digest
-    write_checkpoint(destination, params, spec, metadata=metadata)
+    write_checkpoint(
+        destination,
+        params,
+        spec,
+        metadata=metadata,
+        value_contract=value_contract,
+    )
     return destination, digest
 
 
@@ -709,7 +815,7 @@ def improve_checkpoint(
     epochs: int = 1,
     learning_rate: float = 3e-4,
     policy_weight: float = 1.0,
-    value_target_source: str = "public_belief_search_return",
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
     admission_policy: AdmissionPolicy = AdmissionPolicy(),
     promote: bool = True,
 ) -> dict[str, Any]:
@@ -767,6 +873,7 @@ def improve_checkpoint(
             "incumbent_checkpoint_digest": incumbent_digest,
             "training": training,
         },
+        value_contract=dataset.value_contract,
     )
 
     incumbent_validation = evaluate_examples(
@@ -785,16 +892,19 @@ def improve_checkpoint(
         incumbent_params,
         dataset.examples("validation"),
         policy_weight=policy_weight,
+        value_target_source=value_target_source,
     )
     candidate_posterior_stress = evaluate_posterior_stress(
         candidate_params,
         dataset.examples("validation"),
         policy_weight=policy_weight,
+        value_target_source=value_target_source,
     )
     posterior_robustness = evaluate_posterior_robustness(
         incumbent_posterior_stress,
         candidate_posterior_stress,
         policy=admission_policy,
+        value_target_source=value_target_source,
     )
     admission = decide_admission(
         incumbent_validation,
@@ -835,6 +945,8 @@ def improve_checkpoint(
             "digest": dataset.digest,
             "record_counts": dict(dataset.record_counts),
             "split_group_counts": dict(dataset.split_group_counts),
+            "value_contract": dict(dataset.value_contract),
+            "value_contract_digest": dataset.value_contract_digest,
         },
         "incumbent_checkpoint_digest": incumbent_digest,
         "candidate_checkpoint_digest": candidate_digest,
@@ -894,6 +1006,8 @@ def improve_checkpoint(
         "candidate_checkpoint_digest": candidate_digest,
         "incumbent_checkpoint_digest": incumbent_digest,
         "dataset_digest": dataset.digest,
+        "value_target_source": value_target_source,
+        "value_contract_digest": dataset.value_contract_digest,
         "receipt": str(receipt_path),
         "receipt_digest": receipt_digest,
         "promotion_file": str(promotion_path) if promotion_path is not None else None,

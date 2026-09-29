@@ -14,6 +14,7 @@ from azelficoast.belief.evaluator import (
     write_checkpoint,
 )
 from azelficoast.belief.improvement import (
+    DEFAULT_VALUE_TARGET_SOURCE,
     AdmissionPolicy,
     EvaluationMetrics,
     ImprovementError,
@@ -139,7 +140,22 @@ def _record(record_id: str, split: str) -> dict[str, object]:
                 "searched_action_values": {"attack": 0.8, "switch": 0.1},
             },
         },
-        "provenance": {},
+        "provenance": {
+            "value_target": {
+                "kind": "eventual-battle-outcome",
+                "continuation_contract": {
+                    "schema": "azelficoast.outcome-continuation-contract",
+                    "schema_version": 1,
+                    "behavior_policy": {
+                        "kind": "azelficoast-public-belief",
+                        "evaluator_checkpoint_digest": "sha256:" + "c" * 64,
+                        "search_policy_margin": 1.0,
+                    },
+                    "opponent_policy": {"kind": "simple-heuristics"},
+                    "source_kind": "generated-simple-heuristics",
+                },
+            },
+        },
     }
 
 
@@ -176,6 +192,16 @@ def test_dataset_digest_is_invariant_to_record_order(tmp_path) -> None:
 
     assert a.digest == b.digest
     assert a.record_counts == {"train": 1, "validation": 1, "test": 1}
+
+
+def test_default_value_target_is_eventual_battle_outcome(tmp_path) -> None:
+    path = tmp_path / "training.jsonl"
+    _write(path, _records())
+
+    dataset = load_training_dataset(path, spec=_spec())
+
+    assert DEFAULT_VALUE_TARGET_SOURCE == "eventual_battle_outcome"
+    assert dataset.examples("train")[0].value_target == 1.0
 
 
 def test_dataset_rejects_split_group_leakage(tmp_path) -> None:

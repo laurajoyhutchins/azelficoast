@@ -147,6 +147,15 @@ def _record(event: int, kind: str, **extra: object) -> dict[str, object]:
         "event_index": event,
         "observed_at": "2026-09-25T00:00:00+00:00",
         "kind": kind,
+        "source": {
+            "kind": "generated-simple-heuristics",
+            "player_policy": {
+                "kind": "azelficoast-public-belief",
+                "evaluator_checkpoint_digest": "sha256:" + "a" * 64,
+                "search_policy_margin": 1.0,
+            },
+            "opponent_policy": {"kind": "simple-heuristics"},
+        },
         **extra,
     }
 

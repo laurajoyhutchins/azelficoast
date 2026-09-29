@@ -251,12 +251,23 @@ async def run_automatic_self_improvement(args: argparse.Namespace) -> dict[str, 
             trace_source = {
                 "kind": f"generated-{spec['kind']}",
                 "generation": generation_number,
-                "opponent_kind": spec["kind"],
-                **(
-                    {"opponent_checkpoint_digest": spec["checkpoint_digest"]}
-                    if isinstance(spec.get("checkpoint_digest"), str)
-                    else {}
-                ),
+                "player_policy": {
+                    "kind": "azelficoast-public-belief",
+                    "evaluator_checkpoint_digest": checkpoint_digest(
+                        current_checkpoint
+                    ),
+                    "search_policy_margin": float(
+                        args.battle_search_policy_margin
+                    ),
+                },
+                "opponent_policy": {
+                    "kind": spec["kind"],
+                    **(
+                        {"checkpoint_digest": spec["checkpoint_digest"]}
+                        if isinstance(spec.get("checkpoint_digest"), str)
+                        else {}
+                    ),
+                },
             }
             await run_local(
                 battle_count,

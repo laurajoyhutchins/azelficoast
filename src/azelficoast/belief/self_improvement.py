@@ -12,7 +12,12 @@ from typing import Any, Mapping, Protocol, Sequence
 
 from azelficoast.belief.competence import build_competence_ledger, curriculum_priority
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
-from azelficoast.belief.improvement import AdmissionPolicy, ImprovementError, improve_checkpoint
+from azelficoast.belief.improvement import (
+    DEFAULT_VALUE_TARGET_SOURCE,
+    AdmissionPolicy,
+    ImprovementError,
+    improve_checkpoint,
+)
 from azelficoast.belief.validity import power_reweight_posterior
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import PinnedShowdownBeliefPolicy, build_probe_source
@@ -861,7 +866,7 @@ def run_self_improvement_cycle(
     epochs: int = 1,
     learning_rate: float = 3e-4,
     policy_weight: float = 1.0,
-    value_target_source: str = "public_belief_search_return",
+    value_target_source: str = DEFAULT_VALUE_TARGET_SOURCE,
     admission_policy: AdmissionPolicy = AdmissionPolicy(),
     defer_promotion: bool = False,
 ) -> dict[str, Any]:
