@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -670,6 +671,59 @@ def test_transition_program_compiled_search_matches_typed_reference() -> None:
         reference.diagnostics["public_belief_root_values"],
         abs=1e-6,
     )
+
+def test_live_compiled_search_crosses_pinned_showdown_boundary() -> None:
+    showdown_root = Path("/tmp/pokemon-showdown")
+    if not (showdown_root / "dist" / "sim" / "battle.js").is_file():
+        pytest.skip("pinned Showdown checkout is not available")
+
+    source = json.loads(
+        Path("experiments/data/real-belief-source-fixture.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    state = json.loads(json.dumps(source["state"]))
+    state["active"]["tera_type"] = source["own_active_tera_type"]
+    state["legal_actions"] = [
+        "/choose move playrough",
+        "/choose move protect",
+    ]
+    fixture = live_fixture(state, source["protocol_prefix"])
+
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=31)
+    runtime = BeliefEvaluatorRuntime(
+        params,
+        spec,
+        evaluator_identity(
+            checkpoint_digest_value=checkpoint_digest(params, spec),
+            spec=spec,
+        ),
+    )
+    policy = PinnedShowdownBeliefPolicy(
+        showdown_root,
+        timeout_seconds=60.0,
+        learned_evaluator=runtime,
+        search_gate=PolicyMarginSearchGate(search_if_margin_at_most=1.0),
+    )
+    try:
+        result = policy.choose(fixture)
+    finally:
+        policy.close()
+
+    assert result.action in fixture.legal_actions
+    assert result.diagnostics["physical_search_path"] == "compiled-jax"
+    assert result.diagnostics["frontier_materialization"] == "shared-hashed-worlds"
+    assert result.diagnostics["posterior_probe_ms"] >= 0.0
+    assert result.diagnostics["transition_program_probe_ms"] >= 0.0
+    assert result.diagnostics["exact_search_ms"] >= 0.0
+
 
 def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:
     fixture = _selective_fixture()
