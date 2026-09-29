@@ -380,7 +380,8 @@
         "docs/search-architecture.md",
         "src/azelficoast/belief/evaluator.py",
         "src/azelficoast/live/belief.py",
-        "tests/test_live_belief.py"
+        "tests/test_live_belief.py",
+        "tests/test_belief_evaluator.py"
       ],
       "artifact_name": "compiled-search-topology-evidence",
       "simulator": true,
@@ -389,7 +390,8 @@
       "tests": [
         "tests/test_compiled_search.py",
         "tests/test_compiled_packed_search.py",
-        "tests/test_live_belief.py"
+        "tests/test_live_belief.py",
+        "tests/test_belief_evaluator.py"
       ],
       "modules": [
         {
