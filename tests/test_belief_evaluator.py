@@ -14,6 +14,7 @@ from azelficoast.belief.evaluator import (
     load_checkpoint,
     loss,
     predict,
+    predict_shared_hashed_world_values,
     predict_values,
     write_checkpoint,
 )
@@ -249,6 +250,46 @@ def test_batched_values_match_scalar_across_shape_buckets() -> None:
     batched = predict_values(params, inputs)
 
     assert batched == pytest.approx(scalar, abs=1e-6)
+
+
+def test_shared_hashed_world_frontier_matches_ordinary_batched_values() -> None:
+    pytest.importorskip("jax")
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=23)
+    first = build_evaluator_input(
+        public_state={"turn": 3, "weather": "rain"},
+        posterior=_posterior(),
+        legal_actions=["attack"],
+        spec=spec,
+    )
+    shifted = _posterior()
+    worlds = shifted["worlds"]
+    assert isinstance(worlds, list)
+    worlds[0]["weight"] = 0.75
+    worlds[1]["weight"] = 0.25
+    second = build_evaluator_input(
+        public_state={"turn": 4, "weather": "rain"},
+        posterior=shifted,
+        legal_actions=["attack"],
+        spec=spec,
+    )
+
+    assert second.world_features == first.world_features
+    expected = predict_values(params, (first, second))
+    shared = predict_shared_hashed_world_values(
+        params,
+        public_features=(first.public_features, second.public_features),
+        world_features=first.world_features,
+        leaf_world_weights=(first.world_weights, second.world_weights),
+    )
+
+    assert shared == pytest.approx(expected, abs=1e-6)
 
 
 def test_checkpoint_roundtrip_recomputes_content_identity(tmp_path) -> None:
