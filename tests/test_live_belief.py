@@ -555,6 +555,60 @@ def test_transition_program_uses_compiled_search_for_capable_runtime(monkeypatch
     assert result.diagnostics["compiled_search_failure"] is None
 
 
+def test_transition_program_falls_back_on_compiled_numeric_ambiguity(monkeypatch) -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+
+    class CompiledCapableEvaluator(_PosteriorSpreadEvaluator):
+        supports_compiled_search = True
+
+    compiled_module = ModuleType("azelficoast.core.compiled_search")
+
+    def adaptive_search(**kwargs):
+        return {
+            "chosen_action": "risky",
+            "root_values": {"risky": 0.500000001, "safe": 0.5},
+            "transition_program_digest": "sha256:" + "a" * 64,
+            "transition_evaluations": 3,
+            "evaluator_calls": 3,
+            "evaluator_batches": 1,
+            "physical_search_path": "compiled-jax",
+            "cardinality_plan": {"final_path": "compiled-jax"},
+            "compiled_shape": {"leaves": 3},
+            "numeric_backend": "jax",
+        }
+
+    compiled_module.search_transition_program_adaptive = adaptive_search
+    monkeypatch.setitem(
+        sys.modules,
+        "azelficoast.core.compiled_search",
+        compiled_module,
+    )
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=CompiledCapableEvaluator(),
+    )
+
+    assert result.action == "safe"
+    assert result.diagnostics["physical_search_path"] == "python-frontier"
+    assert result.diagnostics["compiled_numeric_guard"] == {
+        "compiled_margin": pytest.approx(1e-9, abs=1e-12),
+        "maximum_margin": 1e-5,
+        "compiled_action": "risky",
+    }
+
+
 def test_transition_program_compiled_search_matches_typed_reference() -> None:
     pytest.importorskip("jax")
     pytest.importorskip("numpy")
