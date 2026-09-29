@@ -323,9 +323,39 @@ def _execute_compiled_topology(
     posterior: Mapping[str, Any],
     evaluator: Any,
 ) -> dict[str, Any]:
-    frontier, transported = materialize_compiled_frontier(topology, posterior)
-    meter = _EvaluatorMeter(evaluator)
-    leaf_values = meter.values(frontier.leaves)
+    compiled_values = getattr(evaluator, "compiled_values", None)
+    if (
+        bool(getattr(evaluator, "supports_shared_compiled_frontier", False))
+        and callable(compiled_values)
+    ):
+        transported = transport_posterior_mass(topology, posterior)
+        leaf_values = tuple(
+            float(value)
+            for value in compiled_values(
+                topology=topology,
+                posterior=posterior,
+                leaf_world_weights=transported.leaf_world_weights,
+            )
+        )
+        if len(leaf_values) != topology.leaf_count:
+            raise _CompiledSearchError(
+                "shared compiled evaluator returned the wrong leaf count"
+            )
+        if any(not math.isfinite(value) for value in leaf_values):
+            raise _CompiledSearchError(
+                "shared compiled evaluator returned a non-finite leaf value"
+            )
+        evaluator_calls = topology.leaf_count
+        evaluator_batches = 1
+        frontier_materialization = "shared-hashed-worlds"
+    else:
+        frontier, transported = materialize_compiled_frontier(topology, posterior)
+        meter = _EvaluatorMeter(evaluator)
+        leaf_values = meter.values(frontier.leaves)
+        evaluator_calls = meter.calls
+        evaluator_batches = meter.batches
+        frontier_materialization = "python-evaluation-frontier"
+
     root_values = reduce_compiled_root_values(
         topology,
         transported,
@@ -342,8 +372,9 @@ def _execute_compiled_topology(
         "transition_program_digest": topology.program_digest,
         "compiled_topology_digest": topology.topology_digest,
         "transition_evaluations": topology.transition_evaluations,
-        "evaluator_calls": meter.calls,
-        "evaluator_batches": meter.batches,
+        "evaluator_calls": evaluator_calls,
+        "evaluator_batches": evaluator_batches,
+        "frontier_materialization": frontier_materialization,
         "chosen_action": chosen_action,
         "root_values": root_values,
         "compiled_shape": {
