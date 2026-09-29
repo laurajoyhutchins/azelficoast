@@ -1,9 +1,10 @@
 """Candidate evidence for compiled partial-information search topology.
 
 The experiment is confirmatory about semantics and descriptive about speed. It compares
-the existing Python frontier search with the research-only compiled JAX path on the same
+the existing Python frontier search with the compiled JAX physical path on the same
 synthetic finite-support game, then measures repeated transport through one already
-compiled topology. Host timing is reported but does not decide correctness.
+compiled topology. Live admission is separately fenced by cardinality planning and an
+exact typed fallback. Host timing is reported but does not decide correctness.
 """
 
 from __future__ import annotations
@@ -313,8 +314,9 @@ def run_experiment() -> dict[str, object]:
             "problem. Timing is descriptive and host-specific."
         ),
         "non_claim": (
-            "This does not establish live latency, battle strength, unseen-program "
-            "generality, or permission to replace the live search path."
+            "This does not establish battle strength, unseen-program generality, or "
+            "that compiled execution is faster for every live shape. Live routing "
+            "remains fenced by the adaptive cardinality planner and exact typed fallback."
         ),
     }
     return result
