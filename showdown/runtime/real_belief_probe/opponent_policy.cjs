@@ -60,12 +60,12 @@ function moveDamageHeuristic(battle, moveId) {
   const effectiveness = 2 ** battle.dex.getEffectiveness(move, defender);
   const attackStat =
     move.category === "Physical"
-      ? Number(attacker.storedStats.atk)
-      : Number(attacker.storedStats.spa);
+      ? Number(attacker.getStat("atk"))
+      : Number(attacker.getStat("spa"));
   const defenseStat =
     move.category === "Physical"
-      ? Number(defender.storedStats.def)
-      : Number(defender.storedStats.spd);
+      ? Number(defender.getStat("def"))
+      : Number(defender.getStat("spd"));
   const statRatio =
     Number.isFinite(attackStat) &&
     Number.isFinite(defenseStat) &&

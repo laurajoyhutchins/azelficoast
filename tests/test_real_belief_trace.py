@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -475,6 +476,115 @@ def test_deeper_information_set_is_bounded_to_one_extra_horizon() -> None:
         analyze_oracle(document)
 
 
+def test_opponent_max_damage_ranking_uses_effective_stats() -> None:
+    root = Path(__file__).resolve().parents[1]
+    program = r"""
+const assert = require("node:assert/strict");
+const {
+  createOpponentPolicyEngine,
+} = require("./showdown/runtime/real_belief_probe/opponent_policy.cjs");
+
+const attacker = {
+  storedStats: {atk: 150, spa: 120},
+  getStat(stat) {
+    return {atk: 150, spa: 180}[stat];
+  },
+  getTypes() {
+    return ["Normal"];
+  },
+};
+const defender = {
+  storedStats: {def: 100, spd: 100},
+  getStat(stat) {
+    return {def: 100, spd: 100}[stat];
+  },
+};
+const moves = new Map([
+  ["physical", {
+    id: "physical",
+    exists: true,
+    category: "Physical",
+    basePower: 100,
+    accuracy: true,
+    type: "Normal",
+  }],
+  ["special", {
+    id: "special",
+    exists: true,
+    category: "Special",
+    basePower: 100,
+    accuracy: true,
+    type: "Normal",
+  }],
+]);
+const battle = {
+  restart() {},
+  destroy() {},
+  p1: {
+    active: [defender],
+    sideConditions: {},
+  },
+  p2: {
+    active: [attacker],
+    pokemon: [attacker],
+    activeRequest: {
+      active: [{
+        moves: [
+          {id: "physical", disabled: false},
+          {id: "special", disabled: false},
+        ],
+      }],
+    },
+  },
+  dex: {
+    moves: {
+      get(move) {
+        return moves.get(move);
+      },
+    },
+    getImmunity() {
+      return true;
+    },
+    getEffectiveness() {
+      return 0;
+    },
+  },
+};
+const engine = createOpponentPolicyEngine({
+  Battle: {fromJSON() { return battle; }},
+  benchFactorField: "opponent.bench.species",
+  benchPrior: null,
+  fail(message) { throw new Error(message); },
+  instrumentPublicRootReads() {
+    throw new Error("public-read instrumentation should not run");
+  },
+  opponentPolicy: {
+    kind: "strategy-mixture",
+    strategies: [{kind: "max-damage"}],
+    voluntary_switches: false,
+  },
+  publicOpponentView() { return null; },
+  toID(value) { return String(value).toLowerCase(); },
+});
+
+assert.ok(
+  attacker.storedStats.atk / defender.storedStats.def >
+    attacker.storedStats.spa / defender.storedStats.spd,
+  "raw stored stats should prefer the physical move",
+);
+const ranked = engine.opponentDistributionForSnapshot({});
+assert.deepEqual(ranked.map(row => row.choice), ["move special"]);
+"""
+    result = subprocess.run(
+        ["node", "-e", program],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stderr == ""
+
+
 def test_showdown_probe_preserves_semantic_support_before_execution_projection() -> None:
     scripts = Path(__file__).resolve().parents[1] / "showdown" / "runtime"
     source = (scripts / "probe_real_belief_trace.cjs").read_text(encoding="utf-8")
@@ -559,6 +669,11 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert '"dirty-tricks"' in opponent_source
     assert '"max-damage"' in opponent_source
     assert "function moveDamageHeuristic(" in opponent_source
+    assert 'attacker.getStat("atk")' in opponent_source
+    assert 'attacker.getStat("spa")' in opponent_source
+    assert 'defender.getStat("def")' in opponent_source
+    assert 'defender.getStat("spd")' in opponent_source
+    assert ".storedStats." not in opponent_source
     assert "function simpleHeuristicsDistribution(" in opponent_source
     assert "function legalOpponentSwitches(" in opponent_source
     assert "function voluntarySwitchDistribution(" in opponent_source
