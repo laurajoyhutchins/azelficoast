@@ -6,7 +6,14 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 
-from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
+from azelficoast.belief.evaluator import (
+    BeliefEvaluatorRuntime,
+    BeliefEvaluatorSpec,
+    BeliefPrediction,
+    checkpoint_digest,
+    evaluator_identity,
+    init_params,
+)
 from azelficoast.core.evaluation import EvaluationFrontier
 from azelficoast.core.memo import SemanticMemo
 from azelficoast.live.corpus import DecisionFixture
@@ -561,32 +568,54 @@ def test_transition_program_compiled_search_matches_typed_reference() -> None:
         "worlds": worlds,
     }
     program = compile_whole_turn_programs(oracle)
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=29)
+    runtime = BeliefEvaluatorRuntime(
+        params,
+        spec,
+        evaluator_identity(
+            checkpoint_digest_value=checkpoint_digest(params, spec),
+            spec=spec,
+        ),
+    )
+
+    class ReferenceEvaluator:
+        spec = runtime.spec
+        identity = runtime.identity
+
+        def predict(self, inputs):
+            return runtime.predict(inputs)
+
+        def predict_values(self, inputs):
+            return runtime.predict_values(inputs)
 
     reference = transition_program_belief_result(
         fixture=fixture,
         posterior=posterior,
         transition_program=program,
-        evaluator=_PosteriorSpreadEvaluator(),
+        evaluator=ReferenceEvaluator(),
     )
-
-    class CompiledCapableEvaluator(_PosteriorSpreadEvaluator):
-        supports_compiled_search = True
-
     compiled = transition_program_belief_result(
         fixture=fixture,
         posterior=posterior,
         transition_program=program,
-        evaluator=CompiledCapableEvaluator(),
+        evaluator=runtime,
     )
 
-    assert compiled.action == reference.action == "safe"
+    assert compiled.action == reference.action
     assert compiled.diagnostics["physical_search_path"] == "compiled-jax"
+    assert compiled.diagnostics["frontier_materialization"] == "shared-hashed-worlds"
     assert compiled.diagnostics["compiled_search_failure"] is None
     assert compiled.diagnostics["public_belief_root_values"] == pytest.approx(
         reference.diagnostics["public_belief_root_values"],
         abs=1e-6,
     )
-
 
 def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:
     fixture = _selective_fixture()
