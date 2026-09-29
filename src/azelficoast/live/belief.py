@@ -7,6 +7,7 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -925,11 +926,16 @@ class PinnedShowdownBeliefPolicy:
 
         route: LiveDecisionResult | None = None
         posterior: Mapping[str, Any] | None = None
+        posterior_probe_ms: float | None = None
         program_failure: dict[str, Any] = {}
 
         if self.learned_evaluator is not None:
             try:
+                posterior_started = time.perf_counter()
                 posterior = self._probe_posterior(source)
+                posterior_probe_ms = (
+                    time.perf_counter() - posterior_started
+                ) * 1000.0
                 if posterior.get("source_fixture_id") != fixture.fixture_id:
                     raise LiveBeliefPolicyError("posterior fixture identity mismatch")
                 if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
@@ -944,7 +950,15 @@ class PinnedShowdownBeliefPolicy:
                 )
                 if route.action is not None:
                     self._release_probe_session(source)
-                    return route
+                    return LiveDecisionResult(
+                        action=route.action,
+                        status=route.status,
+                        reason=route.reason,
+                        diagnostics={
+                            **dict(route.diagnostics),
+                            "posterior_probe_ms": posterior_probe_ms,
+                        },
+                    )
             except Exception as error:
                 if posterior is not None:
                     self._release_probe_session(source)
@@ -984,7 +998,12 @@ class PinnedShowdownBeliefPolicy:
             and route.action is None
         ):
             try:
+                transition_started = time.perf_counter()
                 transition_program = self._probe_transition_program(source)
+                transition_program_probe_ms = (
+                    time.perf_counter() - transition_started
+                ) * 1000.0
+                search_started = time.perf_counter()
                 searched = transition_program_belief_result(
                     fixture=fixture,
                     posterior=posterior,
@@ -992,6 +1011,9 @@ class PinnedShowdownBeliefPolicy:
                     evaluator=self.learned_evaluator,
                     frontier_memo=getattr(self, "_frontier_memo", None),
                 )
+                compiled_search_ms = (
+                    time.perf_counter() - search_started
+                ) * 1000.0
                 if searched.action is not None:
                     return LiveDecisionResult(
                         action=searched.action,
@@ -1003,6 +1025,9 @@ class PinnedShowdownBeliefPolicy:
                             "transition_physical_plan": dict(
                                 getattr(self, "_last_transition_route_plan", {})
                             ),
+                            "posterior_probe_ms": posterior_probe_ms,
+                            "transition_program_probe_ms": transition_program_probe_ms,
+                            "exact_search_ms": compiled_search_ms,
                         },
                     )
                 program_failure = {
