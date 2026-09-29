@@ -44,7 +44,7 @@ function expectedHitMultiplier(attacker, move) {
   if (attacker.hasAbility("skilllink")) return high;
   if (low === 2 && high === 5) {
     if (attacker.hasItem("loadeddice")) return 4.5;
-    return 3;
+    return 3.1;
   }
   // This is a policy heuristic, not a mechanics oracle. Exact turn execution remains
   // Showdown-owned. The mean only ranks candidate attacks for the opponent prior.
