@@ -385,7 +385,7 @@
       ],
       "artifact_name": "compiled-search-topology-evidence",
       "simulator": true,
-      "showdown": false,
+      "showdown": true,
       "generators": [],
       "tests": [
         "tests/test_compiled_search.py",
