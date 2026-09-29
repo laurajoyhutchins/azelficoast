@@ -45,6 +45,7 @@ PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_FRONTIER_MEMO_ENTRIES = 128
+LIVE_COMPILED_NUMERIC_GUARD = 1e-5
 LIVE_COMPILED_SEARCH_ENVELOPE = CardinalityEnvelope(
     max_world_count=8192,
     max_class_count=65536,
@@ -543,6 +544,36 @@ def transition_program_belief_result(
                     expected_program_schema_version=PROGRAM_SET_SCHEMA_VERSION,
                     fallback_search=reference_search,
                 )
+                if search.get("physical_search_path") == "compiled-jax":
+                    raw_root_values = search.get("root_values")
+                    if isinstance(raw_root_values, Mapping) and len(raw_root_values) > 1:
+                        ordered_values = sorted(
+                            (float(value) for value in raw_root_values.values()),
+                            reverse=True,
+                        )
+                        compiled_margin = ordered_values[0] - ordered_values[1]
+                        if compiled_margin <= LIVE_COMPILED_NUMERIC_GUARD:
+                            compiled_result = search
+                            search = {
+                                **reference_search(),
+                                "physical_search_path": "python-frontier",
+                                "cardinality_plan": compiled_result.get(
+                                    "cardinality_plan"
+                                ),
+                                "compiled_shape": compiled_result.get(
+                                    "compiled_shape"
+                                ),
+                                "numeric_backend": compiled_result.get(
+                                    "numeric_backend"
+                                ),
+                                "compiled_numeric_guard": {
+                                    "compiled_margin": compiled_margin,
+                                    "maximum_margin": LIVE_COMPILED_NUMERIC_GUARD,
+                                    "compiled_action": compiled_result.get(
+                                        "chosen_action"
+                                    ),
+                                },
+                            }
             except Exception as error:
                 # Compiled search is physical machinery, not decision authority.
                 # Preserve the exact typed search as the recovery path.
@@ -603,6 +634,7 @@ def transition_program_belief_result(
             "compiled_shape": search.get("compiled_shape"),
             "numeric_backend": search.get("numeric_backend"),
             "compiled_search_failure": search.get("compiled_search_failure"),
+            "compiled_numeric_guard": search.get("compiled_numeric_guard"),
             "frontier_group_identity": search.get("frontier_group_identity"),
             "frontier_materialization": search.get("frontier_materialization"),
             "frontier_memo_hit": search.get("frontier_memo_hit"),
