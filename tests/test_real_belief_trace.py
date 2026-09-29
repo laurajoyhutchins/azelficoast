@@ -559,6 +559,11 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert '"dirty-tricks"' in opponent_source
     assert '"max-damage"' in opponent_source
     assert "function moveDamageHeuristic(" in opponent_source
+    assert 'attacker.getStat("atk")' in opponent_source
+    assert 'attacker.getStat("spa")' in opponent_source
+    assert 'defender.getStat("def")' in opponent_source
+    assert 'defender.getStat("spd")' in opponent_source
+    assert ".storedStats." not in opponent_source
     assert "function simpleHeuristicsDistribution(" in opponent_source
     assert "function legalOpponentSwitches(" in opponent_source
     assert "function voluntarySwitchDistribution(" in opponent_source
