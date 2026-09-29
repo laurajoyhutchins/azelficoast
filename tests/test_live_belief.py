@@ -685,7 +685,7 @@ def test_live_compiled_search_crosses_pinned_showdown_boundary() -> None:
     state = json.loads(json.dumps(source["state"]))
     state["active"]["tera_type"] = source["own_active_tera_type"]
     state["legal_actions"] = [
-        "/choose move playrough",
+        "/choose move wish",
         "/choose move protect",
     ]
     fixture = live_fixture(state, source["protocol_prefix"])
