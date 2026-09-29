@@ -22,6 +22,7 @@ from azelficoast.research.decision_contracts import (
     PublicDecisionInput,
     PublicSuccessorState,
     ResearchContractError,
+    parse_belief_artifact,
 )
 
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
@@ -416,6 +417,121 @@ def predict_values(
     return tuple(float(value) for value in values)
 
 
+
+_SHARED_HASHED_WORLD_VALUE_FUNCTION: Any | None = None
+
+
+def _shared_hashed_world_value_function() -> Any:
+    """Return one cached JIT for frontiers that share one hidden-world matrix."""
+
+    global _SHARED_HASHED_WORLD_VALUE_FUNCTION
+    if _SHARED_HASHED_WORLD_VALUE_FUNCTION is None:
+        jax, jnp = _require_jax()
+
+        def evaluate(
+            params: Mapping[str, Any],
+            public: Any,
+            worlds: Any,
+            weights: Any,
+        ) -> Any:
+            def one(public_row: Any, weight_row: Any) -> Any:
+                trunk = _belief_trunk(
+                    jnp,
+                    params,
+                    public_row,
+                    worlds,
+                    weight_row,
+                )
+                return _value_from_trunk(jnp, params, trunk)
+
+            return jax.vmap(one)(public, weights)
+
+        _SHARED_HASHED_WORLD_VALUE_FUNCTION = jax.jit(evaluate)
+    return _SHARED_HASHED_WORLD_VALUE_FUNCTION
+
+
+def predict_shared_hashed_world_values(
+    params: Mapping[str, Any],
+    *,
+    public_features: Sequence[Sequence[float]],
+    world_features: Sequence[Sequence[float]],
+    leaf_world_weights: Any,
+) -> tuple[float, ...]:
+    """Evaluate a frontier while storing each hashed hidden world only once."""
+
+    if not public_features or not world_features:
+        raise BeliefEvaluatorError(
+            "shared-world evaluator requires public leaves and hidden worlds"
+        )
+    try:
+        import numpy as np
+    except ImportError as error:
+        raise BeliefEvaluatorError(
+            "numpy is required for shared-world evaluator inference"
+        ) from error
+
+    public = np.asarray(public_features, dtype=np.float32)
+    worlds = np.asarray(world_features, dtype=np.float32)
+    weights = np.asarray(leaf_world_weights, dtype=np.float32)
+    if public.ndim != 2 or worlds.ndim != 2 or weights.ndim != 2:
+        raise BeliefEvaluatorError("shared-world evaluator inputs must be matrices")
+    leaf_count = public.shape[0]
+    world_count = worlds.shape[0]
+    if weights.shape != (leaf_count, world_count):
+        raise BeliefEvaluatorError(
+            "shared-world evaluator weight matrix has the wrong shape"
+        )
+    if (
+        not np.all(np.isfinite(public))
+        or not np.all(np.isfinite(worlds))
+        or not np.all(np.isfinite(weights))
+        or np.any(weights < 0.0)
+    ):
+        raise BeliefEvaluatorError(
+            "shared-world evaluator inputs must be finite with non-negative weights"
+        )
+    totals = np.sum(weights, axis=1, dtype=np.float64)
+    if np.any(np.abs(totals - 1.0) > 1e-5):
+        raise BeliefEvaluatorError(
+            "shared-world evaluator weights must normalize per leaf"
+        )
+
+    leaf_bucket = _shape_bucket(leaf_count)
+    world_bucket = _shape_bucket(world_count)
+    padded_public = np.zeros(
+        (leaf_bucket, public.shape[1]),
+        dtype=np.float32,
+    )
+    padded_worlds = np.zeros(
+        (world_bucket, worlds.shape[1]),
+        dtype=np.float32,
+    )
+    padded_weights = np.zeros(
+        (leaf_bucket, world_bucket),
+        dtype=np.float32,
+    )
+    padded_public[:leaf_count] = public
+    padded_worlds[:world_count] = worlds
+    padded_weights[:leaf_count, :world_count] = weights
+
+    raw = _shared_hashed_world_value_function()(
+        params,
+        padded_public,
+        padded_worlds,
+        padded_weights,
+    )
+    values = np.asarray(raw, dtype=np.float64)[:leaf_count]
+    if values.ndim != 1 or values.shape[0] != leaf_count:
+        raise BeliefEvaluatorError(
+            "shared-world value head returned the wrong shape"
+        )
+    if not np.all(np.isfinite(values)):
+        raise BeliefEvaluatorError(
+            "shared-world value head returned non-finite values"
+        )
+    return tuple(float(value) for value in values)
+
+
 def loss(
     params: Mapping[str, Any],
     inputs: BeliefEvaluatorInput,
@@ -662,6 +778,7 @@ class BeliefEvaluatorRuntime:
     """Loaded learned evaluator with immutable, content-addressed identity."""
 
     supports_compiled_search = True
+    supports_shared_compiled_frontier = True
 
     def __init__(
         self,
@@ -726,6 +843,94 @@ class BeliefSearchValueAdapter:
         if callable(predict_many):
             return tuple(float(value) for value in predict_many(tuple(inputs)))
         return tuple(float(self.evaluator.predict(row).value) for row in inputs)
+
+    @property
+    def supports_shared_compiled_frontier(self) -> bool:
+        return bool(
+            getattr(self.evaluator, "supports_shared_compiled_frontier", False)
+        )
+
+    def compiled_values(
+        self,
+        *,
+        topology: Any,
+        posterior: Mapping[str, Any],
+        leaf_world_weights: Any,
+    ) -> tuple[float, ...]:
+        """Evaluate compiled leaves without duplicating hashed hidden-world features."""
+
+        if not self.supports_shared_compiled_frontier:
+            raise BeliefEvaluatorError(
+                "evaluator does not authorize shared compiled frontier execution"
+            )
+        try:
+            import numpy as np
+        except ImportError as error:
+            raise BeliefEvaluatorError(
+                "numpy is required for shared compiled frontier execution"
+            ) from error
+
+        belief, transport_index = parse_belief_artifact(posterior)
+        semantic_worlds = belief.model_worlds
+        semantic_index = {
+            world.semantic_identity: index
+            for index, world in enumerate(semantic_worlds)
+        }
+        transport_weights = np.asarray(leaf_world_weights, dtype=np.float64)
+        expected_shape = (topology.leaf_count, topology.world_count)
+        if transport_weights.shape != expected_shape:
+            raise BeliefEvaluatorError(
+                "compiled frontier transport has the wrong leaf/world shape"
+            )
+
+        semantic_weights = np.zeros(
+            (topology.leaf_count, len(semantic_worlds)),
+            dtype=np.float64,
+        )
+        for transport_column, transport_id in enumerate(topology.world_ids):
+            semantic_identity = transport_index.semantic_identity_for(
+                transport_id
+            )
+            semantic_column = (
+                semantic_index.get(semantic_identity)
+                if semantic_identity is not None
+                else None
+            )
+            if semantic_column is None:
+                raise BeliefEvaluatorError(
+                    "compiled frontier transport references unknown belief semantics"
+                )
+            semantic_weights[:, semantic_column] += transport_weights[
+                :, transport_column
+            ]
+
+        totals = semantic_weights.sum(axis=1, dtype=np.float64)
+        if np.any(~np.isfinite(totals)) or np.any(totals <= 0.0):
+            raise BeliefEvaluatorError(
+                "compiled frontier has no finite positive posterior mass"
+            )
+        semantic_weights /= totals[:, None]
+
+        public_features = tuple(
+            hashed_features(
+                PublicSuccessorState.from_record(state).public_state.to_record(),
+                width=self.evaluator.spec.public_width,
+            )
+            for state in topology.leaves.public_states
+        )
+        world_features = tuple(
+            hashed_features(
+                world.features.to_record(),
+                width=self.evaluator.spec.world_width,
+            )
+            for world in semantic_worlds
+        )
+        return predict_shared_hashed_world_values(
+            self.evaluator.params,
+            public_features=public_features,
+            world_features=world_features,
+            leaf_world_weights=semantic_weights,
+        )
 
     def value(
         self,
