@@ -247,8 +247,15 @@ The legal mask is carried even though the current depth-one value head does not 
 it. It belongs in the compiled representation because deeper policy/value evaluation can
 use it without reconstructing successor action sets from Python strings.
 
-The current implementation remains a research path. Candidate evidence must establish
-semantic equivalence and mass conservation before any live routing change.
+The generic compiled topology, JAX posterior transport, and JAX root reduction are
+eligible for live exact-search routing behind the adaptive cardinality planner. Live
+routing keeps the validated TransitionProgram as semantic authority and falls back to
+the existing typed Python search when the realized shape is outside the dense envelope
+or the accelerator fails.
+
+The Showdown-native packed evaluator remains a separate research treatment. Promoting
+that representation would change the deployed model input contract, so it is not implied
+by promotion of the generic compiled search machinery.
 
 
 
