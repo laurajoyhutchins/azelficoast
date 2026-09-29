@@ -253,6 +253,12 @@ routing keeps the validated TransitionProgram as semantic authority and falls ba
 the existing typed Python search when the realized shape is outside the dense envelope
 or the accelerator fails.
 
+The live path keeps the deployed hashed evaluator unchanged. Once a topology is
+compiled, it hashes each semantic hidden world once, carries a dense `[leaf, world]`
+posterior-weight matrix, and evaluates the successor frontier in one shared-world JAX
+dispatch. This removes per-leaf hidden-world feature duplication without changing the
+checkpoint, feature hashing, public-state representation, or value network.
+
 The Showdown-native packed evaluator remains a separate research treatment. Promoting
 that representation would change the deployed model input contract, so it is not implied
 by promotion of the generic compiled search machinery.
