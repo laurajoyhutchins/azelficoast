@@ -336,7 +336,7 @@ def test_candidate_specs_are_repository_data_not_runner_code() -> None:
     assert "_spec(" not in loader
     assert "adaptive-execution-experiment.json" not in loader
     assert contract["schema"] == "azelficoast.candidate-research-contracts"
-    assert len(contract["experiments"]) == 17
+    assert len(contract["experiments"]) == 18
     assert '"experiments/contracts/candidate.json"' in loader
     assert '".github/workflows/research.yml"' in loader
     assert "candidate-research.yml" not in loader
@@ -393,6 +393,23 @@ def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
         "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION"
         in script
     )
+
+
+def test_hosted_run_installs_only_declared_simulator_capability() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    hosted = source[source.index("  hosted-run:\n") : source.index("  hosted-aggregate:\n")]
+
+    assert "simulator: ${{ matrix.simulator }}" in hosted
+    assert "external-playing-strength" not in hosted
+
+
+def test_hosted_studies_are_not_globally_blocked_by_unrelated_preparation() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    hosted = source[source.index("  hosted-run:\n") : source.index("  overcenter-settle:\n")]
+
+    assert "needs: [hosted-plan, hosted-prepare]" in hosted
+    assert "needs.hosted-prepare.result != 'failure'" not in hosted
+    assert "needs.hosted-prepare.result != 'cancelled'" not in hosted
 
 
 def test_hosted_preparation_is_generic_transport_not_scientific_authority() -> None:

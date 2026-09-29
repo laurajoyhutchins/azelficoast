@@ -863,6 +863,63 @@
           "expected": "best_available_conditional"
         }
       ]
+    },
+    "external-playing-strength-contract": {
+      "paths": [
+        "experiments/data/external-playing-strength-contract.json",
+        "src/azelficoast/research/external_strength.py",
+        "src/azelficoast/research/experiments/external_strength_experiment.py",
+        "tests/test_external_strength.py"
+      ],
+      "artifact_name": "external-playing-strength-contract-evidence",
+      "simulator": false,
+      "showdown": false,
+      "generators": [],
+      "tests": [
+        "tests/test_external_strength.py"
+      ],
+      "modules": [
+        {
+          "module": "azelficoast.research.experiments.external_strength_experiment",
+          "output": "external-playing-strength-contract.json",
+          "input": null,
+          "entrypoint": "run_experiment"
+        }
+      ],
+      "checks": [
+        {
+          "output": "external-playing-strength-contract.json",
+          "path": [
+            "passed"
+          ],
+          "operator": "eq",
+          "expected": true
+        },
+        {
+          "output": "external-playing-strength-contract.json",
+          "path": [
+            "planned_battles"
+          ],
+          "operator": "eq",
+          "expected": 1000
+        },
+        {
+          "output": "external-playing-strength-contract.json",
+          "path": [
+            "shard_count"
+          ],
+          "operator": "eq",
+          "expected": 10
+        },
+        {
+          "output": "external-playing-strength-contract.json",
+          "path": [
+            "opponent_revision"
+          ],
+          "operator": "eq",
+          "expected": "6c467c081e862fb321adb405355beb41aba8e226"
+        }
+      ]
     }
   }
 }
