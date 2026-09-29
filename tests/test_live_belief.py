@@ -1,9 +1,20 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
+import sys
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
-from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
+import pytest
+
+from azelficoast.belief.evaluator import (
+    BeliefEvaluatorRuntime,
+    BeliefEvaluatorSpec,
+    BeliefPrediction,
+    checkpoint_digest,
+    evaluator_identity,
+    init_params,
+)
 from azelficoast.core.evaluation import EvaluationFrontier
 from azelficoast.core.memo import SemanticMemo
 from azelficoast.live.corpus import DecisionFixture
@@ -493,7 +504,225 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.diagnostics["reused_showdown_turn_executions"] == 7
     assert result.diagnostics["evaluator_calls"] == 3
     assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
+    assert result.diagnostics["physical_search_path"] == "python-frontier"
 
+
+def test_transition_program_uses_compiled_search_for_capable_runtime(monkeypatch) -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+
+    class CompiledCapableEvaluator(_PosteriorSpreadEvaluator):
+        supports_compiled_search = True
+
+    compiled_module = ModuleType("azelficoast.core.compiled_search")
+
+    def adaptive_search(**kwargs):
+        reference = kwargs["fallback_search"]()
+        return {
+            **reference,
+            "physical_search_path": "compiled-jax",
+            "cardinality_plan": {"final_path": "compiled-jax"},
+            "compiled_shape": {"leaves": 3},
+            "numeric_backend": "jax",
+        }
+
+    compiled_module.search_transition_program_adaptive = adaptive_search
+    monkeypatch.setitem(
+        sys.modules,
+        "azelficoast.core.compiled_search",
+        compiled_module,
+    )
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=CompiledCapableEvaluator(),
+    )
+
+    assert result.action == "safe"
+    assert result.diagnostics["physical_search_path"] == "compiled-jax"
+    assert result.diagnostics["cardinality_plan"] == {"final_path": "compiled-jax"}
+    assert result.diagnostics["compiled_shape"] == {"leaves": 3}
+    assert result.diagnostics["numeric_backend"] == "jax"
+    assert result.diagnostics["compiled_search_failure"] is None
+
+
+def test_transition_program_falls_back_on_compiled_numeric_ambiguity(monkeypatch) -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+
+    class CompiledCapableEvaluator(_PosteriorSpreadEvaluator):
+        supports_compiled_search = True
+
+    compiled_module = ModuleType("azelficoast.core.compiled_search")
+
+    def adaptive_search(**kwargs):
+        return {
+            "chosen_action": "risky",
+            "root_values": {"risky": 0.500000001, "safe": 0.5},
+            "transition_program_digest": "sha256:" + "a" * 64,
+            "transition_evaluations": 3,
+            "evaluator_calls": 3,
+            "evaluator_batches": 1,
+            "physical_search_path": "compiled-jax",
+            "cardinality_plan": {"final_path": "compiled-jax"},
+            "compiled_shape": {"leaves": 3},
+            "numeric_backend": "jax",
+        }
+
+    compiled_module.search_transition_program_adaptive = adaptive_search
+    monkeypatch.setitem(
+        sys.modules,
+        "azelficoast.core.compiled_search",
+        compiled_module,
+    )
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=CompiledCapableEvaluator(),
+    )
+
+    assert result.action == "safe"
+    assert result.diagnostics["physical_search_path"] == "python-frontier"
+    assert result.diagnostics["compiled_numeric_guard"] == {
+        "compiled_margin": pytest.approx(1e-9, abs=1e-12),
+        "maximum_margin": 1e-5,
+        "compiled_action": "risky",
+    }
+
+
+def test_transition_program_compiled_search_matches_typed_reference() -> None:
+    pytest.importorskip("jax")
+    pytest.importorskip("numpy")
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=29)
+    runtime = BeliefEvaluatorRuntime(
+        params,
+        spec,
+        evaluator_identity(
+            checkpoint_digest_value=checkpoint_digest(params, spec),
+            spec=spec,
+        ),
+    )
+
+    class ReferenceEvaluator:
+        spec = runtime.spec
+        identity = runtime.identity
+
+        def predict(self, inputs):
+            return runtime.predict(inputs)
+
+        def predict_values(self, inputs):
+            return runtime.predict_values(inputs)
+
+    reference = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=ReferenceEvaluator(),
+    )
+    compiled = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=runtime,
+    )
+
+    assert compiled.action == reference.action
+    assert compiled.diagnostics["physical_search_path"] == "compiled-jax"
+    assert compiled.diagnostics["frontier_materialization"] == "shared-hashed-worlds"
+    assert compiled.diagnostics["compiled_search_failure"] is None
+    assert compiled.diagnostics["public_belief_root_values"] == pytest.approx(
+        reference.diagnostics["public_belief_root_values"],
+        abs=1e-6,
+    )
+
+def test_live_compiled_search_crosses_pinned_showdown_boundary() -> None:
+    showdown_root = Path("/tmp/pokemon-showdown")
+    if not (showdown_root / "dist" / "sim" / "battle.js").is_file():
+        pytest.skip("pinned Showdown checkout is not available")
+
+    source = json.loads(
+        Path("experiments/data/real-belief-source-fixture.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    state = json.loads(json.dumps(source["state"]))
+    state["active"]["tera_type"] = source["own_active_tera_type"]
+    state["legal_actions"] = [
+        "/choose move wish",
+        "/choose move protect",
+    ]
+    fixture = live_fixture(state, source["protocol_prefix"])
+
+    spec = BeliefEvaluatorSpec(
+        public_width=16,
+        world_width=12,
+        action_width=8,
+        hidden_width=10,
+        world_hidden_width=9,
+    )
+    params = init_params(spec, seed=31)
+    runtime = BeliefEvaluatorRuntime(
+        params,
+        spec,
+        evaluator_identity(
+            checkpoint_digest_value=checkpoint_digest(params, spec),
+            spec=spec,
+        ),
+    )
+    policy = PinnedShowdownBeliefPolicy(
+        showdown_root,
+        timeout_seconds=60.0,
+        learned_evaluator=runtime,
+        search_gate=PolicyMarginSearchGate(search_if_margin_at_most=1.0),
+    )
+    try:
+        result = policy.choose(fixture)
+    finally:
+        policy.close()
+
+    assert result.action in fixture.legal_actions
+    assert result.diagnostics["physical_search_path"] == "compiled-jax"
+    assert result.diagnostics["frontier_materialization"] == "shared-hashed-worlds"
+    assert result.diagnostics["posterior_probe_ms"] >= 0.0
+    assert result.diagnostics["transition_program_probe_ms"] >= 0.0
+    assert result.diagnostics["exact_search_ms"] >= 0.0
 
 
 def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:
