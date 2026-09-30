@@ -1,0 +1,152 @@
+name: Overcenter internal · candidate handoff
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'overcenter/candidate/**'
+
+permissions: {}
+
+jobs:
+  classify:
+    name: Classify candidate transport
+    runs-on: ubuntu-slim
+    timeout-minutes: 1
+    permissions:
+      contents: read
+    outputs:
+      kind: ${{ steps.classify.outputs.kind }}
+      run_id: ${{ steps.classify.outputs.run_id }}
+      base_sha: ${{ steps.classify.outputs.base_sha }}
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Classify exact candidate
+        id: classify
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id="${GITHUB_REF_NAME#overcenter/candidate/}"
+          test -n "$run_id"
+          test "$run_id" != "$GITHUB_REF_NAME"
+
+          changed="$(git diff-tree --no-commit-id --name-only -r "$GITHUB_SHA")"
+          if [ "$changed" = ".overcenter/candidate.json" ]; then
+            candidate_run_id="$(git show "$GITHUB_SHA:.overcenter/candidate.json" | node -e '
+              let s="";
+              process.stdin.on("data",d=>s+=d).on("end",()=>{
+                const value=JSON.parse(s);
+                if (typeof value.run_id!=="string" || !value.run_id) process.exit(2);
+                process.stdout.write(value.run_id);
+              });
+            ')"
+            test "$candidate_run_id" = "$run_id"
+            kind="pure-candidate"
+          else
+            kind="source-change"
+          fi
+
+          test "$(git rev-list --parents -n1 "$GITHUB_SHA" | wc -w)" -eq 2
+          echo "base_sha=$(git rev-parse "$GITHUB_SHA^")" >> "$GITHUB_OUTPUT"
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+  signal:
+    name: Internal candidate handoff
+    needs: classify
+    if: ${{ needs.classify.outputs.kind == 'pure-candidate' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 1
+    permissions: {}
+    steps:
+      - name: Emit no authority
+        run: 'true'
+
+  source-evidence:
+    name: Verify source candidate
+    needs: classify
+    if: ${{ needs.classify.outputs.kind == 'source-change' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/source-evidence.yml
+    with:
+      accepted_baseline_sha: ${{ needs.classify.outputs.base_sha }}
+
+  source-record:
+    name: Record source verification
+    needs: [classify, source-evidence]
+    if: ${{ always() && needs.classify.outputs.kind == 'source-change' }}
+    runs-on: ubuntu-slim
+    timeout-minutes: 1
+    permissions:
+      contents: read
+      actions: read
+    env:
+      CANDIDATE_SHA: ${{ github.sha }}
+      CANDIDATE_RUN_ID: ${{ needs.classify.outputs.run_id }}
+      EVIDENCE_RESULT: ${{ needs.source-evidence.result }}
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.CANDIDATE_SHA }}
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Locate immutable runtime from authority binding
+        id: binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin refs/overcenter/state:refs/overcenter/state
+          runtime_sha="$(node - <<'NODE'
+          const { execFileSync } = require('node:child_process');
+          const revisions = execFileSync('git', ['rev-list', 'refs/overcenter/state'], { encoding: 'utf8' }).trim().split('\n');
+          for (const revision of revisions) {
+            let value;
+            try { value = JSON.parse(execFileSync('git', ['show', revision + ':source-transaction.json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); }
+            catch { continue; }
+            if (value.run_id !== process.env.CANDIDATE_RUN_ID) continue;
+            if (value.plan?.candidate_sha !== process.env.CANDIDATE_SHA || !/^[0-9a-f]{40}$/.test(value.plan?.runtime_sha ?? '')) process.exit(2);
+            process.stdout.write(value.plan.runtime_sha);
+            process.exit(0);
+          }
+          process.exit(3);
+          NODE
+          )"
+          echo "runtime_sha=$runtime_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out bound trusted runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: laurajoyhutchins/overcenter
+          ref: ${{ steps.binding.outputs.runtime_sha }}
+          path: trusted-runtime
+          persist-credentials: false
+
+      - name: Use runtime-pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: trusted-runtime/.node-version
+          package-manager-cache: false
+
+      - name: Record exact verification result
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OVERCENTER_RUNTIME_SHA: ${{ steps.binding.outputs.runtime_sha }}
+        run: node --experimental-strip-types trusted-runtime/scripts/record-source-verification.ts
+
+      - name: Publish source verification
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: overcenter-source-verification
+          path: source-verification/source-verification.json
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
