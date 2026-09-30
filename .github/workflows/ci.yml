@@ -149,6 +149,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: write
+      actions: write
       pull-requests: write
     env:
       PROPOSAL_REF: ${{ github.event.pull_request.head.ref }}
@@ -194,6 +195,8 @@ jobs:
         id: broker
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          OVERCENTER_RUNTIME_SHA: ${{ steps.runtime.outputs.sha }}
+          OVERCENTER_DISPATCH_SOURCE_VALIDATION: '1'
           OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
           OVERCENTER_PROJECT_REMOTE: origin
         shell: bash

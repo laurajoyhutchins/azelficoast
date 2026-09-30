@@ -1,0 +1,54 @@
+name: Source transaction baseline
+
+on:
+  workflow_call:
+    inputs:
+      accepted_baseline_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    name: Candidate evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify exact source and claimed baseline
+        env:
+          BASE_SHA: ${{ inputs.accepted_baseline_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          [[ "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          test "$(git rev-parse HEAD^)" = "$BASE_SHA"
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Setup canonical research evidence
+        uses: ./.github/actions/setup-research-evidence
+      - name: Type check Python static frontier
+        run: uv run mypy
+      - name: Install pinned JavaScript static tooling
+        run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
+      - name: Lint and type check JavaScript static frontier
+        run: |
+          npm run lint:showdown
+          npm run typecheck:showdown
+          find showdown -type f -name '*.cjs' -print0 | xargs -0 -n 1 node --check
+      - name: Run complete Python and research baseline
+        run: |
+          set -euo pipefail
+          uv run ruff check .
+          uv run pytest
+          uv run pytest tests/hostile -m hostile_fast
+          uv run python -m azelficoast.search.imperfect_information
+          uv run python -m azelficoast.research.verification.pokemon_counterexample
+          uv run python -m azelficoast.research.experiments.simulator_experiment
