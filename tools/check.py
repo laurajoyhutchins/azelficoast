@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import subprocess
 from pathlib import Path
 
@@ -13,7 +14,7 @@ def run(label: str, command: list[str]) -> None:
         raise SystemExit(result.returncode)
 
 
-def main() -> int:
+def run_static() -> None:
     run("Python type check", ["uv", "run", "mypy"])
     run("JavaScript lint", ["npm", "run", "lint:showdown"])
     run("JavaScript type check", ["npm", "run", "typecheck:showdown"])
@@ -27,13 +28,18 @@ def main() -> int:
             ["node", "--check", str(script)],
         )
 
+
+def run_tests() -> None:
     run(
         "Canonical research evidence",
         ["uv", "run", "python", "-m", "azelficoast.research.evidence", "unpack"],
     )
     run("Python lint", ["uv", "run", "ruff", "check", "."])
     run("Tests", ["uv", "run", "pytest"])
-    run("Fast hostile correctness gate", ["uv", "run", "pytest", "tests/hostile", "-m", "hostile_fast"])
+    run(
+        "Fast hostile correctness gate",
+        ["uv", "run", "pytest", "tests/hostile", "-m", "hostile_fast"],
+    )
     run(
         "Imperfect-information reference experiment",
         ["uv", "run", "python", "-m", "azelficoast.search.imperfect_information"],
@@ -52,6 +58,17 @@ def main() -> int:
         "Simulator dependency experiment",
         ["uv", "run", "python", "-m", "azelficoast.research.experiments.simulator_experiment"],
     )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Run Azelficoast repository verification.")
+    parser.add_argument("group", nargs="?", choices=("all", "static", "test"), default="all")
+    args = parser.parse_args()
+
+    if args.group in {"all", "static"}:
+        run_static()
+    if args.group in {"all", "test"}:
+        run_tests()
     return 0
 
 
