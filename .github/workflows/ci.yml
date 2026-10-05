@@ -1,4 +1,4 @@
-name: verification
+name: ci
 
 on:
   pull_request:
@@ -12,12 +12,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: verification-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
-  verify:
-    name: Repository verification
+  static:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
@@ -28,5 +27,17 @@ jobs:
         uses: ./.github/actions/setup-python-environment
       - name: Install pinned JavaScript static tooling
         run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
-      - name: Verify repository
-        run: python tools/check.py
+      - name: Verify static contract
+        run: python tools/check.py static
+
+  test:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Verify test contract
+        run: python tools/check.py test
