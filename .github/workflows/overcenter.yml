@@ -68,8 +68,7 @@ jobs:
           OVERCENTER_COMMAND_RUN_ATTEMPT: ${{ github.run_attempt }}
           OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
           OVERCENTER_PROJECT_REMOTE: origin
-        run: |
-          node --experimental-strip-types             .overcenter-runtime/src/cli/project-advance.ts             --output-dir overcenter-response
+        run: node --experimental-strip-types .overcenter-runtime/src/cli/project-advance.ts --output-dir overcenter-response
       - name: Publish reasoning work packet
         if: steps.advance.outputs.state == 'AGENT_EXECUTION_REQUIRED'
         uses: actions/upload-artifact@v4
@@ -143,7 +142,7 @@ jobs:
           run_id="${PROPOSAL_REF#overcenter/proposal/}"
           test -n "$run_id"
           test "$run_id" != "$PROPOSAL_REF"
-          node --experimental-strip-types             .overcenter-runtime/src/cli/source-broker-ref.ts             --run-id "$run_id"             --proposal-sha "$PROPOSAL_SHA"             --output overcenter-broker-receipt.json
+          node --experimental-strip-types .overcenter-runtime/src/cli/source-broker-ref.ts --run-id "$run_id" --proposal-sha "$PROPOSAL_SHA" --output overcenter-broker-receipt.json
       - name: Close consumed proposal PR
         if: steps.broker.outputs.publication_state == 'PUBLISHED' || steps.broker.outputs.publication_state == 'ALREADY_PUBLISHED'
         env:
