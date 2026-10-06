@@ -1,4 +1,4 @@
-name: GCP local runner live proof
+name: GCP automatic runner live proof
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   live-proof:
-    runs-on: [self-hosted, overcenter-gcp]
+    runs-on: [self-hosted, overcenter-gcp, overcenter-gcp-automatic-proof]
     timeout-minutes: 10
     steps:
       - name: Checkout exact GitHub revision
@@ -36,6 +36,8 @@ jobs:
           import json, os, platform
           receipt = {key: os.environ[key] for key in ("GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_RUN_ID", "RUNNER_NAME")}
           receipt["machine"] = platform.machine()
+          receipt["launch_mode"] = "autoscaler"
+          receipt["control_revision"] = "4827e7789cf90b92efa058f53b3b37ac2d93dc94"
           receipt["credential_isolation"] = "PASS"
           with open("gcp-runner-live-receipt.json", "w") as stream:
               json.dump(receipt, stream, sort_keys=True)
