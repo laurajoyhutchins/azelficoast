@@ -3,14 +3,10 @@ name: ci
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches:
       - main
       - 'overcenter/candidate/**'
-  repository_dispatch:
-    types: [overcenter-advance]
 
 permissions:
   contents: read
@@ -24,194 +20,29 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
-      - name: Type check Python static frontier
-        run: uv run mypy
+      - name: Setup pinned Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
       - name: Install pinned JavaScript static tooling
         run: npm install --ignore-scripts --no-audit --no-fund --package-lock=false
-      - name: Lint JavaScript script frontier
-        run: npm run lint:showdown
-      - name: Type check JavaScript script frontier
-        run: npm run typecheck:showdown
-      - name: Check JavaScript syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          mapfile -d '' scripts < <(find showdown -type f -name '*.cjs' -print0 | sort -z)
-          if (( ${#scripts[@]} == 0 )); then
-            echo "no CJS scripts found" >&2
-            exit 1
-          fi
-          for script in "${scripts[@]}"; do
-            node --check "$script"
-          done
+      - name: Verify static contract
+        run: python tools/check.py static
 
   test:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
       - name: Setup Azelficoast Python
         uses: ./.github/actions/setup-python-environment
-      - name: Setup canonical research evidence
-        uses: ./.github/actions/setup-research-evidence
-      - name: Lint Python
-        run: uv run ruff check .
-      - name: Test
-        run: uv run pytest
-      - name: Fast hostile correctness gate
-        run: uv run pytest tests/hostile -m hostile_fast
-      - name: Imperfect-information reference experiment
-        run: uv run python -m azelficoast.search.imperfect_information
-      - name: Pokémon-shaped counterexample
-        run: uv run python -m azelficoast.research.verification.pokemon_counterexample
-      - name: Simulator dependency experiment
-        run: uv run python -m azelficoast.research.experiments.simulator_experiment
-
-  overcenter-advance:
-    name: Overcenter project.advance
-    if: >-
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'repository_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Check out exact Azelficoast source
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Resolve trusted Overcenter runtime
-        id: runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          repository="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["repository"])')"
-          sha="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["sha"])')"
-          [[ "$repository" =~ ^[^/]+/[^/]+$ ]]
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
-          echo "repository=$repository" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - name: Check out exact Overcenter runtime
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ steps.runtime.outputs.repository }}
-          ref: ${{ steps.runtime.outputs.sha }}
-          path: .overcenter-runtime
-          persist-credentials: false
-      - name: Use Overcenter pinned Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .overcenter-runtime/.node-version
-          package-manager-cache: false
-      - name: Advance authoritative project
-        id: advance
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          OVERCENTER_COMMAND_REPOSITORY_ID: ${{ github.repository_id }}
-          OVERCENTER_COMMAND_REPOSITORY: ${{ github.repository }}
-          OVERCENTER_COMMAND_SOURCE_SHA: ${{ steps.runtime.outputs.sha }}
-          OVERCENTER_PROJECT_SOURCE_SHA: ${{ github.sha }}
-          OVERCENTER_COMMAND_RUN_ID: ${{ github.run_id }}
-          OVERCENTER_COMMAND_RUN_ATTEMPT: ${{ github.run_attempt }}
-          OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
-          OVERCENTER_PROJECT_REMOTE: origin
-        run: |
-          node --experimental-strip-types \
-            .overcenter-runtime/src/cli/project-advance.ts \
-            --output-dir overcenter-response
-      - name: Publish reasoning work packet
-        if: steps.advance.outputs.state == 'AGENT_EXECUTION_REQUIRED'
-        uses: actions/upload-artifact@v4
-        with:
-          name: overcenter-work-packet-${{ steps.advance.outputs.run_id }}
-          path: overcenter-response
-          if-no-files-found: error
-          retention-days: 7
-
-  overcenter-broker:
-    name: Overcenter broker source proposal
-    if: >-
-      github.event_name == 'pull_request_target' &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      startsWith(github.event.pull_request.head.ref, 'overcenter/proposal/')
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-      pull-requests: write
-    env:
-      PROPOSAL_REF: ${{ github.event.pull_request.head.ref }}
-      PROPOSAL_SHA: ${{ github.event.pull_request.head.sha }}
-      PR_NUMBER: ${{ github.event.pull_request.number }}
-    steps:
-      - name: Check out trusted project control plane
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
-          persist-credentials: true
-      - name: Resolve trusted Overcenter runtime
-        id: runtime
-        shell: bash
-        run: |
-          set -euo pipefail
-          repository="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["repository"])')"
-          sha="$(python3 -c 'import json; print(json.load(open(".overcenter/runtime.json"))["sha"])')"
-          [[ "$repository" =~ ^[^/]+/[^/]+$ ]]
-          [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
-          echo "repository=$repository" >> "$GITHUB_OUTPUT"
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - name: Check out exact Overcenter runtime
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ steps.runtime.outputs.repository }}
-          ref: ${{ steps.runtime.outputs.sha }}
-          path: .overcenter-runtime
-          persist-credentials: false
-      - name: Use Overcenter pinned Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version-file: .overcenter-runtime/.node-version
-          package-manager-cache: false
-      - name: Fetch proposal object without checking it out
-        shell: bash
-        run: |
-          set -euo pipefail
-          git fetch --no-tags origin "$PROPOSAL_SHA"
-          test "$(git rev-parse FETCH_HEAD)" = "$PROPOSAL_SHA"
-      - name: Broker exact proposal revision
-        id: broker
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          OVERCENTER_PROJECT_AUTHORITY_REF: refs/overcenter/state
-          OVERCENTER_PROJECT_REMOTE: origin
-        shell: bash
-        run: |
-          set -euo pipefail
-          run_id="${PROPOSAL_REF#overcenter/proposal/}"
-          test -n "$run_id"
-          test "$run_id" != "$PROPOSAL_REF"
-          node --experimental-strip-types \
-            .overcenter-runtime/src/cli/source-broker-ref.ts \
-            --run-id "$run_id" \
-            --proposal-sha "$PROPOSAL_SHA" \
-            --output overcenter-broker-receipt.json
-      - name: Close consumed proposal PR
-        if: steps.broker.outputs.publication_state == 'PUBLISHED' || steps.broker.outputs.publication_state == 'ALREADY_PUBLISHED'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          CANDIDATE_REF: ${{ steps.broker.outputs.candidate_ref }}
-        shell: bash
-        run: |
-          gh pr close "$PR_NUMBER" --comment "Overcenter brokered this proposal into \`$CANDIDATE_REF\`."
+      - name: Verify test contract
+        run: python tools/check.py test

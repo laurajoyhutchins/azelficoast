@@ -31,10 +31,26 @@ def _event_block(source: str, event: str) -> str:
 def test_workflow_surface_is_small_and_authority_specific() -> None:
     assert {path.name for path in WORKFLOWS.glob("*.yml")} == {
         "ci.yml",
+        "overcenter.yml",
         "research.yml",
         "showdown-build-cache.yml",
         "training.yml",
     }
+
+
+def test_overcenter_governance_is_not_repository_verification() -> None:
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    governance = (WORKFLOWS / "overcenter.yml").read_text(encoding="utf-8")
+
+    assert "pull_request_target:" not in ci
+    assert "repository_dispatch:" not in ci
+    assert "Overcenter project.advance" not in ci
+    assert "Overcenter broker source proposal" not in ci
+
+    assert "pull_request_target:" in governance
+    assert "repository_dispatch:" in governance
+    assert "Overcenter project.advance" in governance
+    assert "Overcenter broker source proposal" in governance
 
 
 def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
@@ -87,18 +103,31 @@ def test_pr_ci_cancels_superseded_heads() -> None:
     assert "cancel-in-progress: true" in source
 
 
-def test_ci_checks_entire_javascript_script_frontier() -> None:
+def test_ci_delegates_verification_semantics_to_repository_code() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    verifier = (ROOT / "tools" / "check.py").read_text(encoding="utf-8")
 
-    assert "npm run lint:showdown" in source
-    assert "npm run typecheck:showdown" in source
-    assert "find showdown -type f -name '*.cjs' -print0" in source
-    assert 'node --check "$script"' in source
+    assert "run: python tools/check.py static" in source
+    assert "run: python tools/check.py test" in source
+    for command in (
+        "npm run lint:showdown",
+        "npm run typecheck:showdown",
+        "uv run mypy",
+        "uv run ruff check .",
+        "uv run pytest",
+    ):
+        assert command not in source
+
+    assert '["uv", "run", "mypy"]' in verifier
+    assert '["npm", "run", "lint:showdown"]' in verifier
+    assert '["npm", "run", "typecheck:showdown"]' in verifier
+    assert '.rglob("*.cjs")' in verifier
+    assert '["node", "--check", str(script)]' in verifier
 
     # Script admission is directory-derived, not a hand-maintained trusted allowlist.
-    assert "node --check showdown/runtime/probe_real_belief_trace.cjs" not in source
-    assert "node --check showdown/runtime/probe_real_belief_worker.cjs" not in source
-    assert "node --check showdown/runtime/transition_successor_delta.cjs" not in source
+    assert "probe_real_belief_trace.cjs" not in verifier
+    assert "probe_real_belief_worker.cjs" not in verifier
+    assert "transition_successor_delta.cjs" not in verifier
 
 def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
     source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
@@ -159,11 +188,13 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
 
 def test_base_static_analysis_runs_in_declared_python_version() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    verifier = (ROOT / "tools" / "check.py").read_text(encoding="utf-8")
 
     static = source[source.index("  static:\n") : source.index("  test:\n")]
     assert "uses: ./.github/actions/setup-python-environment" in static
     assert "python-version:" not in static
-    assert "run: uv run mypy" in static
+    assert "run: python tools/check.py static" in static
+    assert '["uv", "run", "mypy"]' in verifier
 
 def test_uv_managed_workflows_use_shared_python_environment() -> None:
     checked: list[str] = []
@@ -196,7 +227,7 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
 
         checked.append(path.name)
 
-    assert checked == ["ci.yml", "research.yml", "training.yml"]
+    assert checked == ["research.yml", "training.yml"]
 
 def test_evidence_setup_runs_after_python_environment() -> None:
     for workflow in ("ci.yml", "research.yml"):
