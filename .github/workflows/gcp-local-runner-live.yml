@@ -8,9 +8,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: gcp-automatic-runner-live-proof
+  cancel-in-progress: true
+
 jobs:
   live-proof:
-    runs-on: [self-hosted, overcenter-gcp, overcenter-gcp-automatic-proof]
+    runs-on: [self-hosted, overcenter-gcp]
     timeout-minutes: 10
     steps:
       - name: Checkout exact GitHub revision
