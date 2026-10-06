@@ -1,0 +1,49 @@
+name: GCP local runner live proof
+
+on:
+  push:
+    branches: [test/gcp-local-runner-live]
+    paths: [.github/workflows/gcp-local-runner-live.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  live-proof:
+    runs-on: [self-hosted, overcenter-gcp]
+    timeout-minutes: 10
+    steps:
+      - name: Checkout exact GitHub revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify GCP execution and credential isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(uname -m)" = x86_64
+          case "$RUNNER_NAME" in overcenter-gcp-*) ;; *) exit 1 ;; esac
+          for variable in GOOGLE_APPLICATION_CREDENTIALS CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE GOOGLE_GHA_CREDS_PATH; do
+            test -z "${!variable:-}"
+          done
+          for host in metadata.google.internal 169.254.169.254; do
+            status="$(curl --silent --output /dev/null --write-out '%{http_code}' --connect-timeout 1 --max-time 2 -H 'Metadata-Flavor: Google' "http://$host/computeMetadata/v1/instance/service-accounts/default/token" || true)"
+            test "$status" != 200
+          done
+          python3 - <<'PY'
+          import json, os, platform
+          receipt = {key: os.environ[key] for key in ("GITHUB_REPOSITORY", "GITHUB_SHA", "GITHUB_RUN_ID", "RUNNER_NAME")}
+          receipt["machine"] = platform.machine()
+          receipt["credential_isolation"] = "PASS"
+          with open("gcp-runner-live-receipt.json", "w") as stream:
+              json.dump(receipt, stream, sort_keys=True)
+          print(json.dumps(receipt, sort_keys=True))
+          PY
+      - name: Upload exact-job receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: gcp-runner-live-receipt
+          path: gcp-runner-live-receipt.json
+          retention-days: 7
