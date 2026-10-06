@@ -20,7 +20,7 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
-    runs-on: [self-hosted, overcenter-gcp]
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
       - name: Setup Azelficoast Python
@@ -39,7 +39,7 @@ jobs:
     if: >-
       github.event_name == 'push' ||
       (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
-    runs-on: [self-hosted, overcenter-gcp]
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
       - name: Setup Azelficoast Python
