@@ -53,6 +53,22 @@ def test_overcenter_governance_is_not_repository_verification() -> None:
     assert "Overcenter broker source proposal" in governance
 
 
+def test_overcenter_initial_event_cannot_invoke_protected_command() -> None:
+    governance = (WORKFLOWS / "overcenter.yml").read_text(encoding="utf-8")
+    pending = governance.split("  overcenter-invocation-pending:\n", 1)
+    assert len(pending) == 2
+    before_command, after_command = pending[1].split("  overcenter-advance:\n", 1)
+    command, _broker = after_command.split("  overcenter-broker:\n", 1)
+
+    assert "github.run_attempt == 1" in before_command
+    assert "github.run_attempt > 1" in command
+    assert "repository_dispatch" in before_command
+    assert "repository_dispatch" in command
+    assert "Explicitly re-run all jobs" in before_command
+    assert "Advance authoritative project" in command
+    assert "project-advance.ts" not in before_command
+
+
 def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
     config = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
