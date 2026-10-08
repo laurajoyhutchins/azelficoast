@@ -37,7 +37,7 @@ def test_cold_start_bootstraps_then_runs_automatic_generation(
             promotion.write_text("{}\n", encoding="utf-8")
             return {"promoted": True}
         if "auto" in command:
-            return {"generation_count": 1}
+            return {"generation_count": 1, "generations": [{"cycle_status": "candidate-admitted"}]}
         raise AssertionError(command)
 
     monkeypatch.setattr(training_service, "_invoke", fake_invoke)
@@ -50,7 +50,7 @@ def test_cold_start_bootstraps_then_runs_automatic_generation(
         run_id="123",
     )
 
-    assert summary["status"] == "trained"
+    assert summary["status"] == "candidate-admitted"
     assert summary["current_evaluator"] == _identity()
     assert any("import-public" in command for command in calls)
     assert any("bootstrap-public" in command for command in calls)
@@ -73,7 +73,7 @@ def test_existing_promotion_skips_public_bootstrap(
         command = tuple(str(value) for value in argv)
         calls.append(command)
         assert "auto" in command
-        return {"generation_count": 1}
+        return {"generation_count": 1, "generations": [{"cycle_status": "rejected"}]}
 
     monkeypatch.setattr(training_service, "_invoke", fake_invoke)
     monkeypatch.setattr(training_service, "_current_identity", lambda _: _identity())
@@ -85,7 +85,7 @@ def test_existing_promotion_skips_public_bootstrap(
         run_id="456",
     )
 
-    assert summary["status"] == "trained"
+    assert summary["status"] == "candidate-rejected"
     assert len(calls) == 1
     assert "auto" in calls[0]
     assert "import-public" not in calls[0]
@@ -123,3 +123,64 @@ def test_cold_start_fails_closed_without_enough_revision_matched_replays(
     assert summary["current_evaluator"] is None
     assert len(calls) == training_service.BOOTSTRAP_MAX_PAGES
     assert all("import-public" in command for command in calls)
+
+def test_unready_generation_cannot_claim_training_success(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state = tmp_path / "state"
+    promotion = state / "evaluators" / "current.json"
+    promotion.parent.mkdir(parents=True)
+    promotion.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        training_service,
+        "_invoke",
+        lambda argv: {
+            "generation_count": 1,
+            "generations": [
+                {
+                    "cycle_status": "not-ready",
+                    "dataset_digest": None,
+                    "improvement_receipt_digest": None,
+                }
+            ],
+        },
+    )
+    monkeypatch.setattr(training_service, "_current_identity", lambda _: _identity())
+    summary = training_service.run_training_iteration(
+        showdown_root=tmp_path / "showdown",
+        state_root=state,
+        work_root=tmp_path / "work",
+        run_id="unready",
+    )
+    assert summary["status"] == "generation-not-ready"
+    assert summary["current_evaluator"] == _identity()
+    import json
+
+    persisted = json.loads((state / "state.json").read_text(encoding="utf-8"))
+    assert persisted["last_run_status"] == "generation-not-ready"
+
+
+def test_malformed_automatic_receipt_is_not_admitted(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import pytest
+
+    state = tmp_path / "state"
+    promotion = state / "evaluators" / "current.json"
+    promotion.parent.mkdir(parents=True)
+    promotion.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        training_service, "_invoke", lambda argv: {"generation_count": 1}
+    )
+    monkeypatch.setattr(training_service, "_current_identity", lambda _: _identity())
+    with pytest.raises(
+        training_service.HostedTrainingError,
+        match="complete generation receipts",
+    ):
+        training_service.run_training_iteration(
+            showdown_root=tmp_path / "showdown",
+            state_root=state,
+            work_root=tmp_path / "work",
+            run_id="malformed",
+        )
+
