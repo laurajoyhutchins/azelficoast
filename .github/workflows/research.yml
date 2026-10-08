@@ -315,7 +315,7 @@ jobs:
               '{status:"negative",workflow_run_id:$workflow_run_id,head_sha:$head_sha,failure:"generation did not start"}' \
               > "$upload_root/acquisition-status.json"
           fi
-          for filename in decisions.jsonl corpus.jsonl source-metadata.json; do
+          for filename in decisions.jsonl corpus.jsonl source-metadata.json generation-progress.jsonl; do
             if [[ -f "$source_root/$filename" ]]; then
               cp "$source_root/$filename" "$upload_root/$filename"
             fi
