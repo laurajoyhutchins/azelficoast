@@ -112,8 +112,14 @@ def main() -> None:
         raise ValueError("Mesprit switch has no admitted execution class")
 
     head_sha = os.environ.get("GITHUB_SHA", "")
-    if len(head_sha) != 40:
-        raise ValueError("canary is not bound to an exact candidate commit")
+    checked_out_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    if len(head_sha) != 40 or head_sha != checked_out_sha:
+        raise ValueError(
+            f"canary source identity mismatch: declared={head_sha} checkout={checked_out_sha}"
+        )
     receipt = {
         "schema": "azelficoast.mesprit-switch-canary/v1",
         "passed": True,
