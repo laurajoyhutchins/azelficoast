@@ -13,7 +13,11 @@ from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
-from azelficoast.belief.evaluator import build_evaluator_input
+from azelficoast.belief.evaluator import (
+    BeliefEvaluatorError,
+    build_evaluator_input,
+    require_value_target,
+)
 from azelficoast.live.corpus import DecisionFixture
 from azelficoast.live.execution_planning import TransitionRouteHistory
 from azelficoast.live.showdown_probe import (
@@ -395,8 +399,17 @@ def learned_route_result(
         if callable(getattr(search_gate, "as_record", None))
         else {"kind": type(search_gate).__name__}
     )
+    value_contract = getattr(evaluator, "value_contract", None)
     common = {
         "evaluator": dict(identity) if isinstance(identity, Mapping) else {},
+        "value_contract": (
+            dict(value_contract) if isinstance(value_contract, Mapping) else None
+        ),
+        "value_contract_digest": getattr(
+            evaluator,
+            "value_contract_digest",
+            None,
+        ),
         "search_gate": gate_record,
     }
     try:
@@ -461,6 +474,19 @@ def transition_program_belief_result(
     frontier_memo: SemanticMemo[EvaluationFrontier] | None = None,
 ) -> LiveDecisionResult:
     """Search one verified whole-turn mechanics program under the public belief."""
+
+    try:
+        value_contract = require_value_target(
+            evaluator,
+            "eventual_battle_outcome",
+        )
+    except BeliefEvaluatorError as error:
+        return LiveDecisionResult(
+            action=None,
+            status="fallback",
+            reason="evaluator-value-contract-mismatch",
+            diagnostics={"error": str(error)},
+        )
 
     if (
         transition_program.get("schema") != PROGRAM_SET_SCHEMA
@@ -596,6 +622,12 @@ def transition_program_belief_result(
                 "reused_showdown_turn_executions"
             ),
             "public_belief_root_values": dict(search.get("root_values", {})),
+            "value_contract": dict(value_contract),
+            "value_contract_digest": getattr(
+                evaluator,
+                "value_contract_digest",
+                None,
+            ),
         },
     )
 

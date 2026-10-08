@@ -23,6 +23,7 @@ from azelficoast.belief.evaluator import (
     write_checkpoint,
 )
 from azelficoast.belief.improvement import (
+    DEFAULT_VALUE_TARGET_SOURCE,
     AdmissionPolicy,
     ImprovementError,
     improve_checkpoint,
@@ -371,6 +372,23 @@ def build_public_pretraining_records(
                         },
                         "value_target": {
                             "kind": "eventual-battle-outcome",
+                            "continuation_contract": {
+                                "schema": "azelficoast.outcome-continuation-contract",
+                                "schema_version": 1,
+                                "behavior_policy": {
+                                    "kind": "recorded-human",
+                                    "source_showdown_version": metadata[
+                                        "source_showdown_version"
+                                    ],
+                                },
+                                "opponent_policy": {
+                                    "kind": "public-showdown-opponent",
+                                    "source_showdown_version": metadata[
+                                        "source_showdown_version"
+                                    ],
+                                },
+                                "source_kind": "public-showdown-replay",
+                            },
                         },
                         "posterior": {
                             "kind": "pinned-showdown-generator-faithful",
@@ -521,7 +539,7 @@ def run_public_pretraining(
             epochs=epochs,
             learning_rate=learning_rate,
             policy_weight=policy_weight,
-            value_target_source="eventual_battle_outcome",
+            value_target_source=DEFAULT_VALUE_TARGET_SOURCE,
             admission_policy=admission_policy,
         )
     except ImprovementError as error:

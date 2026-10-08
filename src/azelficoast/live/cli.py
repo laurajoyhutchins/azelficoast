@@ -6,7 +6,10 @@ import argparse
 import os
 from pathlib import Path
 
-from azelficoast.belief.improvement import VALUE_TARGET_SOURCES
+from azelficoast.belief.improvement import (
+    DEFAULT_VALUE_TARGET_SOURCE,
+    VALUE_TARGET_SOURCES,
+)
 from azelficoast.belief.self_improvement import DEFAULT_CHALLENGER_UNCERTAINTY_THRESHOLD
 from azelficoast.live.corpus import BUILTIN_POLICIES
 
@@ -324,7 +327,7 @@ def _add_training_commands(
     training_improve.add_argument(
         "--value-target",
         choices=VALUE_TARGET_SOURCES,
-        default="public_belief_search_return",
+        default=DEFAULT_VALUE_TARGET_SOURCE,
     )
     training_improve.add_argument(
         "--min-validation-improvement",
@@ -405,7 +408,7 @@ def _add_training_commands(
     training_cycle.add_argument(
         "--value-target",
         choices=VALUE_TARGET_SOURCES,
-        default="public_belief_search_return",
+        default=DEFAULT_VALUE_TARGET_SOURCE,
     )
     training_cycle.add_argument(
         "--min-validation-improvement",
@@ -526,7 +529,7 @@ def _add_training_commands(
     training_auto.add_argument(
         "--value-target",
         choices=VALUE_TARGET_SOURCES,
-        default="public_belief_search_return",
+        default=DEFAULT_VALUE_TARGET_SOURCE,
     )
     training_auto.add_argument(
         "--min-validation-improvement",
