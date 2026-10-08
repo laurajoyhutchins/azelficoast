@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -106,6 +107,51 @@ def test_local_concurrency_parsing() -> None:
     assert args.command == "local"
     assert args.battles == 32
     assert args.concurrency == 8
+    assert args.ping_timeout == 20.0
+
+
+def test_local_runtime_passes_websocket_ping_timeout_to_both_players(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import azelficoast.live.battle_runtime as runtime
+
+    created: dict[str, dict[str, object]] = {}
+
+    class FakePlayer:
+        def __init__(self, name: str, **kwargs: object) -> None:
+            self.name = name
+            self.kwargs = kwargs
+            self.battles: dict[str, object] = {}
+            created[name] = kwargs
+
+        async def battle_against(self, opponent: object, *, n_battles: int) -> None:
+            assert n_battles == 1
+
+    monkeypatch.setattr(
+        runtime, "AzelficoastPlayer", lambda **kwargs: FakePlayer("agent", **kwargs)
+    )
+    monkeypatch.setattr(
+        runtime, "RandomPlayer", lambda **kwargs: FakePlayer("random", **kwargs)
+    )
+
+    asyncio.run(
+        runtime.run_local(
+            1,
+            4,
+            tmp_path / "results.jsonl",
+            tmp_path / "decisions.jsonl",
+            tmp_path / "replays",
+            showdown_root=tmp_path / "showdown",
+            belief_timeout=20.0,
+            evaluator_checkpoint=None,
+            search_policy_margin=1.0,
+            ping_timeout=120.0,
+            print_summary=False,
+        )
+    )
+
+    assert created["agent"]["ping_timeout"] == 120.0
+    assert created["random"]["ping_timeout"] == 120.0
 
 def test_live_belief_configuration_parsing() -> None:
     args = build_parser().parse_args(

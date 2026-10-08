@@ -301,7 +301,16 @@ def generate_source(
             str(showdown_root),
         ]
         subprocess.run(
-            [*base, "local", "--battles", str(SOURCE_BATTLE_BUDGET), "--concurrency", "1"],
+            [
+                *base,
+                "local",
+                "--battles",
+                str(SOURCE_BATTLE_BUDGET),
+                "--concurrency",
+                "4",
+                "--ping-timeout",
+                "120",
+            ],
             check=True,
         )
         subprocess.run(

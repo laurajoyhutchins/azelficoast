@@ -79,7 +79,7 @@ def _artifact() -> dict[str, Any]:
     }
 
 
-def test_source_generation_uses_single_concurrent_battle(
+def test_source_generation_uses_bounded_keepalive_for_parallel_battles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server = Mock()
@@ -104,7 +104,8 @@ def test_source_generation_uses_single_concurrent_battle(
         )
 
     assert len(commands) == 1
-    assert commands[0][commands[0].index("--concurrency") + 1] == "1"
+    assert commands[0][commands[0].index("--concurrency") + 1] == "4"
+    assert commands[0][commands[0].index("--ping-timeout") + 1] == "120"
     server.terminate.assert_called_once_with()
     server.wait.assert_called_once_with(timeout=30)
 
