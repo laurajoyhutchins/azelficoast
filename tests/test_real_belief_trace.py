@@ -675,7 +675,10 @@ def test_showdown_probe_preserves_semantic_support_before_execution_projection()
     assert 'defender.getStat("spd")' in opponent_source
     assert ".storedStats." not in opponent_source
     assert "function simpleHeuristicsDistribution(" in opponent_source
+    assert "function isCurrentActivePokemon(" in opponent_source
+    assert "current.position === pokemon.position" in opponent_source
     assert "function legalOpponentSwitches(" in opponent_source
+    assert "isCurrentActivePokemon(battle, pokemon)" in opponent_source
     assert "function voluntarySwitchDistribution(" in opponent_source
     assert "function dirtyTricksDistribution(" in opponent_source
     assert "function equalStrategyMixture(" in opponent_source

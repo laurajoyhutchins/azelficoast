@@ -168,6 +168,15 @@ function matchupPressure(battle, attacker, defender) {
   return offensive - defensive + speed + 0.4 * hp;
 }
 
+function isCurrentActivePokemon(battle, pokemon) {
+  if (pokemon.active) return true;
+  const active = Array.isArray(battle.p2.active) ? battle.p2.active : [];
+  return active.some(current =>
+    current &&
+    (current === pokemon || current.position === pokemon.position)
+  );
+}
+
 function legalOpponentSwitches(battle) {
   const request = battle.p2.activeRequest;
   if (
@@ -180,7 +189,7 @@ function legalOpponentSwitches(battle) {
   }
   return battle.p2.pokemon
     .filter(pokemon => {
-      if (pokemon.hp <= 0 || pokemon.active) return false;
+      if (pokemon.hp <= 0 || isCurrentActivePokemon(battle, pokemon)) return false;
       const view = publicOpponentView(pokemon.species.name);
       if (!view || view.fainted) return false;
       const hpFraction = Number(view.hp_fraction);
@@ -529,7 +538,7 @@ function opponentActionDistribution(battle, hiddenReads = null) {
   if (request.forceSwitch) {
     if (hiddenReads && BENCH_PRIOR) hiddenReads.add(BENCH_FACTOR_FIELD);
     const switches = battle.p2.pokemon
-      .filter(pokemon => pokemon.hp && !pokemon.active)
+      .filter(pokemon => pokemon.hp && !isCurrentActivePokemon(battle, pokemon))
       .map(pokemon => `switch ${pokemon.position + 1}`)
       .sort();
     if (!switches.length) {

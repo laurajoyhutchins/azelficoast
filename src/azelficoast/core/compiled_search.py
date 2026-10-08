@@ -12,9 +12,9 @@ This module lowers that already-authorized topology into dense incidence arrays.
 then transport posterior mass and reduce evaluated leaf values without deciding which
 worlds are equivalent or which observations belong to one information set.
 
-The first implementation is deliberately research-only. The existing
-`search_transition_program` remains the live/reference path until exact semantic
-comparison evidence justifies promotion.
+The compiled path is a physical optimization over already-authorized search semantics.
+Live callers may use the adaptive planner when a runtime explicitly advertises the
+accelerator capability. The ordinary Python search remains the reference and fallback.
 """
 
 from __future__ import annotations
@@ -323,9 +323,39 @@ def _execute_compiled_topology(
     posterior: Mapping[str, Any],
     evaluator: Any,
 ) -> dict[str, Any]:
-    frontier, transported = materialize_compiled_frontier(topology, posterior)
-    meter = _EvaluatorMeter(evaluator)
-    leaf_values = meter.values(frontier.leaves)
+    compiled_values = getattr(evaluator, "compiled_values", None)
+    if (
+        bool(getattr(evaluator, "supports_shared_compiled_frontier", False))
+        and callable(compiled_values)
+    ):
+        transported = transport_posterior_mass(topology, posterior)
+        leaf_values = tuple(
+            float(value)
+            for value in compiled_values(
+                topology=topology,
+                posterior=posterior,
+                leaf_world_weights=transported.leaf_world_weights,
+            )
+        )
+        if len(leaf_values) != topology.leaf_count:
+            raise _CompiledSearchError(
+                "shared compiled evaluator returned the wrong leaf count"
+            )
+        if any(not math.isfinite(value) for value in leaf_values):
+            raise _CompiledSearchError(
+                "shared compiled evaluator returned a non-finite leaf value"
+            )
+        evaluator_calls = topology.leaf_count
+        evaluator_batches = 1
+        frontier_materialization = "shared-hashed-worlds"
+    else:
+        frontier, transported = materialize_compiled_frontier(topology, posterior)
+        meter = _EvaluatorMeter(evaluator)
+        leaf_values = meter.values(frontier.leaves)
+        evaluator_calls = meter.calls
+        evaluator_batches = meter.batches
+        frontier_materialization = "python-evaluation-frontier"
+
     root_values = reduce_compiled_root_values(
         topology,
         transported,
@@ -342,8 +372,9 @@ def _execute_compiled_topology(
         "transition_program_digest": topology.program_digest,
         "compiled_topology_digest": topology.topology_digest,
         "transition_evaluations": topology.transition_evaluations,
-        "evaluator_calls": meter.calls,
-        "evaluator_batches": meter.batches,
+        "evaluator_calls": evaluator_calls,
+        "evaluator_batches": evaluator_batches,
+        "frontier_materialization": frontier_materialization,
         "chosen_action": chosen_action,
         "root_values": root_values,
         "compiled_shape": {
@@ -401,6 +432,7 @@ def search_transition_program_adaptive(
     envelope: _CardinalityEnvelope,
     expected_program_schema: str | None = None,
     expected_program_schema_version: int | None = None,
+    fallback_search: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Choose dense compiled search only inside an explicit cardinality envelope.
 
@@ -409,6 +441,18 @@ def search_transition_program_adaptive(
     dense JAX posterior transport. A realized shape surprise therefore changes only the
     physical implementation, never the logical search or evaluator semantics.
     """
+
+    def python_fallback() -> dict[str, Any]:
+        if fallback_search is not None:
+            return fallback_search()
+        return search_transition_program(
+            program_set=program_set,
+            posterior=posterior,
+            method=method,
+            evaluator=evaluator,
+            expected_program_schema=expected_program_schema,
+            expected_program_schema_version=expected_program_schema_version,
+        )
 
     lower_bound = _estimate_search_cardinality_lower_bound(
         program_set=program_set,
@@ -422,14 +466,7 @@ def search_transition_program_adaptive(
         envelope=envelope,
     )
     if plan.final_path == _SEARCH_PATH_PYTHON:
-        result = search_transition_program(
-            program_set=program_set,
-            posterior=posterior,
-            method=method,
-            evaluator=evaluator,
-            expected_program_schema=expected_program_schema,
-            expected_program_schema_version=expected_program_schema_version,
-        )
+        result = python_fallback()
         return {
             **result,
             "physical_search_path": _SEARCH_PATH_PYTHON,
@@ -450,14 +487,7 @@ def search_transition_program_adaptive(
         observed=observed,
     )
     if plan.final_path == _SEARCH_PATH_PYTHON:
-        result = search_transition_program(
-            program_set=program_set,
-            posterior=posterior,
-            method=method,
-            evaluator=evaluator,
-            expected_program_schema=expected_program_schema,
-            expected_program_schema_version=expected_program_schema_version,
-        )
+        result = python_fallback()
         return {
             **result,
             "physical_search_path": _SEARCH_PATH_PYTHON,
