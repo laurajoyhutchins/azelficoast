@@ -5,9 +5,11 @@ import hashlib
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
+import azelficoast.research.posterior_population_acquisition as acquisition
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.live.corpus import DecisionFixture, _fixture_id, write_corpus
 from azelficoast.research.posterior_population_acquisition import (
@@ -75,6 +77,36 @@ def _artifact() -> dict[str, Any]:
         "workflow_run_id": 40001,
         "workflow_head_sha": "a" * 40,
     }
+
+
+def test_source_generation_uses_single_concurrent_battle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = Mock()
+    monkeypatch.setattr(
+        "azelficoast.research.hosted.common.start_showdown_server",
+        lambda: server,
+    )
+    commands: list[list[str]] = []
+
+    def fail_generation(command: list[str], *, check: bool) -> None:
+        commands.append(command)
+        raise acquisition.subprocess.CalledProcessError(1, command)
+
+    monkeypatch.setattr(acquisition.subprocess, "run", fail_generation)
+
+    with pytest.raises(PopulationAcquisitionError, match="source generation failed"):
+        acquisition.generate_source(
+            output_root=tmp_path / "source",
+            workflow_run_id=40001,
+            generation_head_sha="a" * 40,
+            showdown_root=tmp_path / "showdown",
+        )
+
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("--concurrency") + 1] == "1"
+    server.terminate.assert_called_once_with()
+    server.wait.assert_called_once_with(timeout=30)
 
 
 def test_source_metadata_requires_exact_battle_budget_and_records_file_digests(
