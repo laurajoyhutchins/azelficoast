@@ -748,6 +748,8 @@ def test_live_transition_compiler_preserves_verified_mechanics_contract() -> Non
     assert 'partition_method: "counterfactual-causal-refinement"' not in compiler
     assert 'strategy: "counterfactual-causal-refinement"' in compiler
     assert "const dependencyFields = [...observedFields].sort();" in compiler
+    assert 'field === "opponent.active.tera_type"' in compiler
+    assert "world.variant.teraType = donorWorld.variant.teraType;" in compiler
     assert "const semanticHash = sha256PythonCanonical(execution.outcomes);" in compiler
     assert "sha256PythonCanonical(memberExecution.outcomes) !== semanticHash" in compiler
     assert "class audit discovered an unpartitioned hidden read" in compiler

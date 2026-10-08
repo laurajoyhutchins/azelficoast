@@ -251,6 +251,8 @@ function counterfactualWorld(baseWorld, donorWorld, field) {
     world.variant.ability = donorWorld.variant.ability;
   } else if (field === "opponent.active.moves") {
     world.variant.moves = cloneJson(donorWorld.variant.moves);
+  } else if (field === "opponent.active.tera_type") {
+    world.variant.teraType = donorWorld.variant.teraType;
   } else if (field === "opponent.active.evs") {
     world.variant.evs = cloneJson(donorWorld.variant.evs);
   } else if (field === "opponent.active.ivs") {
