@@ -129,6 +129,41 @@ def freeze_issue_69_population(
         output_dir=selected_dir,
     )
 
+    selected_root = Path(selected_dir)
+    selected_rows = manifest.get("selected")
+    eligible_ids = manifest.get("eligible_fixture_ids")
+    rejected_rows = manifest.get("ineligible_fixtures")
+    source_exclusions = manifest.get("source_exclusions")
+    if (
+        not isinstance(selected_rows, list)
+        or not isinstance(eligible_ids, list)
+        or not isinstance(rejected_rows, list)
+        or not isinstance(source_exclusions, list)
+    ):
+        raise PosteriorPopulationSelectionError(
+            "population selector did not produce complete admission ledgers"
+        )
+    selected_ids = [
+        str(row["fixture_id"]) for row in selected_rows if isinstance(row, Mapping)
+    ]
+    _write_json(
+        selected_root / "admission-ledger.json",
+        {
+            "schema": "azelficoast.posterior-population-admission-ledger/v1",
+            "source_decision_state_count": manifest["source_decision_state_count"],
+            "bounded_candidate_count": manifest["bounded_candidate_count"],
+            "source_exclusions": source_exclusions,
+            "candidate_rejections": rejected_rows,
+            "eligible_fixture_ids": eligible_ids,
+            "selected_fixture_ids": selected_ids,
+            "overflow_excluded_fixture_ids": [
+                str(fixture_id) for fixture_id in eligible_ids if fixture_id not in selected_ids
+            ],
+            "selected_count": len(selected_ids),
+            "selection_uses_policy_result": False,
+        },
+    )
+
     minimum = int(population["minimum_selected_states"])
     if int(manifest["selected_count"]) < minimum:
         raise PosteriorPopulationSelectionError(
@@ -153,7 +188,6 @@ def freeze_issue_69_population(
         }
     )
     contract_digest = stable_digest(checked)
-    selected_root = Path(selected_dir)
     for row in manifest["selected"]:
         if not isinstance(row, Mapping):
             raise PosteriorPopulationSelectionError("selected manifest row is malformed")
