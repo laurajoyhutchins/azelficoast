@@ -1,0 +1,56 @@
+name: Mesprit switch regression canary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "showdown/runtime/real_belief_probe/transition_program_compiler.cjs"
+      - "tools/canary_mesprit.py"
+      - ".github/workflows/mesprit-canary.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  mesprit-switch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Setup pinned Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Setup exact Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+      - name: Recover frozen failing gameplay evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/mesprit-canary-input
+          gh run download 37713372447 \
+            --name training-run-37713372447 \
+            --dir /tmp/mesprit-canary-input
+      - name: Verify archived Mesprit switch with trusted mechanics
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          uv run python tools/canary_mesprit.py \
+            --artifact-dir /tmp/mesprit-canary-input \
+            --showdown-root /tmp/pokemon-showdown \
+            --receipt /tmp/mesprit-canary-receipt/receipt.json
+      - name: Publish exact-head canary receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesprit-switch-canary
+          path: /tmp/mesprit-canary-receipt/receipt.json
+          if-no-files-found: warn
+          retention-days: 30
