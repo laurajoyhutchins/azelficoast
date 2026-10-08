@@ -13,8 +13,8 @@
       "world_width": 192
     }
   },
-  "last_run_id": "37700404472",
-  "last_run_status": "trained",
+  "last_run_id": "37736063325",
+  "last_run_status": "generation-not-ready",
   "policy": {
     "auto_battles_per_generation": 24,
     "auto_concurrency": 4,
