@@ -1,0 +1,8 @@
+{
+  "schema": "overcenter-git-claim-v3",
+  "run_id": "61209353-71eb-4578-ae45-961e5a0f10e7",
+  "obligation_id": "project-goal:gen9-randombattle-rank-1",
+  "claimed_revision": "9ba2d39d9e1e3471c53cac5229581710dd48c75a",
+  "obligation_key": "ec0721974d6e0df75e4d52fe15ec33bee23ba41df5051c5ff676f47a7f43f441",
+  "execution_capability_sha256": "f3399af62d54b15455a14c8877ae3a5ebd8941ef8011a6b90b896bf4a4f7c5cc"
+}
