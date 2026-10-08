@@ -27,6 +27,9 @@ def load_failure(root: Path):
         row for row in records
         if row.get("kind") == "decision"
         and row.get("state", {}).get("legal_actions") == ACTIONS
+        and row.get("battle_tag") == "battle-gen9randombattle-22"
+        and row.get("event_index") == 387
+        and row.get("run_id") == "0e6eea9379234edf9cfde9b23723d081"
     ]
     if len(decisions) != 1:
         raise ValueError(f"expected one Mesprit switch state, found {len(decisions)}")
