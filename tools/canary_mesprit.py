@@ -53,7 +53,12 @@ def probe(showdown: Path, source: dict, mode: str) -> dict:
         path.write_text(json.dumps(source, sort_keys=True))
         process = subprocess.run(
             ["node", str(script), str(showdown), str(path), mode],
-            check=True, capture_output=True, text=True, timeout=240,
+            check=False, capture_output=True, text=True, timeout=240,
+        )
+    if process.returncode:
+        raise ValueError(
+            f"pinned Showdown probe {mode} failed ({process.returncode}): "
+            + process.stderr[-3000:]
         )
     document = json.loads(process.stdout)
     if not isinstance(document, dict):
