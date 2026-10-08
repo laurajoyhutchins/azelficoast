@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -71,6 +70,7 @@ def main() -> None:
     parser.add_argument("--artifact-dir", required=True, type=Path)
     parser.add_argument("--showdown-root", required=True, type=Path)
     parser.add_argument("--receipt", required=True, type=Path)
+    parser.add_argument("--expected-head", required=True)
     args = parser.parse_args()
 
     marker = args.showdown_root / ".azelficoast-showdown-sha"
@@ -111,7 +111,7 @@ def main() -> None:
     if not admitted.get("classes"):
         raise ValueError("Mesprit switch has no admitted execution class")
 
-    head_sha = os.environ.get("GITHUB_SHA", "")
+    head_sha = args.expected_head
     checked_out_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         check=True, capture_output=True, text=True,

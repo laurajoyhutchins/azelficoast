@@ -81,6 +81,7 @@ jobs:
           GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           ./.venv/bin/python tools/canary_mesprit.py \
+            --expected-head "${{ github.event.pull_request.head.sha }}" \
             --artifact-dir /tmp/mesprit-canary-input \
             --showdown-root /tmp/pokemon-showdown \
             --receipt /tmp/mesprit-canary-receipt/receipt.json
