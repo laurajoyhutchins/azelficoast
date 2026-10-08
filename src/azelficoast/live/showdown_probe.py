@@ -3,7 +3,8 @@
 The worker keeps Node and the pinned Showdown module graph warm across decisions. A
 posterior request also leaves its reconstructed JavaScript session resident long enough
 for an uncertain learned decision to compile the matching TransitionProgram without
-reconstructing the posterior or reloading Showdown.
+reconstructing the posterior or reloading Showdown. Unlearned decisions reuse
+the worker for the unchanged full oracle, with fresh per-request state.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import hashlib
 import json
 import queue
 import subprocess
+import tempfile
 import threading
 from collections import deque
 from pathlib import Path
@@ -38,6 +40,7 @@ class PersistentShowdownProbe:
     def __init__(self, showdown_root: str | Path) -> None:
         self.showdown_root = Path(showdown_root)
         self._process: subprocess.Popen[str] | None = None
+        self._generator_cache: tempfile.TemporaryDirectory[str] | None = None
         self._responses: queue.Queue[str | None] = queue.Queue()
         self._stderr: deque[str] = deque(maxlen=32)
         self._lock = threading.Lock()
@@ -64,20 +67,31 @@ class PersistentShowdownProbe:
         if process is not None and process.poll() is None:
             return process
 
+        self._stop_unlocked()
+
         self._responses = queue.Queue()
         self._stderr.clear()
-        process = subprocess.Popen(
-            [
-                "node",
-                str(self._worker_script()),
-                str(self.showdown_root),
-            ],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
+        cache = tempfile.TemporaryDirectory(
+            prefix="azelficoast-showdown-probe-", ignore_cleanup_errors=True
         )
+        self._generator_cache = cache
+        try:
+            process = subprocess.Popen(
+                [
+                    "node",
+                    str(self._worker_script()),
+                    str(self.showdown_root),
+                    cache.name,
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+        except OSError:
+            self._stop_unlocked()
+            raise
         if process.stdin is None or process.stdout is None or process.stderr is None:
             process.kill()
             raise ShowdownProbeRuntimeError("Showdown probe worker pipes are unavailable")
@@ -100,15 +114,19 @@ class PersistentShowdownProbe:
     def _stop_unlocked(self) -> None:
         process = self._process
         self._process = None
-        if process is None:
-            return
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=0.5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=0.5)
+        cache = self._generator_cache
+        self._generator_cache = None
+        try:
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=0.5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=0.5)
+        finally:
+            if cache is not None:
+                cache.cleanup()
 
     def close(self) -> None:
         """Stop the worker and discard any resumable posterior sessions."""
@@ -196,6 +214,24 @@ class PersistentShowdownProbe:
                     str(response.get("error") or "Showdown probe worker request failed")
                 )
             return response
+
+    def oracle(
+        self,
+        source: Mapping[str, Any],
+        *,
+        timeout_seconds: float,
+    ) -> Mapping[str, Any]:
+        """Compute the unchanged full oracle without restarting Node per decision."""
+        response = self._request(
+            op="oracle",
+            session=probe_session_key(source),
+            source=source,
+            timeout_seconds=timeout_seconds,
+        )
+        document = response.get("document")
+        if not isinstance(document, Mapping):
+            raise ShowdownProbeRuntimeError("oracle worker response lacks a document")
+        return document
 
     def posterior(
         self,

@@ -16,6 +16,7 @@ from typing import Any
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.live.corpus import load_corpus
 from azelficoast.research.posterior_population_contract import validate_contract
+from azelficoast.research.source_progress import observe_generation
 
 
 class PopulationAcquisitionError(ValueError):
@@ -300,19 +301,20 @@ def generate_source(
             "--showdown-root",
             str(showdown_root),
         ]
-        subprocess.run(
-            [
-                *base,
-                "local",
-                "--battles",
-                str(SOURCE_BATTLE_BUDGET),
-                "--concurrency",
-                "4",
-                "--ping-timeout",
-                "120",
-            ],
-            check=True,
-        )
+        with observe_generation(decisions_path, root / "generation-progress.jsonl"):
+            subprocess.run(
+                [
+                    *base,
+                    "local",
+                    "--battles",
+                    str(SOURCE_BATTLE_BUDGET),
+                    "--concurrency",
+                    "4",
+                    "--ping-timeout",
+                    "120",
+                ],
+                check=True,
+            )
         subprocess.run(
             [
                 sys.executable,

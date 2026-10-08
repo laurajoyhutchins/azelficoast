@@ -13,7 +13,7 @@ if (!showdownRoot) {
   process.exit(2);
 }
 
-const generatorCacheDir = fs.mkdtempSync(
+const generatorCacheDir = process.argv[3] || fs.mkdtempSync(
   path.join(os.tmpdir(), "azelficoast-showdown-probe-")
 );
 
@@ -117,6 +117,22 @@ async function handle(request) {
     throw new Error("session must be a sha256 hex digest");
   }
 
+  if (op === "oracle") {
+    if (!request.source || typeof request.source !== "object") {
+      throw new Error("oracle request requires source");
+    }
+    // Re-enter the existing full probe with fresh per-request locals. Only the
+    // pinned module graph and content-addressed generator samples stay warm.
+    return {
+      id,
+      ok: true,
+      document: runProbe(
+        [showdownRoot, `azelficoast://fixture/${session}.json`,
+          "--generator-cache-dir", generatorCacheDir],
+        request.source
+      ),
+    };
+  }
   if (op === "posterior") {
     if (!request.source || typeof request.source !== "object") {
       throw new Error("posterior request requires source");
@@ -162,6 +178,7 @@ input.on("line", async line => {
 });
 
 process.on("exit", () => {
+  if (process.argv[3]) return; // Python owns cleanup even after SIGKILL.
   try {
     fs.rmSync(generatorCacheDir, {recursive: true, force: true});
   } catch {}

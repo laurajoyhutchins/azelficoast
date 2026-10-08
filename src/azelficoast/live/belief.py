@@ -665,7 +665,7 @@ class PinnedShowdownBeliefPolicy:
         self._configuration_error = self._validate_showdown_root()
         self._probe_runtime = (
             PersistentShowdownProbe(self.showdown_root)
-            if self._configuration_error is None and learned_evaluator is not None
+            if self._configuration_error is None
             else None
         )
         self._transition_route_history = TransitionRouteHistory()
@@ -739,7 +739,12 @@ class PinnedShowdownBeliefPolicy:
         return document
 
     def _probe(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
-        return self._probe_document(source)
+        runtime = getattr(self, "_probe_runtime", None)
+        return (
+            runtime.oracle(source, timeout_seconds=self.timeout_seconds)
+            if runtime is not None
+            else self._probe_document(source)
+        )
 
     def _probe_posterior(self, source: Mapping[str, Any]) -> Mapping[str, Any]:
         runtime = getattr(self, "_probe_runtime", None)
@@ -969,6 +974,7 @@ class PinnedShowdownBeliefPolicy:
             subprocess.CalledProcessError,
             json.JSONDecodeError,
             LiveBeliefPolicyError,
+            ShowdownProbeRuntimeError,
         ) as error:
             detail = str(error)
             if isinstance(error, subprocess.CalledProcessError):
