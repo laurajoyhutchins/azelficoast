@@ -11,6 +11,8 @@ on:
       - "uv.lock"
       - ".github/workflows/posterior-study-smoke.yml"
       - "tools/smoke_posterior_study.py"
+      - "tools/parity_world_sampler.py"
+      - "tests/test_world_sampler_parity.py"
       - "tests/test_posterior_smoke.py"
   workflow_dispatch:
 
@@ -49,6 +51,19 @@ jobs:
           uv run python tools/smoke_posterior_study.py \
             --profile "${{ matrix.profile }}" \
             --output "/tmp/posterior-smoke"
+      - name: Verify independent serial/parallel generator parity
+        if: matrix.profile == 'mid-seed-1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run python tools/parity_world_sampler.py
+      - name: Compare complete serial and parallel candidate-miner receipts
+        if: matrix.profile == 'mid-seed-2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python tools/parity_world_sampler.py \
+            --compare-miner \
+            --output /tmp/posterior-smoke/miner-parity.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
