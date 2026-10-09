@@ -11,6 +11,7 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from poke_env.data import GenData
 
+from azelficoast.core.showdown import SHOWDOWN_REVISION_PATH
 from azelficoast.live.corpus import DecisionFixture, load_corpus
 
 RANDBATS_EV = 85
@@ -624,7 +625,7 @@ def _sample_worlds(
     public_level: int,
     public_ability: str,
 ) -> dict[str, Any]:
-    script = Path(__file__).resolve().parents[3] / "showdown" / "research" / "belief" / "sample_showdown_worlds.cjs"
+    script = SHOWDOWN_REVISION_PATH.parent / "research" / "belief" / "sample_showdown_worlds.cjs"
     try:
         completed = subprocess.run(
             [
