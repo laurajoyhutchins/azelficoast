@@ -7,7 +7,6 @@ The ordinary hosted preparation/selection remains the only admission path.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess
 import sys
@@ -16,7 +15,12 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
-from azelficoast.live.corpus import DecisionFixture, load_corpus
+from azelficoast.live.corpus import (
+    CORPUS_SCHEMA,
+    CORPUS_SCHEMA_VERSION,
+    DecisionFixture,
+    _fixture_id,
+)
 from azelficoast.research.hosted.common import REPOSITORY_ROOT
 from azelficoast.research.posterior_population_selection import _source_binding
 from azelficoast.research.studies import natural_disagreements
@@ -71,6 +75,67 @@ def _source_files(root: Path, contract: Mapping[str, Any]) -> tuple[Path, Path]:
     if not corpus.is_file() or not metadata.is_file():
         raise SmokeError("canonical frozen source download is incomplete")
     return corpus, metadata
+
+
+
+def _load_fixture_window(
+    corpus: Path, *, limit: int, expected_total: int
+) -> tuple[list[DecisionFixture], int]:
+    """Read only the smoke window from the already SHA-verified frozen corpus.
+
+    _source_binding validates the SHA of the *entire* original corpus first.
+    The remaining original records are intentionally not deserialized.
+    """
+    window: list[DecisionFixture] = []
+    seen: set[str] = set()
+    with corpus.open(encoding="utf-8") as stream:
+        manifest = json.loads(stream.readline())
+        if not isinstance(manifest, dict) or (
+            manifest.get("schema") != CORPUS_SCHEMA
+            or manifest.get("schema_version") != CORPUS_SCHEMA_VERSION
+            or manifest.get("kind") != "manifest"
+        ):
+            raise SmokeError("frozen source corpus has an invalid manifest")
+        total = manifest.get("fixture_count")
+        if isinstance(total, bool) or not isinstance(total, int) or total != expected_total:
+            raise SmokeError("frozen source fixture count differs from source binding")
+        for line_number in range(2, min(limit, total) + 2):
+            line = stream.readline()
+            if not line:
+                raise SmokeError("source corpus ended before bounded smoke window")
+            record = json.loads(line)
+            if not isinstance(record, dict) or (
+                record.get("schema") != CORPUS_SCHEMA
+                or record.get("schema_version") != CORPUS_SCHEMA_VERSION
+                or record.get("kind") != "fixture"
+            ):
+                raise SmokeError(f"invalid source fixture at line {line_number}")
+            fixture_id = record.get("fixture_id")
+            state = record.get("state")
+            prefix = record.get("protocol_prefix")
+            controls = record.get("control_decisions")
+            if (
+                not isinstance(fixture_id, str)
+                or not isinstance(state, dict)
+                or not isinstance(prefix, list)
+                or not isinstance(controls, list)
+                or fixture_id != _fixture_id(state, prefix)
+                or fixture_id in seen
+            ):
+                raise SmokeError(f"invalid fixture identity at line {line_number}")
+            seen.add(fixture_id)
+            window.append(
+                DecisionFixture(
+                    fixture_id=fixture_id,
+                    state=state,
+                    protocol_prefix=tuple(
+                        tuple(tuple(str(value) for value in message) for message in batch)
+                        for batch in prefix
+                    ),
+                    control_decisions=tuple(controls),
+                )
+            )
+    return window, total
 
 
 def _bounded_mine(
@@ -169,8 +234,11 @@ def smoke(
         raise SmokeError("Showdown checkout differs from pinned mechanics authority")
 
     started = time.monotonic()
-    full_fixture_set = load_corpus(corpus)
-    chosen = full_fixture_set[:fixture_limit]
+    chosen, total_count = _load_fixture_window(
+        corpus,
+        limit=fixture_limit,
+        expected_total=int(binding["state_count"]),
+    )
     if not chosen:
         raise SmokeError("source corpus has no fixtures")
     load_seconds = time.monotonic() - started
@@ -239,7 +307,7 @@ def smoke(
         "scope": {
             "fixture_limit": fixture_limit,
             "fixture_count_checked": len(chosen),
-            "full_source_fixture_count": len(full_fixture_set),
+            "full_source_fixture_count": total_count,
             "generator_rounds": rounds,
             "sampler_key_cap": sample_keys,
             "mechanics_rounds": screen_rounds,

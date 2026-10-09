@@ -25,7 +25,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture_limit: [128, 1024]
+        include:
+          - fixture_limit: 128
+            rounds: 128
+            sample_keys: 2
+            screen_rounds: 64
+          - fixture_limit: 1024
+            rounds: 2048
+            sample_keys: 4
+            screen_rounds: 512
     steps:
       - uses: actions/checkout@v7
         with:
@@ -43,7 +51,9 @@ jobs:
         run: |
           uv run python tools/smoke_posterior_study.py \
             --fixture-limit "${{ matrix.fixture_limit }}" \
-            --rounds 128 --sample-keys 2 --screen-rounds 64 \
+            --rounds "${{ matrix.rounds }}" \
+            --sample-keys "${{ matrix.sample_keys }}" \
+            --screen-rounds "${{ matrix.screen_rounds }}" \
             --output "/tmp/posterior-smoke"
       - uses: actions/upload-artifact@v4
         if: always()

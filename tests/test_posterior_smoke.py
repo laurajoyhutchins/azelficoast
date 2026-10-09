@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from tools.smoke_posterior_study import SmokeError, smoke_limits
+from azelficoast.live.corpus import DecisionFixture, _fixture_id, write_corpus
+
+from tools.smoke_posterior_study import SmokeError, _load_fixture_window, smoke_limits
 
 
 @pytest.mark.parametrize(
@@ -30,7 +34,7 @@ def test_smoke_bounds_fail_closed(
 def test_small_smoke_is_permitted_but_not_a_scientific_cohort() -> None:
     smoke_limits(128, 64, 1, 64)
     source = (
-        __import__("pathlib").Path(__file__).resolve().parents[1]
+        Path(__file__).resolve().parents[1]
         / "tools" / "smoke_posterior_study.py"
     ).read_text(encoding="utf-8")
     assert '"certified": False' in source
@@ -38,3 +42,29 @@ def test_small_smoke_is_permitted_but_not_a_scientific_cohort() -> None:
     assert '"execution_plan_issued": False' in source
     assert "freeze_issue_69_population(" not in source
     assert "compile_execution_plan(" not in source
+
+
+
+def test_window_decodes_only_bounded_authenticated_fixture_records(
+    tmp_path: Path,
+) -> None:
+    fixtures: list[DecisionFixture] = []
+    for n in range(3):
+        state = {"turn": n, "legal_actions": ["/choose move tackle"]}
+        fixture_id = _fixture_id(state, ())
+        fixtures.append(
+            DecisionFixture(
+                fixture_id=fixture_id,
+                state=state,
+                protocol_prefix=(),
+                control_decisions=(),
+            )
+        )
+    corpus = tmp_path / "corpus.jsonl"
+    write_corpus(fixtures, corpus)
+    selected, total = _load_fixture_window(corpus, limit=1, expected_total=3)
+    assert total == 3
+    assert len(selected) == 1
+    assert selected[0].fixture_id in {fixture.fixture_id for fixture in fixtures}
+    with pytest.raises(SmokeError, match="fixture count"):
+        _load_fixture_window(corpus, limit=1, expected_total=2)
