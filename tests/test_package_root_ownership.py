@@ -18,6 +18,31 @@ def test_package_root_contains_no_unowned_modules() -> None:
 RESEARCH_ROOT = PACKAGE_ROOT / "research"
 
 
+ALLOWED_RESEARCH_ROOT_MODULES = {
+    "__init__.py",
+    "adaptive_execution.py",
+    "ci.py",
+    "decision_contracts.py",
+    "evidence.py",
+    "experiment_contracts.py",
+    "matched_contracts.py",
+    "posterior_evidence.py",
+    "posterior_population_contract.py",
+    "posterior_population_selection.py",
+    "public_replays.py",
+    "training_records.py",
+    "training_service.py",
+}
+
+
+def test_research_root_contains_only_shared_infrastructure() -> None:
+    modules = {path.name for path in RESEARCH_ROOT.glob("*.py")}
+    assert modules == ALLOWED_RESEARCH_ROOT_MODULES, (
+        "Move retained scientific studies to azelficoast.research.studies: "
+        + ", ".join(sorted(modules ^ ALLOWED_RESEARCH_ROOT_MODULES))
+    )
+
+
 def test_research_experiments_have_an_explicit_owner() -> None:
     modules = sorted(path.name for path in RESEARCH_ROOT.glob("*_experiment.py"))
     assert not modules, (

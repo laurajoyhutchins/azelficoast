@@ -29,7 +29,7 @@ from azelficoast.belief.improvement import (
 )
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.belief import build_probe_source
-from azelficoast.research.matched_comparison import _sha256 as matched_digest
+from azelficoast.research.studies.matched_comparison import _sha256 as matched_digest
 from azelficoast.research.training_records import (
     DEFAULT_SPLIT_SEED,
     TRAINING_SCHEMA,

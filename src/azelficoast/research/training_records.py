@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     PACKET_SCHEMA,
     PACKET_SCHEMA_VERSION,
     MatchedComparisonError,
