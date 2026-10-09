@@ -7,6 +7,7 @@ manifest, change scientific selection, or alter the authoritative hosted miner.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import subprocess
@@ -50,7 +51,7 @@ def _discover_sampler_requests(
     showdown_root: Path,
     rounds: int,
     offset: int,
-    count: int,
+    count: int | None,
 ) -> list[dict[str, Any]]:
     """Discover the same public-precondition sampler inputs without generating worlds."""
     original = natural_disagreements._sample_worlds
@@ -69,8 +70,10 @@ def _discover_sampler_requests(
         )
     finally:
         natural_disagreements._sample_worlds = original
-    requests = list(unique.values())[offset : offset + count]
-    if len(requests) != count:
+    requests = list(unique.values())[
+        offset : None if count is None else offset + count
+    ]
+    if count is not None and len(requests) != count:
         raise ParallelParityError(
             f"expected {count} unique diagnostic keys at offset {offset}; "
             f"found {len(requests)}"
@@ -170,23 +173,155 @@ def run_parity(
     }
 
 
+def _digest_document(value: object) -> str:
+    canonical = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def verify_complete_document(
+    reference: Mapping[str, Any], accelerated: Mapping[str, Any]
+) -> str:
+    expected = _digest_document(reference)
+    actual = _digest_document(accelerated)
+    if actual != expected:
+        raise ParallelParityError("parallel candidate/exclusion document differs from serial reference")
+    return expected
+
+
+def run_document_parity(
+    *,
+    source_root: Path,
+    showdown_root: Path,
+    workers: int,
+) -> dict[str, Any]:
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 8:
+        raise ParallelParityError("worker count must be in 1..8")
+
+    limit, rounds, _, _, _ = SMOKE_PROFILES["mid-seed-2"]
+    contract = _load_object(CONTRACT_PATH)
+    corpus, metadata = _source_files(source_root, contract)
+    binding = _source_binding(contract, _load_object(metadata), corpus)
+    checkout = subprocess.run(
+        ("git", "-C", str(showdown_root), "rev-parse", "HEAD"),
+        check=True, capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+    if checkout != PINNED_SHOWDOWN_COMMIT:
+        raise ParallelParityError("Showdown revision mismatch for complete-miner parity")
+    fixtures, _ = _load_fixture_window(
+        corpus, limit=limit, expected_total=int(binding["state_count"])
+    )
+
+    started = time.monotonic()
+    serial = natural_disagreements.mine_candidates(
+        fixtures, showdown_root=showdown_root, rounds=rounds
+    )
+    serial_seconds = time.monotonic() - started
+
+    begun = time.monotonic()
+    requests = _discover_sampler_requests(
+        fixtures, showdown_root=showdown_root, rounds=rounds,
+        offset=0, count=None,
+    )
+    discovered_seconds = time.monotonic() - begun
+    if not requests:
+        raise ParallelParityError("bounded source yielded no sampler requests")
+
+    original = natural_disagreements._sample_worlds
+
+    def sample(request: Mapping[str, Any]) -> dict[str, Any] | Exception:
+        try:
+            result = original(**request)
+        except natural_disagreements.UnsupportedWorldSample as error:
+            return error
+        if result.get("showdown_commit") != checkout:
+            raise ParallelParityError("parallel sampler returned a non-pinned revision")
+        return result
+
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        outputs = list(pool.map(sample, requests))
+    acquired_seconds = time.monotonic() - started
+    if len(outputs) != len(requests):
+        raise ParallelParityError("parallel source keys were not settled completely")
+    results = {_key(request): output for request, output in zip(requests, outputs, strict=True)}
+
+    def replay(**kwargs: Any) -> dict[str, Any]:
+        key = _key(kwargs)
+        if key not in results:
+            raise ParallelParityError("candidate miner requested an unprefetched public key")
+        outcome = results[key]
+        if isinstance(outcome, Exception):
+            raise natural_disagreements.UnsupportedWorldSample(str(outcome))
+        return copy.deepcopy(outcome)
+
+    started = time.monotonic()
+    try:
+        natural_disagreements._sample_worlds = replay
+        accelerated = natural_disagreements.mine_candidates(
+            fixtures, showdown_root=showdown_root, rounds=rounds
+        )
+    finally:
+        natural_disagreements._sample_worlds = original
+    replay_seconds = time.monotonic() - started
+
+    digest = verify_complete_document(serial, accelerated)
+    return {
+        "schema": "azelficoast.posterior-miner-parity-smoke/v1",
+        "certified": False,
+        "scientific_population_admitted": False,
+        "execution_plan_issued": False,
+        "parity": True,
+        "source_digest": binding["digest"],
+        "showdown_commit": checkout,
+        "fixture_limit": limit,
+        "generator_rounds": rounds,
+        "unique_queries": len(requests),
+        "worker_count": workers,
+        "complete_document_sha256": digest,
+        "candidate_count": serial["candidate_count"],
+        "exclusion_count": len(serial["excluded_fixtures"]),
+        "timing_seconds": {
+            "serial_miner": round(serial_seconds, 3),
+            "parallel_discovery": round(discovered_seconds, 3),
+            "parallel_acquisition": round(acquired_seconds, 3),
+            "parallel_replay": round(replay_seconds, 3),
+            "parallel_total": round(discovered_seconds + acquired_seconds + replay_seconds, 3),
+            "speedup": round(serial_seconds / (discovered_seconds + acquired_seconds + replay_seconds), 3),
+        },
+    }
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--compare-miner", action="store_true")
     parser.add_argument("--source-root", type=Path, default=Path("/tmp/posterior-smoke-source"))
     parser.add_argument("--showdown-root", type=Path, default=Path("/tmp/pokemon-showdown"))
     parser.add_argument("--output", type=Path, default=Path("/tmp/posterior-smoke/parallel-parity.json"))
     args = parser.parse_args(argv)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     try:
-        record = run_parity(
-            source_root=args.source_root,
-            showdown_root=args.showdown_root,
-            workers=4,
-        )
+        if args.compare_miner:
+            record = run_document_parity(
+                source_root=args.source_root,
+                showdown_root=args.showdown_root,
+                workers=4,
+            )
+        else:
+            record = run_parity(
+                source_root=args.source_root,
+                showdown_root=args.showdown_root,
+                workers=4,
+            )
         code = 0
     except Exception as error:
         record = {
-            "schema": "azelficoast.posterior-generator-parity-smoke/v1",
+            "schema": (
+                "azelficoast.posterior-miner-parity-smoke/v1"
+                if args.compare_miner
+                else "azelficoast.posterior-generator-parity-smoke/v1"
+            ),
             "certified": False,
             "scientific_population_admitted": False,
             "execution_plan_issued": False,

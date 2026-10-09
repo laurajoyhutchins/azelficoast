@@ -56,6 +56,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: uv run python tools/parity_world_sampler.py
+      - name: Compare complete serial and parallel candidate-miner receipts
+        if: matrix.profile == 'mid-seed-2'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uv run python tools/parity_world_sampler.py \
+            --compare-miner \
+            --output /tmp/posterior-smoke/miner-parity.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
