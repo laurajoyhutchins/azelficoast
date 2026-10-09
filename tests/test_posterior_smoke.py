@@ -72,3 +72,11 @@ def test_window_decodes_only_bounded_authenticated_fixture_records(
     assert selected[0].fixture_id in {fixture.fixture_id for fixture in fixtures}
     with pytest.raises(SmokeError, match="fixture count"):
         _load_fixture_window(corpus, limit=1, expected_total=2)
+
+
+def test_smoke_key_offset_is_explicit_and_bounded() -> None:
+    smoke_limits(1024, 2048, 16, 512, 64)
+    with pytest.raises(SmokeError, match="key_offset"):
+        smoke_limits(1024, 2048, 16, 512, -1)
+    with pytest.raises(SmokeError, match="key_offset"):
+        smoke_limits(1024, 2048, 16, 512, 4097)

@@ -30,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [quick, full-seed]
+        profile: [quick, full-seed, mid-seed-1, mid-seed-2, mid-seed-3, late-seed]
     steps:
       - uses: actions/checkout@v7
         with:

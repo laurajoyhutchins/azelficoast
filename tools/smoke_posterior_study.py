@@ -33,8 +33,12 @@ CONTRACT_PATH = (
 
 
 SMOKE_PROFILES = {
-    "quick": (128, 128, 2, 64),
-    "full-seed": (1024, 2048, 16, 512),
+    "quick": (128, 128, 2, 64, 0),
+    "full-seed": (1024, 2048, 16, 512, 0),
+    "mid-seed-1": (1024, 2048, 16, 512, 16),
+    "mid-seed-2": (1024, 2048, 16, 512, 32),
+    "mid-seed-3": (1024, 2048, 16, 512, 48),
+    "late-seed": (1024, 2048, 16, 512, 64),
 }
 
 
@@ -42,7 +46,10 @@ class SmokeError(RuntimeError):
     """A diagnostic boundary was not exercised or its authority is invalid."""
 
 
-def smoke_limits(fixtures: int, rounds: int, sample_keys: int, screen_rounds: int) -> None:
+def smoke_limits(
+    fixtures: int, rounds: int, sample_keys: int, screen_rounds: int,
+    key_offset: int = 0,
+) -> None:
     for label, value, maximum in (
         ("fixtures", fixtures, 4096),
         ("rounds", rounds, 2048),
@@ -51,6 +58,8 @@ def smoke_limits(fixtures: int, rounds: int, sample_keys: int, screen_rounds: in
     ):
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
             raise SmokeError(f"{label} must be within 1..{maximum}")
+    if isinstance(key_offset, bool) or not isinstance(key_offset, int) or not 0 <= key_offset <= 4096:
+        raise SmokeError("key_offset must be within 0..4096")
 
 
 def _load_object(path: Path) -> dict[str, Any]:
@@ -150,10 +159,12 @@ def _bounded_mine(
     *,
     rounds: int,
     max_keys: int,
+    key_offset: int,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
     real_sampler = natural_disagreements._sample_worlds
     observations: list[dict[str, Any]] = []
     cached: dict[tuple[object, ...], dict[str, Any] | Exception] = {}
+    prior_keys: set[tuple[object, ...]] = set()
     truncated = 0
 
     def bounded_sampler(**kwargs: Any) -> dict[str, Any]:
@@ -165,6 +176,11 @@ def _bounded_mine(
             kwargs["public_level"],
             kwargs["public_ability"],
         )
+        if key in prior_keys:
+            raise natural_disagreements.UnsupportedWorldSample("smoke-only earlier key")
+        if len(prior_keys) < key_offset:
+            prior_keys.add(key)
+            raise natural_disagreements.UnsupportedWorldSample("smoke-only earlier key")
         previous = cached.get(key)
         if isinstance(previous, Exception):
             raise natural_disagreements.UnsupportedWorldSample(str(previous))
@@ -223,8 +239,9 @@ def smoke(
     rounds: int,
     sample_keys: int,
     screen_rounds: int,
+    key_offset: int,
 ) -> dict[str, Any]:
-    smoke_limits(fixture_limit, rounds, sample_keys, screen_rounds)
+    smoke_limits(fixture_limit, rounds, sample_keys, screen_rounds, key_offset)
     output.mkdir(parents=True, exist_ok=True)
     start = time.monotonic()
     contract = _load_object(CONTRACT_PATH)
@@ -251,7 +268,8 @@ def smoke(
 
     started = time.monotonic()
     candidates, sampler_observations, truncated = _bounded_mine(
-        chosen, showdown_root, rounds=rounds, max_keys=sample_keys
+        chosen, showdown_root, rounds=rounds, max_keys=sample_keys,
+        key_offset=key_offset
     )
     mining_seconds = time.monotonic() - started
     if not sampler_observations:
@@ -316,6 +334,7 @@ def smoke(
             "full_source_fixture_count": total_count,
             "generator_rounds": rounds,
             "sampler_key_cap": sample_keys,
+            "sampler_key_offset": key_offset,
             "mechanics_rounds": screen_rounds,
         },
         "observations": {
@@ -344,7 +363,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--output", type=Path, default=Path("/tmp/posterior-smoke"))
     parser.add_argument("--profile", choices=tuple(SMOKE_PROFILES), default="quick")
     args = parser.parse_args(argv)
-    fixture_limit, rounds, sample_keys, screen_rounds = SMOKE_PROFILES[args.profile]
+    fixture_limit, rounds, sample_keys, screen_rounds, key_offset = SMOKE_PROFILES[args.profile]
     args.output.mkdir(parents=True, exist_ok=True)
     try:
         result = smoke(
@@ -355,6 +374,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             rounds=rounds,
             sample_keys=sample_keys,
             screen_rounds=screen_rounds,
+            key_offset=key_offset,
         )
     except Exception as error:
         result = {
