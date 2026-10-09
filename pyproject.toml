@@ -7,7 +7,7 @@ name = "azelficoast"
 version = "0.1.0"
 description = "Competitive Pokemon battle AI research and evaluation harness"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
   "poke-env==0.16.1",
 ]
@@ -35,7 +35,7 @@ packages = ["src/azelficoast"]
 testpaths = ["tests"]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py312"
 line-length = 100
 
 [tool.uv]
@@ -55,7 +55,7 @@ extend-immutable-calls = [
 "tests/**/*.py" = ["RUF012"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 follow_imports = "silent"
 exclude = [
@@ -74,7 +74,7 @@ files = [
   "src/azelficoast/live",
   "src/azelficoast/belief",
 
-  # Evidence acquisition, verification, and candidate-gate control.
+  # Evidence acquisition, verification, and exact-head candidate certification.
   "src/azelficoast/research/verification",
   "src/azelficoast/research/ci.py",
   "src/azelficoast/research/public_replays.py",
@@ -82,9 +82,14 @@ files = [
   "src/azelficoast/research/training_service.py",
 
   # Research contracts and matched experiment settlement.
-  "src/azelficoast/research/contracts.py",
+  "src/azelficoast/research/decision_contracts.py",
+  "src/azelficoast/research/matched_contracts.py",
   "src/azelficoast/research/matched_comparison.py",
   "src/azelficoast/research/matched_search.py",
+  "src/azelficoast/research/matched_population_run.py",
+  "src/azelficoast/research/posterior_population_contract.py",
+  "src/azelficoast/research/posterior_population_selection.py",
+  "src/azelficoast/research/posterior_evidence.py",
   "src/azelficoast/research/typed_search.py",
   "src/azelficoast/research/population_cohort.py",
 ]

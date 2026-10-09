@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
+import re
 import tomllib
 
 
@@ -16,10 +18,55 @@ def _event_block(source: str, event: str) -> str:
     lines = after.splitlines(keepends=True)
     block: list[str] = []
     for line in lines:
-        if line.startswith("  ") and not line.startswith("    ") and line.rstrip().endswith(":"):
+        if (
+            line.startswith("  ")
+            and not line.startswith("    ")
+            and line.rstrip().endswith(":")
+        ):
             break
         block.append(line)
     return "".join(block)
+
+
+def test_workflow_surface_is_small_and_authority_specific() -> None:
+    assert {path.name for path in WORKFLOWS.glob("*.yml")} == {
+        "ci.yml",
+        "overcenter.yml",
+        "research.yml",
+        "showdown-build-cache.yml",
+        "training.yml",
+    }
+
+
+def test_overcenter_governance_is_not_repository_verification() -> None:
+    ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    governance = (WORKFLOWS / "overcenter.yml").read_text(encoding="utf-8")
+
+    assert "pull_request_target:" not in ci
+    assert "repository_dispatch:" not in ci
+    assert "Overcenter project.advance" not in ci
+    assert "Overcenter broker source proposal" not in ci
+
+    assert "pull_request_target:" in governance
+    assert "repository_dispatch:" in governance
+    assert "Overcenter project.advance" in governance
+    assert "Overcenter broker source proposal" in governance
+
+
+def test_overcenter_initial_event_cannot_invoke_protected_command() -> None:
+    governance = (WORKFLOWS / "overcenter.yml").read_text(encoding="utf-8")
+    pending = governance.split("  overcenter-invocation-pending:\n", 1)
+    assert len(pending) == 2
+    before_command, after_command = pending[1].split("  overcenter-advance:\n", 1)
+    command, _broker = after_command.split("  overcenter-broker:\n", 1)
+
+    assert "github.run_attempt == 1" in before_command
+    assert "github.run_attempt > 1" in command
+    assert "repository_dispatch" in before_command
+    assert "repository_dispatch" in command
+    assert "Explicitly re-run all jobs" in before_command
+    assert "Advance authoritative project" in command
+    assert "project-advance.ts" not in before_command
 
 
 def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
@@ -42,12 +89,13 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "src/azelficoast/belief/showdown_packing.py",
     ]
     required = {
+        "src/azelficoast/research/decision_contracts.py",
+        "src/azelficoast/research/matched_contracts.py",
         "src/azelficoast/research/verification",
         "src/azelficoast/research/ci.py",
         "src/azelficoast/research/public_replays.py",
         "src/azelficoast/research/training_records.py",
         "src/azelficoast/research/training_service.py",
-        "src/azelficoast/research/contracts.py",
         "src/azelficoast/research/matched_comparison.py",
         "src/azelficoast/research/matched_search.py",
         "src/azelficoast/research/typed_search.py",
@@ -66,8 +114,7 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "tests/**/*.py": ["RUF012"]
     }
 
-
-def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> None:
+def test_pr_ci_cancels_superseded_heads() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     pull_request = _event_block(source, "pull_request")
 
@@ -77,50 +124,75 @@ def test_pr_ci_cancels_superseded_heads_and_observes_candidate_transition() -> N
     assert "cancel-in-progress: true" in source
 
 
-def test_ci_checks_entire_javascript_script_frontier() -> None:
+def test_ci_delegates_verification_semantics_to_repository_code() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    verifier = (ROOT / "tools" / "check.py").read_text(encoding="utf-8")
 
-    assert "npm run lint:scripts" in source
-    assert "npm run typecheck:scripts" in source
-    assert "find scripts -type f -name '*.cjs' -print0" in source
-    assert 'node --check "$script"' in source
+    assert "run: python tools/check.py static" in source
+    assert "run: python tools/check.py test" in source
+    for command in (
+        "npm run lint:showdown",
+        "npm run typecheck:showdown",
+        "uv run mypy",
+        "uv run ruff check .",
+        "uv run pytest",
+    ):
+        assert command not in source
+
+    assert '["uv", "run", "mypy"]' in verifier
+    assert '["npm", "run", "lint:showdown"]' in verifier
+    assert '["npm", "run", "typecheck:showdown"]' in verifier
+    assert '.rglob("*.cjs")' in verifier
+    assert '["node", "--check", str(script)]' in verifier
 
     # Script admission is directory-derived, not a hand-maintained trusted allowlist.
-    assert "node --check scripts/probe_real_belief_trace.cjs" not in source
-    assert "node --check scripts/probe_real_belief_worker.cjs" not in source
-    assert "node --check scripts/transition_successor_delta.cjs" not in source
+    assert "probe_real_belief_trace.cjs" not in verifier
+    assert "probe_real_belief_worker.cjs" not in verifier
+    assert "transition_successor_delta.cjs" not in verifier
+
+def test_research_workflow_is_exact_head_fenced_and_manually_runnable() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    pull_request = _event_block(source, "pull_request")
+
+    assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
+    assert "  workflow_dispatch:\n" in source
+    assert "github.event.pull_request.draft == false" in source
+    assert "github.event.pull_request.head.sha || github.sha" in source
+    assert "group: research-${{ github.event.pull_request.number || github.ref }}" in source
+    assert "cancel-in-progress: true" in source
 
 
-def test_expensive_pr_workflows_are_exact_head_fenced() -> None:
-    checked: list[str] = []
+def test_research_operator_dispatch_is_push_driven_and_exact_head_fenced() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    push = _event_block(source, "push")
+    operator = source[source.index("  operator-dispatch:\n") : source.index("  candidate-plan:\n")]
+    candidate = source[source.index("  candidate-plan:\n") : source.index("  accelerator-static:\n")]
 
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        if path.name == "ci.yml":
-            continue
+    assert "'operator/research-dispatch'" in push
+    assert "github.ref_name == 'operator/research-dispatch'" in operator
+    assert "actions: write" in operator
+    assert "pull-requests: read" in operator
+    assert '".github/research-dispatch.json"' in operator
+    assert 'echo "no research dispatch request"' in operator
+    assert 'test "$actual_ref" = "$ref"' in operator
+    assert 'test "$actual_sha" = "$expected_sha"' in operator
+    assert "actions/workflows/research.yml/dispatches" in operator
+    assert "{ref: $ref, inputs: {study: $study, candidate: $candidate}}" in operator
+    assert "startsWith(github.ref_name, 'overcenter/candidate/')" in candidate
 
-        source = path.read_text(encoding="utf-8")
-        if "  pull_request:\n" not in source:
-            continue
 
-        pull_request = _event_block(source, "pull_request")
-        if path.name == "candidate-research.yml":
-            assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
-            assert "github.event.pull_request.draft == false" in source
-            assert "github.event.pull_request.head.sha || github.sha" in source
-        else:
-            assert "types: [ready_for_review]" in pull_request, (
-                f"{path.name} must remain candidate-only until migrated"
-            )
-        assert "  workflow_dispatch:\n" in source, (
-            f"{path.name} must retain an explicit manual evidence path"
-        )
-        assert "${{ github.event.pull_request.number || github.ref }}" in source, (
-            f"{path.name} must key concurrency by PR when available"
-        )
-        assert "cancel-in-progress: true" in source
-        checked.append(path.name)
+def test_hosted_research_follows_every_ready_pr_head() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    pull_request = _event_block(source, "pull_request")
+    hosted = source[source.index("  hosted-plan:\n") : source.index("  hosted-run:\n")]
 
-    assert checked, "expected at least one research workflow"
+    assert "types: [opened, synchronize, reopened, ready_for_review]" in pull_request
+    assert "github.event_name == 'workflow_dispatch' ||" in hosted
+    assert (
+        "(github.event_name == 'pull_request' &&\n"
+        "       github.event.pull_request.draft == false)"
+    ) in hosted
+    assert "github.event.action == 'ready_for_review'" not in hosted
 
 
 def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
@@ -129,22 +201,21 @@ def test_shared_python_environment_owns_locked_dependency_resolution() -> None:
     ).read_text(encoding="utf-8")
 
     assert "uses: actions/setup-python@v7" in source
-    assert 'python-version:' in source
-    assert 'default: "3.13"' in source
-    assert 'python-version: "${{ inputs.python-version }}"' in source
+    assert 'python-version-file: ".python-version"' in source
+    assert "inputs.python-version" not in source
     assert "python -m pip install uv==0.12.18" in source
     assert "uv sync --locked" in source
     assert "uv sync --locked --extra simulator" in source
 
-
 def test_base_static_analysis_runs_in_declared_python_version() -> None:
     source = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    verifier = (ROOT / "tools" / "check.py").read_text(encoding="utf-8")
 
     static = source[source.index("  static:\n") : source.index("  test:\n")]
     assert "uses: ./.github/actions/setup-python-environment" in static
-    assert 'python-version: "3.11"' in static
-    assert "run: uv run mypy" in static
-
+    assert "python-version:" not in static
+    assert "run: python tools/check.py static" in static
+    assert '["uv", "run", "mypy"]' in verifier
 
 def test_uv_managed_workflows_use_shared_python_environment() -> None:
     checked: list[str] = []
@@ -165,6 +236,9 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
             assert '- ".github/actions/setup-python-environment/action.yml"' in source, (
                 f"{path.name} must rerun when shared Python setup changes"
             )
+            assert '- ".python-version"' in source, (
+                f"{path.name} must rerun when repository Python changes"
+            )
 
         if '- "pyproject.toml"' in source:
             assert '- "uv.lock"' in source, (
@@ -174,52 +248,41 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
 
         checked.append(path.name)
 
-    assert checked, "expected at least one uv-managed workflow"
+    assert checked == ["research.yml", "training.yml"]
+
+def test_evidence_setup_runs_after_python_environment() -> None:
+    for workflow in ("ci.yml", "research.yml"):
+        source = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+        if "uses: ./.github/actions/setup-research-evidence" not in source:
+            continue
+        assert source.index("uses: ./.github/actions/setup-python-environment") < source.index(
+            "uses: ./.github/actions/setup-research-evidence"
+        )
 
 
 def test_training_workflow_observes_replay_bridge_changes() -> None:
     source = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
+    assert '- "showdown/verification/replay_inputlog_to_streams.cjs"' in source
 
-    assert '- "scripts/replay_inputlog_to_streams.cjs"' in source
 
-
-def test_repository_evidence_replaces_historical_artifact_runtime_dependencies() -> None:
+def test_repository_evidence_admission_is_owned_by_python() -> None:
     manifest = ROOT / "experiments" / "evidence" / "canonical-evidence.json"
     bundle = ROOT / "experiments" / "evidence" / "canonical-evidence.tar.gz"
     action = ROOT / ".github" / "actions" / "setup-research-evidence" / "action.yml"
+    authority = ROOT / "src" / "azelficoast" / "research" / "evidence.py"
 
     assert manifest.is_file()
     assert bundle.is_file()
-    assert action.is_file()
-
-    action_source = action.read_text(encoding="utf-8")
-    assert "canonical-evidence.json" in action_source
-    assert "canonical-evidence.tar.gz" in action_source
-    assert "sha256sum" in action_source
-    assert "tar -xzf" in action_source
-
-    for path in sorted(WORKFLOWS.glob("*.yml")):
-        source = path.read_text(encoding="utf-8")
-        assert "actions/artifacts/" not in source, (
-            f"{path.name} must not depend on historical Actions artifacts"
-        )
-        assert "restore-exact-artifact" not in source, (
-            f"{path.name} must consume repository evidence instead of artifact restoration"
-        )
-
-
-def test_population_workflow_starts_from_canonical_frozen_cohort() -> None:
-    source = (WORKFLOWS / "natural-population-strategy-fusion.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "freeze-cohort:" not in source
-    assert "setup-research-evidence" in source
-    assert "/tmp/azelficoast-evidence/population/manifest.json" in source
+    assert authority.is_file()
+    source = action.read_text(encoding="utf-8")
+    assert "uv run python -m azelficoast.research.evidence unpack" in source
+    assert "sha256sum" not in source
+    assert "tar -xzf" not in source
 
 
 def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
     source = (
-        ROOT / "experiments" / "natural-population-strategy-fusion-plan.json"
+        ROOT / "experiments" / "data" / "natural-population-strategy-fusion-plan.json"
     ).read_text(encoding="utf-8")
     assert '"superseded_cohort"' not in source
     assert '"superseded_cohort_after_forme_bug"' not in source
@@ -227,72 +290,168 @@ def test_active_population_plan_contains_no_superseded_cohort_history() -> None:
     assert '"canonical_cohort"' in source
 
 
-def test_completed_discovery_workflows_are_not_executable_ci() -> None:
-    obsolete = {
-        "public-belief-feasibility-search.yml",
-        "natural-disagreement-experiment.yml",
-        "real-belief-candidate-corpus.yml",
-        "natural-public-belief-exact.yml",
-        "natural-public-belief-robustness.yml",
-        "simulator-adaptive-execution-experiment.yml",
-        "simulator-attack-transition-experiment.yml",
-        "simulator-class-native-belief-experiment.yml",
-        "simulator-gen9-damage-experiment.yml",
-        "simulator-jax-experiment.yml",
-        "simulator-native-damage-experiment.yml",
-        "simulator-ordered-attack-experiment.yml",
-        "simulator-showdown-experiment.yml",
-        "simulator-two-attack-turn-experiment.yml",
-        "stateful-protect-turn-experiment.yml",
-        "switch-entry-hazard-experiment.yml",
-        "switch-intimidate-experiment.yml",
-        "voluntary-switch-turn-experiment.yml",
-    }
-    present = {path.name for path in WORKFLOWS.glob("*.yml")}
-    assert obsolete.isdisjoint(present), sorted(obsolete & present)
+def test_research_semantics_do_not_live_in_workflow_yaml() -> None:
+    forbidden_fragments = (
+        "python - <<",
+        "node - <<",
+        "assert ",
+        "--target-particles",
+        "--minimum-particles",
+        "--max-rounds",
+        "--battles ",
+        "--rounds ",
+        "AZELFICOAST_ROOT_CHANCE_SAMPLES",
+        "AZELFICOAST_CONTINUATION_CHANCE_SAMPLES",
+        "AZELFICOAST_CHANCE_SEED_FAMILY",
+        "AZELFICOAST_CONTINUATION_DECISION_HORIZONS",
+    )
+    digest = re.compile(r"(?<![0-9a-f])[0-9a-f]{40,64}(?![0-9a-f])")
 
-
-def test_canonical_evidence_consumers_observe_evidence_changes() -> None:
     for path in sorted(WORKFLOWS.glob("*.yml")):
         source = path.read_text(encoding="utf-8")
-        if "uses: ./.github/actions/setup-research-evidence" not in source:
-            continue
-        if path.name == "ci.yml":
-            continue
-
-        assert '- ".github/actions/setup-research-evidence/action.yml"' in source, (
-            f"{path.name} must observe canonical evidence setup changes"
-        )
-        assert '- "experiments/evidence/canonical-evidence.json"' in source, (
-            f"{path.name} must observe canonical evidence manifest changes"
-        )
-        assert '- "experiments/evidence/canonical-evidence.tar.gz"' in source, (
-            f"{path.name} must observe canonical evidence bundle changes"
+        for fragment in forbidden_fragments:
+            assert fragment not in source, (
+                f"{path.name} encodes research semantics via {fragment!r}"
+            )
+        assert digest.search(source) is None, (
+            f"{path.name} must not own fixture, evidence, or revision digests"
         )
 
 
-def test_status_move_workflow_uses_only_canonical_source() -> None:
-    source = (WORKFLOWS / "natural-status-move-public-belief.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "/tmp/azelficoast-evidence/status-source.json" in source
-    assert "/tmp/status-source.json" not in source
-    assert "/tmp/status-source-summary.json" not in source
+def test_research_workflow_calls_only_generic_research_entrypoints() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+
+    assert "azelficoast.research.ci plan" in source
+    assert "azelficoast.research.ci run" in source
+    assert "azelficoast.research.ci certify" in source
+    assert "azelficoast.research.hosted plan" in source
+    assert "azelficoast.research.hosted prepare-run" in source
+    assert "azelficoast.research.hosted run-unit" in source
+    assert "azelficoast.research.hosted prepare-aggregate" in source
+    assert "azelficoast.research.hosted aggregate" in source
+
+    for operation in (
+        "natural-depth-shard",
+        "natural-population-shard",
+        "public-belief-exact",
+        "conditional-team-prior",
+        "protect-action-survival",
+    ):
+        assert f"azelficoast.research.hosted {operation}" not in source
+
+
+def test_hosted_aggregates_are_not_blocked_by_unrelated_matrix_failure() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    aggregate = source[source.index("  hosted-aggregate:\n") :]
+
+    assert "needs.hosted-run.result != 'cancelled'" in aggregate
+    assert "needs.hosted-run.result == 'success'" not in aggregate
+    assert "pattern: ${{ matrix.download_pattern }}" in aggregate
+    assert "if-no-files-found: ${{ matrix.if_no_files }}" in aggregate
 
 
 def test_candidate_research_emits_one_exact_head_certificate() -> None:
-    source = (WORKFLOWS / "candidate-research.yml").read_text(encoding="utf-8")
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
 
-    assert "\n  certify:\n" in source
-    assert "needs: [plan, exact, accelerator-static]" in source
-    assert "if: always() && needs.plan.result == 'success'" in source
-    assert 'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}' in source
-    assert 'if [[ "${ACCELERATOR_STATIC_RESULT}" != "success" ]]' in source
-    assert '"schema": "azelficoast.candidate-research-certificate"' in source
-    assert '"git_sha": os.environ["HEAD_SHA"]' in source
+    assert "\n  candidate-certify:\n" in source
+    assert "needs: [candidate-plan, candidate-exact, accelerator-static]" in source
+    assert "if: always() && needs.candidate-plan.result == 'success'" in source
+    assert (
+        'ACCELERATOR_STATIC_RESULT: ${{ needs.accelerator-static.result }}'
+        in source
+    )
+    assert "uv run python -m azelficoast.research.ci certify" in source
     assert "name: candidate-research-certificate" in source
     assert "Type check accelerator frontier" in source
+    assert "python - <<'PY'" not in source
     assert "src/azelficoast/core/compiled_search.py" in source
     assert "src/azelficoast/belief/showdown_packing.py" in source
     assert "src/azelficoast/belief/packed_evaluator.py" in source
     assert "src/azelficoast/belief/compiled_search.py" in source
+
+
+def test_candidate_specs_are_repository_data_not_runner_code() -> None:
+    runner = (ROOT / "src" / "azelficoast" / "research" / "ci.py").read_text(
+        encoding="utf-8"
+    )
+    loader = (
+        ROOT / "src" / "azelficoast" / "research" / "experiment_contracts.py"
+    ).read_text(encoding="utf-8")
+    contract = json.loads(
+        (ROOT / "experiments" / "contracts" / "candidate.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert "Check(" not in runner
+    assert "paths=(" not in runner
+    assert "_spec(" not in loader
+    assert "adaptive-execution-experiment.json" not in loader
+    assert contract["schema"] == "azelficoast.candidate-research-contracts"
+    assert len(contract["experiments"]) == 17
+    assert '"experiments/contracts/candidate.json"' in loader
+    assert '".github/workflows/research.yml"' in loader
+    assert "candidate-research.yml" not in loader
+
+
+def test_showdown_revision_is_declared_once_in_repository_contract() -> None:
+    action = (
+        ROOT / ".github" / "actions" / "setup-showdown" / "action.yml"
+    ).read_text(encoding="utf-8")
+    document = json.loads(
+        (ROOT / "showdown" / "revision.json").read_text(encoding="utf-8")
+    )
+    revision = document["commit"]
+    runner = (
+        ROOT / "src" / "azelficoast" / "research" / "ci.py"
+    ).read_text(encoding="utf-8")
+    probe = (
+        ROOT / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
+    ).read_text(encoding="utf-8")
+
+    assert document["schema"] == "azelficoast.showdown-revision"
+    assert document["schema_version"] == 1
+    assert re.fullmatch(r"[0-9a-f]{40}", revision)
+    assert "require('./showdown/revision.json').commit" in action
+    assert "azelficoast.core.showdown" in runner
+    assert "../shared/revision.cjs" in probe
+    assert revision not in action
+    assert revision not in runner
+    assert revision not in probe
+
+def test_showdown_workflow_triggers_observe_revision_contract() -> None:
+    research = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    training = (WORKFLOWS / "training.yml").read_text(encoding="utf-8")
+    cache = (WORKFLOWS / "showdown-build-cache.yml").read_text(encoding="utf-8")
+
+    assert '- "showdown/**"' in research
+    assert '- "showdown/revision.json"' in training
+    assert '- "showdown/revision.json"' in cache
+
+
+def test_oracle_evidence_versions_its_opponent_policy_semantics() -> None:
+    contract = json.loads(
+        (ROOT / "experiments" / "data" / "opponent-policy-semantics.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    script = (ROOT / "showdown" / "runtime" / "probe_real_belief_trace.cjs").read_text(
+        encoding="utf-8"
+    )
+
+    assert contract["schema"] == "azelficoast.opponent-policy-semantics"
+    assert contract["semantics_version"]
+    assert (
+        "opponent_policy_semantics_version: OPPONENT_POLICY_SEMANTICS_VERSION"
+        in script
+    )
+
+
+def test_hosted_preparation_is_generic_transport_not_scientific_authority() -> None:
+    source = (WORKFLOWS / "research.yml").read_text(encoding="utf-8")
+    prepare = source[source.index("  hosted-prepare:\n") : source.index("  hosted-run:\n")]
+
+    assert "fromJson(needs.hosted-plan.outputs.prepare_matrix)" in prepare
+    assert "azelficoast.research.hosted prepare-run" in prepare
+    assert "posterior-stratified-population" not in prepare
+    assert "AZELFICOAST_GENERATOR_ROUNDS" not in prepare

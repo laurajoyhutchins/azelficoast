@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
-import sys
-import types
-
 from azelficoast.research.ci import (
     EXPERIMENTS,
-    ModuleRun,
-    _execute_module,
+    candidate_certificate,
     experiments_for_paths,
     matrix_for,
+    showdown_revision,
 )
 
 
@@ -24,11 +19,17 @@ def test_shared_python_setup_selects_every_collapsed_experiment() -> None:
     }
 
 
-def test_candidate_runner_change_selects_only_its_contract() -> None:
-    assert _names(("src/azelficoast/research/ci.py",)) == {
-        "candidate-research-contract"
-    }
+def test_repository_python_authority_selects_every_collapsed_experiment() -> None:
+    expected = {experiment.name for experiment in EXPERIMENTS}
+    for path in (".python-version", "pyproject.toml", "uv.lock"):
+        assert _names((path,)) == expected
 
+
+
+def test_candidate_runner_change_selects_every_contract() -> None:
+    assert _names(("src/azelficoast/research/ci.py",)) == {
+        experiment.name for experiment in EXPERIMENTS
+    }
 
 def test_showdown_setup_selects_only_showdown_consumers() -> None:
     selected = experiments_for_paths((".github/actions/setup-showdown/action.yml",))
@@ -72,25 +73,33 @@ def test_candidate_experiment_names_and_artifacts_are_unique() -> None:
     assert len(names) == len(set(names))
     assert len(artifacts) == len(set(artifacts))
 
-def test_host_performance_does_not_override_semantic_candidate_certification() -> None:
-    attack = next(
-        experiment for experiment in EXPERIMENTS if experiment.name == "attack-transition"
-    )
 
-    assert attack.allow_nonzero_module_results is True
+def test_contract_checks_own_scientific_admission() -> None:
+    implicit_pass_exceptions = {"attack-transition", "two-attack-turn"}
+
+    for experiment in EXPERIMENTS:
+        for module in experiment.modules:
+            has_explicit_pass_check = any(
+                check.output == module.output
+                and check.path == ("passed",)
+                and check.operator == "eq"
+                and check.expected is True
+                for check in experiment.checks
+            )
+            assert has_explicit_pass_check is (
+                experiment.name not in implicit_pass_exceptions
+            ), experiment.name
+
+    attack = next(
+        experiment for experiment in EXPERIMENTS
+        if experiment.name == "attack-transition"
+    )
     assert any(
         check.path == ("semantic_passed",)
         and check.operator == "eq"
         and check.expected is True
         for check in attack.checks
     )
-    assert {
-        experiment.name
-        for experiment in EXPERIMENTS
-        if experiment.allow_nonzero_module_results
-    } == {"attack-transition", "two-attack-turn"}
-
-
 
 def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
     selected = experiments_for_paths(
@@ -103,44 +112,64 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
     assert selected[0].showdown is False
 
 
-ROOT = Path(__file__).resolve().parents[1]
+def test_contract_registry_change_selects_every_contract() -> None:
+    expected = {experiment.name for experiment in EXPERIMENTS}
+    assert _names(("src/azelficoast/research/experiment_contracts.py",)) == expected
+    assert _names(("experiments/contracts/candidate.json",)) == expected
 
 
-def test_candidate_experiments_delegate_execution_to_registry() -> None:
-    modules = [
-        module
-        for experiment in EXPERIMENTS
-        for module in experiment.modules
-    ]
-    assert modules
-    assert all(module.entrypoint for module in modules)
-    for module in modules:
-        source = (
-            ROOT / "src" / Path(*module.module.split(".")).with_suffix(".py")
-        ).read_text(encoding="utf-8")
-        assert 'if __name__ == "__main__":' not in source
+def test_repository_showdown_revision_selects_only_showdown_consumers() -> None:
+    selected = experiments_for_paths(("showdown/revision.json",))
+    assert selected
+    assert all(experiment.showdown for experiment in selected)
+    assert "jax-simulator" not in {experiment.name for experiment in selected}
 
 
-def test_callable_module_contract_executes_and_serializes(tmp_path, monkeypatch) -> None:
-    path_module = types.ModuleType("azelficoast_test_path_experiment")
-    document_module = types.ModuleType("azelficoast_test_document_experiment")
-    fixture = tmp_path / "fixture.json"
-    fixture.write_text('{"fixture": 7}\n', encoding="utf-8")
-    path_module.run_experiment = lambda path: {"path": path.name, "passed": True}
-    document_module.analyze_document = lambda document: {
-        "fixture": document["fixture"],
-        "passed": False,
+def test_candidate_certificate_is_owned_by_python_and_fails_closed() -> None:
+    matrix = {
+        "include": [
+            {
+                "experiment": "contract",
+                "artifact_name": "contract-evidence",
+            }
+        ]
     }
-    monkeypatch.setitem(sys.modules, path_module.__name__, path_module)
-    monkeypatch.setitem(sys.modules, document_module.__name__, document_module)
+    certificate = candidate_certificate(
+        head_sha="a" * 40,
+        matrix=matrix,
+        selected_count=1,
+        exact_result="success",
+        accelerator_static_result="success",
+    )
+    assert certificate == {
+        "schema": "azelficoast.candidate-research-certificate",
+        "git_sha": "a" * 40,
+        "selected_experiments": ["contract"],
+        "passed": True,
+    }
 
-    assert _execute_module(
-        ModuleRun(path_module.__name__, "path.json", fixture.name, "run_experiment"),
-        tmp_path,
-    ) == 0
-    assert _execute_module(
-        ModuleRun(document_module.__name__, "document.json", fixture.name, "analyze_document"),
-        tmp_path,
-    ) == 1
-    assert json.loads((tmp_path / "path.json").read_text())["path"] == fixture.name
-    assert json.loads((tmp_path / "document.json").read_text())["fixture"] == 7
+    for statuses in (
+        ("failure", "success"),
+        ("success", "failure"),
+        ("success", "skipped"),
+    ):
+        try:
+            candidate_certificate(
+                head_sha="a" * 40,
+                matrix=matrix,
+                selected_count=1,
+                exact_result=statuses[0],
+                accelerator_static_result=statuses[1],
+            )
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError(
+                f"accepted failed certificate statuses: {statuses}"
+            )
+
+
+def test_showdown_revision_reads_repository_contract() -> None:
+    revision = showdown_revision()
+    assert len(revision) == 40
+    assert all(character in "0123456789abcdef" for character in revision)

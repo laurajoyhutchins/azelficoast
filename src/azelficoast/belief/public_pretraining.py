@@ -154,7 +154,8 @@ class PinnedShowdownPublicPosteriorSource:
         source = {**source, "showdown_commit": self.showdown_commit}
         script = (
             Path(__file__).resolve().parents[3]
-            / "scripts"
+            / "showdown"
+            / "runtime"
             / "probe_real_belief_trace.cjs"
         )
         try:

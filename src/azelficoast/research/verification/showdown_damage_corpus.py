@@ -7,9 +7,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.mechanics.gen9_damage import MOD_ONE, DamageContext, damage
 
-PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
 
 
 class ShowdownDamageCorpusError(ValueError):

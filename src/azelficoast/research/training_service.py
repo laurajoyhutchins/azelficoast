@@ -232,13 +232,38 @@ def run_training_iteration(
         )
 
     identity = _current_identity(promotion) if promotion.is_file() else None
-    status = (
-        "trained"
-        if automatic is not None
-        else "bootstrap-promoted"
-        if identity is not None
-        else "bootstrap-not-ready"
-    )
+    if automatic is not None:
+        generations = automatic.get("generations")
+        count = automatic.get("generation_count")
+        if (
+            not isinstance(generations, list)
+            or isinstance(count, bool)
+            or not isinstance(count, int)
+            or count != len(generations)
+            or count != AUTO_GENERATIONS
+        ):
+            raise HostedTrainingError("automatic run lacks complete generation receipts")
+        if any(not isinstance(item, Mapping) for item in generations):
+            raise HostedTrainingError("automatic generation receipt must be an object")
+        generation = generations[-1]
+        cycle_status = generation.get("cycle_status")
+        if cycle_status not in {"not-ready", "candidate-admitted", "promoted", "rejected"}:
+            raise HostedTrainingError("automatic generation has unknown cycle status")
+        if cycle_status == "candidate-admitted":
+            status = (
+                "generation-promoted"
+                if isinstance(generation.get("promoted_checkpoint_digest"), str)
+                and generation["promoted_checkpoint_digest"]
+                else "candidate-admitted"
+            )
+        else:
+            status = {
+                "not-ready": "generation-not-ready",
+                "promoted": "generation-promoted",
+                "rejected": "candidate-rejected",
+            }[cycle_status]
+    else:
+        status = "bootstrap-promoted" if identity is not None else "bootstrap-not-ready"
     policy = {
         "bootstrap_page_battles": BOOTSTRAP_PAGE_BATTLES,
         "bootstrap_max_pages": BOOTSTRAP_MAX_PAGES,

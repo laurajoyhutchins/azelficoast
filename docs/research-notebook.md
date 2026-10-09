@@ -1,6 +1,6 @@
 # Research notebook
 
-This document preserves the experiment-by-experiment narrative that originally accumulated in Azelficoast's README.
+This document preserves the experiment-by-experiment narrative that originally accumulated in Azelficoast's README. For the shorter, current design story, start with [`experiments/README.md`](../experiments/README.md); this notebook is the detailed historical record behind that curated sequence.
 
 It is a **historical notebook**, captured from repository state `f9dc0b28da32d2dfd2242e3bfcdf40b8aaeca352`. Statements such as “next rung,” current limitations, and performance measurements describe the project at the point each note was written; they are not the current roadmap or capability contract.
 
@@ -461,3 +461,8 @@ This remains bounded evidence rather than a competitive-play claim. The opponent
 fixed to the observed locked move, the continuation horizon is one further decision, utility is
 material-only, and hidden support is an empirical Showdown-generator support rather than a full
 analytical posterior.
+
+The observed-locked-move response is an explicit instance of transition-oracle opponent-policy
+semantics version 1 (`experiments/data/opponent-policy-semantics.json`), not the general search-time
+bounded response described in `docs/search-architecture.md`. New oracle outputs record the
+semantics version and normalized policy alongside their mechanics metadata.

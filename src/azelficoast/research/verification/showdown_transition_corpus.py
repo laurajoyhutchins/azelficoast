@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.mechanics.simulator_ir import (
     ITEM_CHOICE_SCARF,
     ITEM_CHOICE_SPECS,
@@ -20,7 +21,6 @@ from azelficoast.research.mechanics.simulator_ir import (
     field_mask,
 )
 
-PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
 
 ITEM_CODES = {
     "Choice Scarf": ITEM_CHOICE_SCARF,

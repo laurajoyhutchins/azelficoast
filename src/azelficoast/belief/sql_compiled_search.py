@@ -26,10 +26,8 @@ from azelficoast.belief.statistics import (
     PosteriorCorrelationProfile,
     posterior_correlation_profile,
 )
-from azelficoast.core.compiled_search import (
-    compile_search_topology,
-    estimate_search_cardinality_lower_bound,
-)
+from azelficoast.core.compiled_planning import estimate_search_cardinality_lower_bound
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.planning import DEFAULT_DECISION_PLAN, LogicalOperator, LogicalPlan
 from azelficoast.core.statistics import CardinalityEstimate, PlannerStatistics
 from azelficoast.core.sql_transport import describe_information_set_transport

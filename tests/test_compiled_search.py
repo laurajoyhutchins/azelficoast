@@ -6,17 +6,19 @@ from typing import Any, Mapping, Sequence
 
 import pytest
 
-from azelficoast.core.compiled_search import (
+from azelficoast.core.compiled_planning import (
     CardinalityEnvelope,
     JOIN_ORDER_AGGREGATE_FIRST,
     JOIN_ORDER_EXPAND_FIRST,
-    compile_search_topology,
     estimate_search_cardinality_lower_bound,
+)
+from azelficoast.core.compiled_search import (
     materialize_compiled_frontier,
     reduce_compiled_root_values,
     search_transition_program_adaptive,
     search_transition_program_compiled,
 )
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.search import search_transition_program
 
 
@@ -161,14 +163,14 @@ def test_compiled_topology_exposes_authorized_world_class_and_observation_incide
         expected_program_schema_version=1,
     )
 
-    assert topology.world_to_class[0][0] == topology.world_to_class[0][1]
-    assert topology.world_to_class[0][2] != topology.world_to_class[0][0]
+    assert topology.classes.world_to_class[0][0] == topology.classes.world_to_class[0][1]
+    assert topology.classes.world_to_class[0][2] != topology.classes.world_to_class[0][0]
     assert len(topology.observation_keys) == 3
     assert topology.class_count == 3
     assert topology.transition_evaluations == 3
     assert topology.edge_count == 8
     assert topology.leaf_count == 3
-    assert set(topology.leaf_action_index) == {0, 1}
+    assert set(topology.leaves.action_index) == {0, 1}
     assert len(topology.topology_digest) == 64
     assert all(character in "0123456789abcdef" for character in topology.topology_digest)
 
@@ -540,8 +542,8 @@ def test_outcome_aggregation_does_not_cross_successor_legal_action_surface() -> 
     assert plan.grouped_outcome_rows == 5
     b_action_index = topology.root_actions.index("B")
     b_leaf_legal = {
-        topology.leaf_legal_actions[index]
-        for index, action_index in enumerate(topology.leaf_action_index)
+        topology.leaves.legal_actions[index]
+        for index, action_index in enumerate(topology.leaves.action_index)
         if action_index == b_action_index
     }
     assert b_leaf_legal == {("continue",)}

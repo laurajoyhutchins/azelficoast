@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass
 from typing import Mapping, Protocol
 
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
     BeliefTransportIndex,
     FrozenJSONObject,

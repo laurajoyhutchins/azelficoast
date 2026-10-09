@@ -1,7 +1,6 @@
 # Package ownership
 
-Azelficoast has five package-level owners. The package root contains only its
-initializer; every implementation file belongs to one of these areas.
+Azelficoast has five Python package-level owners plus one explicit Node-side Showdown boundary. The Python package root contains only its initializer; every Python implementation file belongs to one of these areas.
 
 | Package | Role |
 | --- | --- |
@@ -23,6 +22,8 @@ A source module stays only when a current runtime consumer, independent
 verification claim, or retained experiment uses it. Otherwise it is removed.
 Frozen results and provenance records under `experiments/` remain unchanged;
 moving current source does not rewrite historical evidence.
+
+Node code that directly depends on the pinned Pokémon Showdown checkout lives under `showdown/`, not a generic `scripts/` directory. `showdown/runtime` is the live mechanics bridge, `showdown/verification` produces independent reference evidence, `showdown/research` contains Showdown-backed research utilities, and `showdown/shared` contains cross-cutting serialization/identity helpers. Python callers may depend on those paths only through their owning live or research boundary.
 
 `tests/test_package_root_ownership.py` enforces the package-root boundary so
 new modules must choose an owner before they are added.
