@@ -733,3 +733,27 @@ def test_declared_reads_receives_transition_evidence_explicitly() -> None:
     assert "function declaredReads(action, transitions)" in source
     assert "declaredReads(action, transitions)" in source
     assert "function declaredReads(action)" not in source
+
+def test_live_transition_compiler_preserves_verified_mechanics_contract() -> None:
+    """The causal probe is a heuristic; the runtime artifact must satisfy the
+    existing, fail-closed dynamic-read verifier without accepting a new method.
+    """
+    compiler = (
+        Path(__file__).resolve().parents[1]
+        / "showdown" / "runtime" / "real_belief_probe"
+        / "transition_program_compiler.cjs"
+    ).read_text(encoding="utf-8")
+
+    assert 'partition_method: "dynamic-read-refinement"' in compiler
+    assert 'partition_method: "counterfactual-causal-refinement"' not in compiler
+    assert 'strategy: "counterfactual-causal-refinement"' in compiler
+    assert "const dependencyFields = [...observedFields].sort();" in compiler
+    assert 'field === "opponent.active.tera_type"' in compiler
+    assert "world.variant.teraType = donorWorld.variant.teraType;" in compiler
+    assert "const semanticHash = sha256PythonCanonical(execution.outcomes);" in compiler
+    assert "sha256PythonCanonical(memberExecution.outcomes) !== semanticHash" in compiler
+    assert "class audit discovered an unpartitioned hidden read" in compiler
+    assert "class audit found non-equivalent Showdown outcomes" in compiler
+    assert "read_fields: dependencyFields" in compiler
+    assert "const partitionKeyHash = sha256PythonCanonical({" in compiler
+    assert "const effectSignature = \"sha256:\" + sha256PythonCanonical({" in compiler

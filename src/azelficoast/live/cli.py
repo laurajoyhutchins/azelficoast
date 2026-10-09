@@ -84,6 +84,12 @@ def _add_live_commands(
         default=1,
         help="maximum simultaneous local battles (default: 1)",
     )
+    local.add_argument(
+        "--ping-timeout",
+        type=positive_float,
+        default=20.0,
+        help="Showdown websocket ping timeout in seconds (default: 20)",
+    )
     
     challenge = subparsers.add_parser(
         "challenge",

@@ -251,6 +251,8 @@ function counterfactualWorld(baseWorld, donorWorld, field) {
     world.variant.ability = donorWorld.variant.ability;
   } else if (field === "opponent.active.moves") {
     world.variant.moves = cloneJson(donorWorld.variant.moves);
+  } else if (field === "opponent.active.tera_type") {
+    world.variant.teraType = donorWorld.variant.teraType;
   } else if (field === "opponent.active.evs") {
     world.variant.evs = cloneJson(donorWorld.variant.evs);
   } else if (field === "opponent.active.ivs") {
@@ -710,17 +712,13 @@ function compileLazyWholeTurnPrograms(
       }
     }
 
-    // Causal interventions can miss interactions between fields or boundaries
-    // where a one-unit change alters a sampled whole-turn result. Any varying
-    // field observed by Showdown is therefore retained as a conservative
-    // partition key; causalFields remains the narrower intervention evidence.
-    const varyingObservedFields = [...observedFields].filter((field) => {
-      const values = new Set(
-        orderedWorlds.map((world) => JSON.stringify(stable(world.hidden[field])))
-      );
-      return values.size > 1;
-    });
-    const dependencyFields = [...new Set([...causalFields, ...varyingObservedFields])].sort();
+    // The mechanics verifier requires every instrumented hidden read to be
+    // represented in the partition, including constant reads and probe-discovered
+    // reads. Causal fields remain a narrower diagnostic, not an admission proof.
+    const dependencyFields = [...observedFields].sort();
+    if (dependencyFields.some(field => !DEPENDENCY_CANDIDATES.includes(field))) {
+      fail(`${action}: observed hidden read is outside the dependency vocabulary`);
+    }
     const groups = new Map();
     for (const world of orderedWorlds) {
       const key = JSON.stringify(projectionKey(world, dependencyFields));
@@ -740,28 +738,43 @@ function compileLazyWholeTurnPrograms(
         action,
         "class-representative"
       );
+      // A causal intervention alone cannot certify equivalence. Check every
+      // member against the complete realized Showdown outcome before admitting
+      // a representative class. A newly observed read invalidates the partition.
+      const semanticHash = sha256PythonCanonical(execution.outcomes);
+      for (const member of members) {
+        if (member.world_id === representativeWorld.world_id) continue;
+        const memberExecution = executeWorld(member, action, "class-audit");
+        if (memberExecution.read_fields.some(field => !observedFields.has(field))) {
+          fail(`${action}: class audit discovered an unpartitioned hidden read`);
+        }
+        if (sha256PythonCanonical(memberExecution.outcomes) !== semanticHash) {
+          fail(`${action}: class audit found non-equivalent Showdown outcomes`);
+        }
+      }
+      const projection = projectionKey(representativeWorld, dependencyFields);
       const memberWorldIds = members.map(world => world.world_id).sort();
-      const classId = "transition-class-" + sha256({
+      const classId = "transition-class-" + sha256PythonCanonical({
         action,
-        causal_fields: [...causalFields].sort(),
-        key,
-        semantic_hash: execution.semantic_hash,
+        read_fields: dependencyFields,
+        key: projection,
+        semantic_hash: semanticHash,
       }).slice(0, 24);
       classes.push({
         class_id: classId,
-        read_fields: [...observedFields].sort(),
+        read_fields: dependencyFields,
         causal_fields: [...causalFields].sort(),
-        projection_key: projectionKey(representativeWorld, dependencyFields),
+        projection_key: projection,
         representative_world_id: representativeWorld.world_id,
         member_world_ids: memberWorldIds,
-        semantic_hash: execution.semantic_hash,
+        semantic_hash: semanticHash,
         outcomes: execution.outcomes,
       });
     }
 
-    const partitionKeyHash = sha256({
+    const partitionKeyHash = sha256PythonCanonical({
       action,
-      partition_method: "counterfactual-causal-refinement",
+      partition_method: "dynamic-read-refinement",
       fields: dependencyFields,
       classes: classes.map(row => ({
         class_id: row.class_id,
@@ -769,10 +782,9 @@ function compileLazyWholeTurnPrograms(
         semantic_hash: row.semantic_hash,
       })),
     });
-    const effectSignature = "sha256:" + sha256({
+    const effectSignature = "sha256:" + sha256PythonCanonical({
       showdown_commit: actualCommit,
       source_fixture_id: sourceFixtureId,
-      opponent_policy: OPPONENT_POLICY,
       action,
       dependency_fields: dependencyFields,
       partition_key_hash: partitionKeyHash,
@@ -783,7 +795,7 @@ function compileLazyWholeTurnPrograms(
       effect_signature: effectSignature,
       dependency_fields: dependencyFields,
       observed_read_fields: [...observedFields].sort(),
-      partition_method: "counterfactual-causal-refinement",
+      partition_method: "dynamic-read-refinement",
       representative_world_count: classes.length,
       worlds_in: worlds.length,
       classes_out: classes.length,

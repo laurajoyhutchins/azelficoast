@@ -31,6 +31,11 @@ on:
         required: false
         default: all
         type: string
+      posterior_population_acquisition:
+        description: Generate and validate a fresh issue #69 source corpus only
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -102,12 +107,15 @@ jobs:
 
   candidate-plan:
     if: >-
+      inputs.posterior_population_acquisition != true &&
+      (
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'push' &&
        startsWith(github.ref_name, 'overcenter/candidate/')) ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.draft == false &&
        !startsWith(github.head_ref, 'overcenter/proposal/'))
+      )
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -215,9 +223,12 @@ jobs:
 
   hosted-plan:
     if: >-
+      inputs.posterior_population_acquisition != true &&
+      (
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.draft == false)
+      )
     runs-on: ubuntu-latest
     outputs:
       prepare_matrix: ${{ steps.plan.outputs.prepare_matrix }}
@@ -257,6 +268,172 @@ jobs:
           echo "run_count=${run_count}" >> "${GITHUB_OUTPUT}"
           echo "aggregate_matrix=${aggregate_matrix}" >> "${GITHUB_OUTPUT}"
           echo "aggregate_count=${aggregate_count}" >> "${GITHUB_OUTPUT}"
+
+  posterior-population-acquisition-generate:
+    if: github.event_name == 'workflow_dispatch' && inputs.posterior_population_acquisition == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      artifact_digest: sha256:${{ steps.upload.outputs.artifact-digest }}
+      artifact_name: posterior-population-source-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Restore verified pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+      - name: Generate 3,072 fresh local Random Battles
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m azelficoast.research.posterior_population_acquisition \
+            generate-source \
+            --output-root /tmp/posterior-population-source \
+            --run-id "$GITHUB_RUN_ID" \
+            --head-sha "$GITHUB_SHA" \
+            --showdown-root /tmp/pokemon-showdown
+      - name: Stage every available source file
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root=/tmp/posterior-population-source
+          upload_root=/tmp/posterior-population-source-upload
+          mkdir -p "$upload_root"
+          if [[ -f "$source_root/acquisition-status.json" ]]; then
+            cp "$source_root/acquisition-status.json" "$upload_root/acquisition-status.json"
+            jq 'if .status == "started" then .status = "negative" | .failure = "generation did not complete" else . end' \
+              "$upload_root/acquisition-status.json" > "$upload_root/acquisition-status.json.tmp"
+            mv "$upload_root/acquisition-status.json.tmp" "$upload_root/acquisition-status.json"
+          else
+            jq -n \
+              --argjson workflow_run_id "$GITHUB_RUN_ID" \
+              --arg head_sha "$GITHUB_SHA" \
+              '{status:"negative",workflow_run_id:$workflow_run_id,head_sha:$head_sha,failure:"generation did not start"}' \
+              > "$upload_root/acquisition-status.json"
+          fi
+          for filename in decisions.jsonl corpus.jsonl source-metadata.json; do
+            if [[ -f "$source_root/$filename" ]]; then
+              cp "$source_root/$filename" "$upload_root/$filename"
+            fi
+          done
+      - name: Upload immutable generated source
+        id: upload
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posterior-population-source-${{ github.run_id }}
+          path: /tmp/posterior-population-source-upload
+          if-no-files-found: error
+          retention-days: 90
+
+  posterior-population-acquisition-validate:
+    needs: posterior-population-acquisition-generate
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.posterior_population_acquisition == true
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Initialize validation receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/posterior-population-validation/selected
+          jq -n \
+            '{schema:"azelficoast.posterior-population-acquisition-receipt/v1", status:"negative", selected_fixture_ids:[], selected_count:0, required_minimum:100, maximum_selected_states:128, selector_exit_code:1, study_positive:false, failure_reason:"validation did not complete"}' \
+            > /tmp/posterior-population-validation/receipt.json
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Setup Azelficoast Python
+        uses: ./.github/actions/setup-python-environment
+      - name: Restore verified pinned Pokémon Showdown
+        uses: ./.github/actions/setup-showdown
+      - name: Download exact generated source artifact
+        if: needs.posterior-population-acquisition-generate.outputs.artifact_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          artifact-ids: ${{ needs.posterior-population-acquisition-generate.outputs.artifact_id }}
+          path: /tmp/posterior-population-validation/source
+      - name: Verify source artifact identity
+        if: needs.posterior-population-acquisition-generate.outputs.artifact_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          ARTIFACT_ID: ${{ needs.posterior-population-acquisition-generate.outputs.artifact_id }}
+          ARTIFACT_DIGEST: ${{ needs.posterior-population-acquisition-generate.outputs.artifact_digest }}
+          ARTIFACT_NAME: ${{ needs.posterior-population-acquisition-generate.outputs.artifact_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_root=/tmp/posterior-population-validation/source
+          artifacts="$(gh api "repos/${REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts")"
+          matches="$(jq --arg name "$ARTIFACT_NAME" '[.artifacts[] | select(.name == $name and .expired == false)] | length' <<<"$artifacts")"
+          test "$matches" = 1
+          actual="$(jq --arg name "$ARTIFACT_NAME" '.artifacts[] | select(.name == $name and .expired == false)' <<<"$artifacts")"
+          test "$(jq -r '.id' <<<"$actual")" = "$ARTIFACT_ID"
+          test "$(jq -r '.digest' <<<"$actual")" = "$ARTIFACT_DIGEST"
+          test "$(jq -r '.workflow_run.id' <<<"$actual")" = "$GITHUB_RUN_ID"
+          test "$(jq -r '.workflow_run.head_sha' <<<"$actual")" = "$GITHUB_SHA"
+          jq -n \
+            --argjson id "$ARTIFACT_ID" \
+            --arg name "$ARTIFACT_NAME" \
+            --arg digest "$ARTIFACT_DIGEST" \
+            --argjson workflow_run_id "$GITHUB_RUN_ID" \
+            --arg workflow_head_sha "$GITHUB_SHA" \
+            --argjson matches "$matches" \
+            '{id:$id,name:$name,digest:$digest,workflow_run_id:$workflow_run_id,workflow_head_sha:$workflow_head_sha,matches:$matches}' \
+            > /tmp/posterior-population-validation/source/artifact-binding.json
+          jq -e '.status == "complete"' "$source_root/acquisition-status.json"
+      - name: Run the unchanged admission pipeline
+        id: selection
+        if: needs.posterior-population-acquisition-generate.outputs.artifact_id != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv run python -m azelficoast.research.posterior_population_acquisition \
+            validate-source \
+            --contract experiments/data/posterior-stratified-population-contract.json \
+            --source-root /tmp/posterior-population-validation/source \
+            --showdown-root /tmp/pokemon-showdown \
+            --output-root /tmp/posterior-population-validation
+      - name: Preserve a negative receipt on earlier validation failure
+        if: always()
+        env:
+          GENERATION_RESULT: ${{ needs.posterior-population-acquisition-generate.result }}
+          SELECTION_RESULT: ${{ steps.selection.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/posterior-population-validation/selected
+          receipt=/tmp/posterior-population-validation/receipt.json
+          if [[ ! -f "$receipt" || "$(jq -r '.status' "$receipt")" == "negative" && "$(jq -r '.failure_reason // ""' "$receipt")" == "validation did not complete" ]]; then
+            selected_dir=/tmp/posterior-population-validation/selected
+            selected_ids='[]'
+            if [[ -d "$selected_dir" ]]; then
+              selected_ids="$(find "$selected_dir" -maxdepth 1 -type f -name '*.json' -printf '%f\n' | sed -E 's/^[0-9]+-//; s/\.json$//' | jq -R . | jq -s .)"
+            fi
+            selected_count="$(jq 'length' <<<"$selected_ids")"
+            jq -n \
+              --arg generation "$GENERATION_RESULT" \
+              --arg selection "$SELECTION_RESULT" \
+              --argjson selected_ids "$selected_ids" \
+              --argjson selected_count "$selected_count" \
+              '{schema:"azelficoast.posterior-population-acquisition-receipt/v1",status:"negative",selected_fixture_ids:$selected_ids,selected_count:$selected_count,required_minimum:100,maximum_selected_states:128,selector_exit_code:1,study_positive:false,failure_reason:("generation=" + $generation + "; selection=" + $selection)}' \
+              > "$receipt"
+          fi
+      - name: Upload durable acquisition validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posterior-population-acquisition-${{ github.run_id }}
+          path: /tmp/posterior-population-validation
+          if-no-files-found: error
+          retention-days: 90
 
   hosted-prepare:
     needs: hosted-plan
