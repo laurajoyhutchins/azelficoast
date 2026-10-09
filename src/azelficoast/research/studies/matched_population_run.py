@@ -10,8 +10,8 @@ from typing import Any, Sequence
 
 from azelficoast.belief.evaluator import BeliefEvaluatorRuntime
 from azelficoast.belief.treatments import build_posterior
-from azelficoast.research.matched_comparison import freeze_packet, settle_packet, validate_plan
-from azelficoast.research.matched_search import execute_method
+from azelficoast.research.studies.matched_comparison import freeze_packet, settle_packet, validate_plan
+from azelficoast.research.studies.matched_search import execute_method
 
 COHORT_SCHEMA = "azelficoast.matched-search-population-cohort"
 COHORT_SCHEMA_VERSION = 1

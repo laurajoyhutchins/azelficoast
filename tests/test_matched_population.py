@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.research.matched_comparison import freeze_packet, settle_packet
-from azelficoast.research.matched_population import (
+from azelficoast.research.studies.matched_comparison import freeze_packet, settle_packet
+from azelficoast.research.studies.matched_population import (
     MatchedPopulationError,
     aggregate_population,
 )

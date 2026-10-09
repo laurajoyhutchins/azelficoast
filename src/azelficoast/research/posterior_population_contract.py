@@ -7,7 +7,7 @@ from typing import Any
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.decision_contracts import stable_digest
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     PLAN_SCHEMA,
     PLAN_SCHEMA_VERSION,
     validate_plan,

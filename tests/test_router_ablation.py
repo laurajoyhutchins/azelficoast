@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.research.router_ablation import (
+from azelficoast.research.studies.router_ablation import (
     RouterCase,
     evaluate_admitted_counterfactual,
     summarize_observed_routes,

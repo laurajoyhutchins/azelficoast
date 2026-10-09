@@ -96,10 +96,10 @@ def test_static_analysis_frontier_is_explicit_and_non_regressing() -> None:
         "src/azelficoast/research/public_replays.py",
         "src/azelficoast/research/training_records.py",
         "src/azelficoast/research/training_service.py",
-        "src/azelficoast/research/matched_comparison.py",
-        "src/azelficoast/research/matched_search.py",
-        "src/azelficoast/research/typed_search.py",
-        "src/azelficoast/research/population_cohort.py",
+        "src/azelficoast/research/studies/matched_comparison.py",
+        "src/azelficoast/research/studies/matched_search.py",
+        "src/azelficoast/research/studies/typed_search.py",
+        "src/azelficoast/research/studies/population_cohort.py",
     }
     assert required <= checked
 

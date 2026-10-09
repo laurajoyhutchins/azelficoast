@@ -5,12 +5,12 @@ import copy
 import pytest
 
 from azelficoast.belief.evaluator import BeliefEvaluatorSpec, BeliefPrediction
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     MatchedComparisonError,
     freeze_packet,
     settle_packet,
 )
-from azelficoast.research.matched_search import (
+from azelficoast.research.studies.matched_search import (
     MatchedSearchExecutionError,
     execute_method,
 )

@@ -1,1 +1,1 @@
-"""Research contracts, orchestration, population inference, and shared analysis."""
+"""Shared research contracts, orchestration, evidence acquisition, and training plumbing."""

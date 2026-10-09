@@ -174,8 +174,8 @@
     "natural-depth-regret": {
       "paths": [
         "experiments/data/natural-depth-regret-plan.json",
-        "src/azelficoast/research/depth_population.py",
-        "src/azelficoast/research/depth.py",
+        "src/azelficoast/research/studies/depth_population.py",
+        "src/azelficoast/research/studies/depth.py",
         "src/azelficoast/research/verification/real_belief_trace.py",
         "showdown/runtime/probe_real_belief_trace.cjs",
         "showdown/runtime/real_belief_probe/**",
@@ -225,8 +225,8 @@
     "natural-population-strategy-fusion": {
       "paths": [
         "experiments/data/natural-population-strategy-fusion-plan.json",
-        "src/azelficoast/research/population.py",
-        "src/azelficoast/research/natural_disagreements.py",
+        "src/azelficoast/research/studies/population.py",
+        "src/azelficoast/research/studies/natural_disagreements.py",
         "src/azelficoast/search/fusion.py",
         "src/azelficoast/live/belief.py",
         "src/azelficoast/research/verification/real_belief_trace.py",
@@ -352,7 +352,7 @@
     "protect-action-survival-experiment": {
       "paths": [
         "experiments/data/protect-action-survival.json",
-        "src/azelficoast/research/action_survival.py",
+        "src/azelficoast/research/studies/action_survival.py",
         "src/azelficoast/research/mechanics/gen9_damage.py",
         "tests/test_action_survival.py"
       ],
@@ -376,8 +376,8 @@
     "protect-continuation-experiment": {
       "paths": [
         "src/azelficoast/live/**",
-        "src/azelficoast/research/protect_continuations.py",
-        "src/azelficoast/research/natural_disagreements.py",
+        "src/azelficoast/research/studies/protect_continuations.py",
+        "src/azelficoast/research/studies/natural_disagreements.py",
         "tests/test_harness.py",
         "tests/test_protect_continuations.py",
         "tests/test_natural_disagreements.py"
@@ -593,12 +593,12 @@
         "showdown/research/belief/screen_public_belief_speed_forks.cjs",
         "src/azelficoast/belief/treatments.py",
         "src/azelficoast/research/contracts.py",
-        "src/azelficoast/research/matched_comparison.py",
-        "src/azelficoast/research/matched_population.py",
-        "src/azelficoast/research/matched_population_run.py",
-        "src/azelficoast/research/matched_search.py",
-        "src/azelficoast/research/natural_disagreements.py",
-        "src/azelficoast/research/population_cohort.py",
+        "src/azelficoast/research/studies/matched_comparison.py",
+        "src/azelficoast/research/studies/matched_population.py",
+        "src/azelficoast/research/studies/matched_population_run.py",
+        "src/azelficoast/research/studies/matched_search.py",
+        "src/azelficoast/research/studies/natural_disagreements.py",
+        "src/azelficoast/research/studies/population_cohort.py",
         "src/azelficoast/research/posterior_evidence.py",
         "src/azelficoast/research/posterior_population_contract.py",
         "src/azelficoast/research/posterior_population_selection.py",

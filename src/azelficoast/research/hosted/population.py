@@ -154,7 +154,7 @@ def natural_population_shard(shard: int, shard_count: int) -> None:
             env=env,
         )
         python_module(
-            "azelficoast.research.population",
+            "azelficoast.research.studies.population",
             "summarize",
             str(source),
             str(trace),
@@ -169,7 +169,7 @@ def natural_population_shard(shard: int, shard_count: int) -> None:
 def natural_population_aggregate() -> None:
     manifest = _population_manifest()
     python_module(
-        "azelficoast.research.population",
+        "azelficoast.research.studies.population",
         "aggregate",
         str(POPULATION_PLAN_PATH),
         str(EVIDENCE_ROOT / "population" / "manifest.json"),
@@ -349,7 +349,7 @@ def natural_depth_shard(shard: int, shard_count: int) -> None:
             env=deeper_env,
         )
         python_module(
-            "azelficoast.research.depth_population",
+            "azelficoast.research.studies.depth_population",
             "summarize",
             str(source),
             "/tmp/shallow-trace.json",
@@ -377,7 +377,7 @@ def natural_depth_aggregate() -> None:
     selection = Path("/tmp/selection")
     manifest = _depth_manifest(selection)
     python_module(
-        "azelficoast.research.depth_population",
+        "azelficoast.research.studies.depth_population",
         "aggregate",
         str(DEPTH_PLAN_PATH),
         str(selection / "depth" / "manifest.json"),
@@ -479,7 +479,7 @@ def posterior_stratified_population_prepare() -> None:
     )
     candidates_path = Path("/tmp/posterior-population-candidates.json")
     python_module(
-        "azelficoast.research.natural_disagreements",
+        "azelficoast.research.studies.natural_disagreements",
         str(corpus),
         "--showdown-root",
         str(SHOWDOWN_ROOT),
@@ -653,7 +653,7 @@ def posterior_stratified_population_shard(shard: int, shard_count: int) -> None:
                 stdout="/tmp/posterior-evidence-summary.json",
             )
             python_module(
-                "azelficoast.research.matched_population_run",
+                "azelficoast.research.studies.matched_population_run",
                 "state",
                 str(POSTERIOR_PREPARATION_ROOT / "matched-plan.json"),
                 str(source),
@@ -675,7 +675,7 @@ def posterior_stratified_population_aggregate() -> None:
     matched_plan = POSTERIOR_PREPARATION_ROOT / "matched-plan.json"
     cohort = POSTERIOR_PREPARATION_ROOT / "cohort.json"
     python_module(
-        "azelficoast.research.matched_population_run",
+        "azelficoast.research.studies.matched_population_run",
         "cohort",
         str(manifest),
         "--output",
@@ -683,7 +683,7 @@ def posterior_stratified_population_aggregate() -> None:
         stdout="/tmp/cohort-summary.json",
     )
     python_module(
-        "azelficoast.research.matched_population",
+        "azelficoast.research.studies.matched_population",
         str(matched_plan),
         str(cohort),
         "/tmp/exact",

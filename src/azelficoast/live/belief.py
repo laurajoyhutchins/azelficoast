@@ -34,7 +34,7 @@ from azelficoast.research.decision_contracts import (
     parse_belief_artifact,
 )
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
-from azelficoast.research.typed_search import (
+from azelficoast.research.studies.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )

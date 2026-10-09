@@ -11,7 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     RESULT_SCHEMA as COMPARISON_RESULT_SCHEMA,
     MatchedComparisonError,
     validate_plan,

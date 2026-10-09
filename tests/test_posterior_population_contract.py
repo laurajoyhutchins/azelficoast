@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from azelficoast.research.matched_population_run import matched_cohort
+from azelficoast.research.studies.matched_population_run import matched_cohort
 from azelficoast.research.posterior_population_contract import (
     PosteriorPopulationContractError,
     compile_execution_plan,

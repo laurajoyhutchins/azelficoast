@@ -98,7 +98,7 @@ def policy_boundary_refinement() -> None:
 
 def protect_action_survival() -> None:
     python_module(
-        "azelficoast.research.action_survival",
+        "azelficoast.research.studies.action_survival",
         "experiments/data/protect-action-survival.json",
         stdout="/tmp/protect-action-survival.json",
     )
@@ -146,7 +146,7 @@ def protect_continuation() -> None:
         stdout="/tmp/corpus-summary.json",
     )
     python_module(
-        "azelficoast.research.protect_continuations",
+        "azelficoast.research.studies.protect_continuations",
         "/tmp/corpus.jsonl",
         "--showdown-root",
         str(SHOWDOWN_ROOT),

@@ -15,7 +15,7 @@ from azelficoast.belief.evaluator import (
     BeliefEvaluatorSpec,
     BeliefPrediction,
 )
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     METHODS,
     MatchedComparisonError,
     PACKET_SCHEMA,
@@ -42,7 +42,7 @@ from azelficoast.research.matched_contracts import (
     EVALUATOR_CALL_UNIT_DEFINITION,
     MatchedExperimentSpec,
 )
-from azelficoast.research.typed_search import (
+from azelficoast.research.studies.typed_search import (
     TransitionProgramSearchError,
     search_transition_program,
 )
