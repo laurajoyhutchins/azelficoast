@@ -32,6 +32,12 @@ CONTRACT_PATH = (
 )
 
 
+SMOKE_PROFILES = {
+    "quick": (128, 128, 2, 64),
+    "full-seed": (1024, 2048, 16, 512),
+}
+
+
 class SmokeError(RuntimeError):
     """A diagnostic boundary was not exercised or its authority is invalid."""
 
@@ -336,21 +342,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--artifact-root", type=Path, default=Path("/tmp/posterior-smoke-source"))
     parser.add_argument("--showdown-root", type=Path, default=Path("/tmp/pokemon-showdown"))
     parser.add_argument("--output", type=Path, default=Path("/tmp/posterior-smoke"))
-    parser.add_argument("--fixture-limit", type=int, default=1024)
-    parser.add_argument("--rounds", type=int, default=128)
-    parser.add_argument("--sample-keys", type=int, default=2)
-    parser.add_argument("--screen-rounds", type=int, default=64)
+    parser.add_argument("--profile", choices=tuple(SMOKE_PROFILES), default="quick")
     args = parser.parse_args(argv)
+    fixture_limit, rounds, sample_keys, screen_rounds = SMOKE_PROFILES[args.profile]
     args.output.mkdir(parents=True, exist_ok=True)
     try:
         result = smoke(
             artifact_root=args.artifact_root,
             showdown_root=args.showdown_root,
             output=args.output,
-            fixture_limit=args.fixture_limit,
-            rounds=args.rounds,
-            sample_keys=args.sample_keys,
-            screen_rounds=args.screen_rounds,
+            fixture_limit=fixture_limit,
+            rounds=rounds,
+            sample_keys=sample_keys,
+            screen_rounds=screen_rounds,
         )
     except Exception as error:
         result = {

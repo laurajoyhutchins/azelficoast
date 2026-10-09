@@ -249,7 +249,7 @@ def test_uv_managed_workflows_use_shared_python_environment() -> None:
 
         checked.append(path.name)
 
-    assert checked == ["research.yml", "training.yml"]
+    assert checked == ["posterior-study-smoke.yml", "research.yml", "training.yml"]
 
 def test_evidence_setup_runs_after_python_environment() -> None:
     for workflow in ("ci.yml", "research.yml"):
