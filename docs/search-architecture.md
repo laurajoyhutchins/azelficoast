@@ -119,7 +119,7 @@ legal action surface.
 
 ## Matched experiment evidence
 
-`research/matched_comparison.py` freezes the public input, posterior, evaluator, Showdown
+`research/studies/matched_comparison.py` freezes the public input, posterior, evaluator, Showdown
 revision, depth, and compute ceiling.
 
 The receipt executor then binds each method to:

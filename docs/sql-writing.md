@@ -302,7 +302,7 @@ silently becoming the live battle policy.
 ### Parameter sweep experiments
 
 Policy experiments consume the SQL source and parameter grid as data. The generic
-`azelficoast.research.policy_sweep` runner does not encode coefficient values.
+`azelficoast.research.studies.policy_sweep` runner does not encode coefficient values.
 
 The committed risk-adjusted experiment plan is:
 
