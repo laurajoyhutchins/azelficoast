@@ -37,8 +37,6 @@ SMOKE_PROFILES = {
     "full-seed": (1024, 2048, 16, 512, 0),
     "mid-seed-1": (1024, 2048, 16, 512, 16),
     "mid-seed-2": (1024, 2048, 16, 512, 32),
-    "mid-seed-3": (1024, 2048, 16, 512, 48),
-    "late-seed": (1024, 2048, 16, 512, 64),
 }
 
 
@@ -230,6 +228,33 @@ def _bounded_mine(
     return candidates, observations, truncated
 
 
+
+def _verified_mechanics_summary(
+    document: object, *, candidate_count: int, rounds: int, showdown_commit: str
+) -> dict[str, int]:
+    if not isinstance(document, Mapping) or (
+        document.get("schema") != "azelficoast.public-belief-speed-fork-mechanics"
+        or document.get("schema_version") != 1
+        or document.get("showdown_commit") != showdown_commit
+        or document.get("rounds") != rounds
+    ):
+        raise SmokeError("mechanics smoke response drifted from pinned contract")
+    count = document.get("case_count")
+    strict = document.get("strict_execution_fork_count")
+    cases = document.get("cases")
+    if (
+        isinstance(count, bool) or not isinstance(count, int)
+        or isinstance(strict, bool) or not isinstance(strict, int)
+        or count != candidate_count or not isinstance(cases, list)
+        or len(cases) != count or strict < 0 or strict > count
+    ):
+        raise SmokeError("mechanics case counts do not match bounded candidate inputs")
+    return {
+        "case_count": count,
+        "strict_execution_fork_count": strict,
+    }
+
+
 def smoke(
     *,
     artifact_root: Path,
@@ -287,6 +312,7 @@ def smoke(
         raise SmokeError("candidate miner returned no candidate list")
     mechanics_seconds: float | None = None
     mechanics_status = "not-run-no-candidates"
+    mechanics_summary: dict[str, int] | None = None
     if real_candidates:
         candidate_ids = {candidate["fixture_id"] for candidate in real_candidates}
         smoke_fixtures = output / "candidate-fixtures-smoke.jsonl"
@@ -307,8 +333,12 @@ def smoke(
             cwd=REPOSITORY_ROOT,
         )
         mechanics = json.loads(screen.stdout)
-        if not isinstance(mechanics, dict):
-            raise SmokeError("mechanics screen produced no JSON object")
+        mechanics_summary = _verified_mechanics_summary(
+            mechanics,
+            candidate_count=len(real_candidates),
+            rounds=screen_rounds,
+            showdown_commit=pinned,
+        )
         (output / "mechanics-smoke.json").write_text(
             json.dumps(mechanics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
@@ -343,6 +373,7 @@ def smoke(
             "sampler_keys_not_attempted_under_smoke_cap": truncated,
             "candidate_count_under_smoke_bounds": candidates["candidate_count"],
             "mechanics_status": mechanics_status,
+            "mechanics_summary": mechanics_summary,
         },
         "timing_seconds": {
             "download_and_source_binding": round(verify_source_seconds, 3),

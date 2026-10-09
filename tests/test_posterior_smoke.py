@@ -80,3 +80,35 @@ def test_smoke_key_offset_is_explicit_and_bounded() -> None:
         smoke_limits(1024, 2048, 16, 512, -1)
     with pytest.raises(SmokeError, match="key_offset"):
         smoke_limits(1024, 2048, 16, 512, 4097)
+
+
+
+def test_mechanics_smoke_summary_rejects_drift_and_missing_cases() -> None:
+    check = _SMOKE["_verified_mechanics_summary"]
+    valid = {
+        "schema": "azelficoast.public-belief-speed-fork-mechanics",
+        "schema_version": 1,
+        "showdown_commit": "pinned",
+        "rounds": 512,
+        "case_count": 1,
+        "strict_execution_fork_count": 0,
+        "cases": [{"fixture_id": "example"}],
+    }
+    assert check(valid, candidate_count=1, rounds=512, showdown_commit="pinned") == {
+        "case_count": 1,
+        "strict_execution_fork_count": 0,
+    }
+    for change in (
+        {"showdown_commit": "stale"},
+        {"rounds": 1},
+        {"case_count": 2},
+        {"strict_execution_fork_count": 2},
+        {"cases": []},
+    ):
+        with pytest.raises(SmokeError):
+            check(
+                {**valid, **change},
+                candidate_count=1,
+                rounds=512,
+                showdown_commit="pinned",
+            )
