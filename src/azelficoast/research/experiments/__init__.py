@@ -1,1 +1,1 @@
-"""Executable research experiments built from reusable research machinery."""
+"""Experiment-specific research semantics invoked by shared execution contracts."""

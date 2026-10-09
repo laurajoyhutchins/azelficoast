@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import ctypes
 import json
 import statistics
@@ -965,15 +964,3 @@ def run_experiment(fixtures_path: Path) -> dict[str, object]:
         ],
     }
 
-
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    args = parser.parse_args(argv)
-    result = run_experiment(args.fixtures)
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

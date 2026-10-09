@@ -2,8 +2,8 @@
   "name": "azelficoast-static-tooling",
   "private": true,
   "scripts": {
-    "lint:scripts": "eslint \"scripts/**/*.cjs\"",
-    "typecheck:scripts": "tsc --project jsconfig.scripts.json"
+    "lint:showdown": "eslint \"showdown/**/*.cjs\"",
+    "typecheck:showdown": "tsc --project jsconfig.showdown.json"
   },
   "devDependencies": {
     "@types/node": "22.20.4",

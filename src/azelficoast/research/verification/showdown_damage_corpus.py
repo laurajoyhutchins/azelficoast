@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.mechanics.gen9_damage import MOD_ONE, DamageContext, damage
 
-PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
 
 
 class ShowdownDamageCorpusError(ValueError):
@@ -202,23 +201,3 @@ def analyze_file(
         raise ShowdownDamageCorpusError("fixture document must be an object")
     return analyze_document(document, expected_showdown_commit=expected_showdown_commit)
 
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    parser.add_argument("--expected-showdown-commit", default=PINNED_SHOWDOWN_COMMIT)
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    result = analyze_file(
-        args.fixtures,
-        expected_showdown_commit=args.expected_showdown_commit,
-    )
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

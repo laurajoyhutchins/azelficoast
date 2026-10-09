@@ -1,6 +1,6 @@
 # Research notebook
 
-This document preserves the experiment-by-experiment narrative that originally accumulated in Azelficoast's README.
+This document preserves the experiment-by-experiment narrative that originally accumulated in Azelficoast's README. For the shorter, current design story, start with [`experiments/README.md`](../experiments/README.md); this notebook is the detailed historical record behind that curated sequence.
 
 It is a **historical notebook**, captured from repository state `f9dc0b28da32d2dfd2242e3bfcdf40b8aaeca352`. Statements such as “next rung,” current limitations, and performance measurements describe the project at the point each note was written; they are not the current roadmap or capability contract.
 
@@ -189,7 +189,7 @@ semantics. JAX is an opt-in dependency so the ordinary battle/evidence harness s
 
 ```bash
 uv sync --extra simulator
-uv run python -m azelficoast.research.experiments.jax_simulator_experiment
+uv run python -m azelficoast.research.ci run jax-simulator
 ```
 
 The hosted experiment checks the JAX batch kernels against the scalar reference, then measures
@@ -393,8 +393,7 @@ subset, and emits standalone C99 with 64-bit intermediates and Python-compatible
 
 ```bash
 uv sync --extra simulator
-uv run python -m azelficoast.research.experiments.native_damage_experiment \
-  /tmp/showdown-gen9-damage-fixtures.json
+uv run python -m azelficoast.research.ci run native-damage
 ```
 
 Hosted correctness requires the interpreted numeric function, generated native code, JAX lowering,
@@ -462,3 +461,8 @@ This remains bounded evidence rather than a competitive-play claim. The opponent
 fixed to the observed locked move, the continuation horizon is one further decision, utility is
 material-only, and hidden support is an empirical Showdown-generator support rather than a full
 analytical posterior.
+
+The observed-locked-move response is an explicit instance of transition-oracle opponent-policy
+semantics version 1 (`experiments/data/opponent-policy-semantics.json`), not the general search-time
+bounded response described in `docs/search-architecture.md`. New oracle outputs record the
+semantics version and normalized policy alongside their mechanics metadata.

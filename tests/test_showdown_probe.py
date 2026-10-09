@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Mapping
 
 from azelficoast.core.program import PROGRAM_SET_SCHEMA, PROGRAM_SET_SCHEMA_VERSION
@@ -168,3 +169,20 @@ def test_live_policy_can_route_projection_cache_before_exact_cache() -> None:
         "projected-delta",
         "exact-cache",
     ]
+
+
+def test_node_worker_uses_explicit_probe_session_api() -> None:
+    root = Path(__file__).resolve().parents[1]
+    worker = (
+        root / "showdown" / "runtime" / "probe_real_belief_worker.cjs"
+    ).read_text(encoding="utf-8")
+    probe = (
+        root / "showdown" / "runtime" / "probe_real_belief_trace.cjs"
+    ).read_text(encoding="utf-8")
+
+    assert 'const {runProbe} = require("./probe_real_belief_trace.cjs");' in worker
+    assert "compileTransitionProgram: result.compileTransitionProgram" in worker
+    assert 'require("node:vm")' not in worker
+    assert "vm.Script" not in worker
+    assert "function runProbe(argv, sourceDocument = null)" in probe
+    assert "module.exports = {ProbeError, runProbe};" in probe

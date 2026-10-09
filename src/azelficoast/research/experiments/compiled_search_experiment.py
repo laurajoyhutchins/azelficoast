@@ -8,19 +8,18 @@ compiled topology. Host timing is reported but does not decide correctness.
 
 from __future__ import annotations
 
-import json
 import math
 import time
 from typing import Any, Sequence
 
+from azelficoast.core.compiled_planning import CardinalityEnvelope
 from azelficoast.core.compiled_search import (
-    CardinalityEnvelope,
-    compile_search_topology,
     materialize_compiled_frontier,
     reduce_compiled_root_values,
     search_transition_program_adaptive,
     transport_posterior_mass,
 )
+from azelficoast.core.compiled_topology import compile_search_topology
 from azelficoast.core.search import search_transition_program
 
 WORLD_COUNT = 512
@@ -140,7 +139,7 @@ def _milliseconds(start_ns: int, end_ns: int) -> float:
     return (end_ns - start_ns) / 1_000_000.0
 
 
-def main() -> int:
+def run_experiment() -> dict[str, object]:
     program, posterior = _problem()
     evaluator = SyntheticEvaluator()
 
@@ -318,10 +317,4 @@ def main() -> int:
             "generality, or permission to replace the live search path."
         ),
     }
-    print(json.dumps(result, sort_keys=True))
-    return 0 if passed else 1
-
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    return result

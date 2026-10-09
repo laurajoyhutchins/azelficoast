@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 from azelficoast.live.corpus import DecisionFixture, build_fixtures
 from azelficoast.live.instrumentation import TRACE_SCHEMA, TRACE_SCHEMA_VERSION
-from azelficoast.research.studies.matched_comparison import (
+from azelficoast.research.matched_comparison import (
     PACKET_SCHEMA,
     PACKET_SCHEMA_VERSION,
     MatchedComparisonError,
@@ -155,7 +155,7 @@ def _load_settled_targets(
     packet_paths: Sequence[str | Path],
     receipt_paths: Sequence[str | Path],
     posterior_paths: Sequence[str | Path],
-) -> dict[tuple[str, str], dict[str, Any]]:
+) -> dict[tuple[str, str, str | None], dict[str, Any]]:
     packets = _load_documents(packet_paths, kind="matched-search packet")
     receipts = _load_documents(receipt_paths, kind="matched-search receipt")
     posteriors = _load_posteriors(posterior_paths)
@@ -448,7 +448,11 @@ def build_training_records(
                     f"battle {(run_id, battle_tag)!r} has a decision but no terminal outcome"
                 )
 
-            target_key = (fixture.fixture_id, battle_tag, run_id)
+            target_key: tuple[str, str, str | None] = (
+                fixture.fixture_id,
+                battle_tag,
+                run_id,
+            )
             target = targets.get(target_key)
             if target is None:
                 legacy_key = (fixture.fixture_id, battle_tag, None)

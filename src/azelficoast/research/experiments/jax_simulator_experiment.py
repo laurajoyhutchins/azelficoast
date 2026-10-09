@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import statistics
 import time
 from typing import Callable
@@ -229,12 +228,3 @@ def run_experiment() -> dict[str, object]:
         ],
     }
 
-
-def main() -> int:
-    result = run_experiment()
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

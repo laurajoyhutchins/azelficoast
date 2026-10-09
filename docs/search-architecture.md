@@ -119,7 +119,7 @@ legal action surface.
 
 ## Matched experiment evidence
 
-`research/studies/matched_comparison.py` freezes the public input, posterior, evaluator, Showdown
+`research/matched_comparison.py` freezes the public input, posterior, evaluator, Showdown
 revision, depth, and compute ceiling.
 
 The receipt executor then binds each method to:
@@ -189,6 +189,15 @@ equal mass to that hidden world's legal moves. Because the opponent knows its ow
 set, this policy may legitimately depend on hidden moves; the TransitionProgram records
 that dependency and Azelficoast integrates over the posterior rather than observing the
 realized set.
+
+This search-time policy is separate from the opponent model used by the exact
+transition-oracle probe. Oracle documents carry
+`mechanics.opponent_policy_semantics_version` and the normalized policy settings;
+the versioned contract lives in
+`experiments/data/opponent-policy-semantics.json`. The current oracle semantics define
+uniform legal-move response and equal-active-strategy mixtures (including the
+explicit repeat-observed-move strategy). Results should be interpreted using that
+version and the emitted `opponent_policy` object.
 
 The bounded policy does **not** currently assign probability to voluntary switches or
 opponent Terastallization. When Showdown requires a replacement, the policy distributes

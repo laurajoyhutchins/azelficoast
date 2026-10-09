@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
 from azelficoast.research.mechanics.simulator_ir import (
     ITEM_CHOICE_SCARF,
     ITEM_CHOICE_SPECS,
@@ -21,7 +21,6 @@ from azelficoast.research.mechanics.simulator_ir import (
     field_mask,
 )
 
-PINNED_SHOWDOWN_COMMIT = "a5df8274e85b0889bf2a9b3422a08b39732374fc"
 
 ITEM_CODES = {
     "Choice Scarf": ITEM_CHOICE_SCARF,
@@ -270,26 +269,3 @@ def analyze_file(
         expected_showdown_commit=expected_showdown_commit,
     )
 
-
-def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("fixtures", type=Path)
-    parser.add_argument(
-        "--expected-showdown-commit",
-        default=PINNED_SHOWDOWN_COMMIT,
-    )
-    return parser
-
-
-def main(argv: Sequence[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
-    result = analyze_file(
-        args.fixtures,
-        expected_showdown_commit=args.expected_showdown_commit,
-    )
-    print(json.dumps(result, sort_keys=True))
-    return 0 if result["passed"] else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -9,7 +9,7 @@ from typing import Any
 
 import pytest
 
-from azelficoast.research.contracts import BeliefInput
+from azelficoast.research.decision_contracts import BeliefInput
 from azelficoast.core.transition import sha256_json
 from hostile.fixtures import hostile_case, matched_posterior
 from hostile.transforms import (
@@ -64,7 +64,7 @@ def test_frozen_cross_language_semantic_identity() -> None:
     if node is None:
         pytest.skip("Node is required for the cross-language identity half")
     result = subprocess.run(
-        [node, "scripts/semantic_identity.cjs"],
+        [node, "showdown/shared/semantic_identity.cjs"],
         cwd=ROOT,
         check=True,
         capture_output=True,
@@ -90,7 +90,7 @@ def test_cross_language_numeric_canonicalization(number: int | float) -> None:
     if node is None:
         pytest.skip("Node is required for the cross-language identity half")
     result = subprocess.run(
-        [node, "scripts/semantic_identity.cjs"],
+        [node, "showdown/shared/semantic_identity.cjs"],
         cwd=ROOT,
         check=True,
         capture_output=True,

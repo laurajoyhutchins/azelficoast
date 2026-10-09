@@ -12,8 +12,13 @@ from azelficoast.belief.validity import (
     PosteriorValidityError,
     posterior_diagnostics,
 )
-from azelficoast.research.contracts import (
+from azelficoast.research.decision_contracts import (
     BeliefInput,
+    MechanicsIdentity,
+    PublicDecisionInput,
+    ResearchContractError,
+)
+from azelficoast.research.matched_contracts import (
     COMPUTE_BUDGET_UNIT_DEFINITION,
     COMPUTE_RECEIPT_SCHEMA,
     COMPUTE_RECEIPT_SCHEMA_VERSION,
@@ -21,9 +26,6 @@ from azelficoast.research.contracts import (
     ComputeBudget,
     ComputeReceipt,
     MatchedExperimentSpec,
-    MechanicsIdentity,
-    PublicDecisionInput,
-    ResearchContractError,
 )
 
 PLAN_SCHEMA = "azelficoast.matched-search-comparison-plan"
@@ -36,6 +38,8 @@ RECEIPT_SCHEMA = COMPUTE_RECEIPT_SCHEMA
 RECEIPT_SCHEMA_VERSION = COMPUTE_RECEIPT_SCHEMA_VERSION
 EVALUATOR_SCHEMA = "azelficoast.belief-policy-value-evaluator"
 EVALUATOR_SCHEMA_VERSION = 1
+MATERIAL_EVALUATOR_SCHEMA = "azelficoast.material-utility-evaluator"
+MATERIAL_EVALUATOR_SCHEMA_VERSION = 1
 
 METHODS = ("determinization", "information_set")
 POSTERIOR_TREATMENTS = (
@@ -135,10 +139,16 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     evaluator = plan.get("evaluator")
     if not isinstance(evaluator, Mapping):
         raise MatchedComparisonError("plan must pin one learned evaluator")
-    if (
-        evaluator.get("schema") != EVALUATOR_SCHEMA
-        or evaluator.get("schema_version") != EVALUATOR_SCHEMA_VERSION
-    ):
+    evaluator_schema = evaluator.get("schema")
+    evaluator_version = evaluator.get("schema_version")
+    supported_evaluator = (
+        evaluator_schema == EVALUATOR_SCHEMA
+        and evaluator_version == EVALUATOR_SCHEMA_VERSION
+    ) or (
+        evaluator_schema == MATERIAL_EVALUATOR_SCHEMA
+        and evaluator_version == MATERIAL_EVALUATOR_SCHEMA_VERSION
+    )
+    if not supported_evaluator:
         raise MatchedComparisonError("unexpected evaluator schema")
     checkpoint_digest = evaluator.get("checkpoint_digest")
     if not (

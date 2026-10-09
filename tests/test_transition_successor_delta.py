@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DELTA_MODULE = ROOT / "scripts" / "transition_successor_delta.cjs"
+DELTA_MODULE = ROOT / "showdown" / "runtime" / "transition_successor_delta.cjs"
 
 
 def _node_delta(before: object, after: object, current: object) -> dict[str, object]:

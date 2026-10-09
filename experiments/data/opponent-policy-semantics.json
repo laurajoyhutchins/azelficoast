@@ -1,0 +1,35 @@
+{
+  "schema": "azelficoast.opponent-policy-semantics",
+  "semantics_version": "1",
+  "surface": "transition-oracle",
+  "policies": {
+    "uniform-legal-moves": {
+      "weighting": "equal probability over the current hidden world's legal moves",
+      "voluntary_switches": false
+    },
+    "strategy-mixture": {
+      "weighting": "equal-active-strategies",
+      "supported_strategies": [
+        "simple-heuristics",
+        "dirty-tricks",
+        "max-damage",
+        "repeat-observed-move",
+        "uniform-legal-moves"
+      ],
+      "voluntary_switches": "explicitly configured; false unless true"
+    }
+  },
+  "default_policy": {
+    "kind": "strategy-mixture",
+    "weighting": "equal-active-strategies",
+    "strategies": [
+      "simple-heuristics",
+      "dirty-tricks",
+      "max-damage",
+      "uniform-legal-moves",
+      "repeat-observed-move when a move is observed"
+    ],
+    "voluntary_switches": true
+  },
+  "distinction": "This is the exact transition-oracle probe policy. Search-time bounded opponent response is separately specified in docs/search-architecture.md."
+}
