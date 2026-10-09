@@ -1,0 +1,53 @@
+name: posterior-study-smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/posterior-study-smoke.yml"
+      - "tools/smoke_posterior_study.py"
+      - "tests/test_posterior_smoke.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: posterior-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bounded:
+    name: bounded smoke (${{ matrix.fixture_limit }} fixtures)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture_limit: [128, 1024]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/setup-python-environment
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - uses: ./.github/actions/setup-showdown
+      - name: Exercise pinned source + bounded generator + conditional mechanics screen
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          uv run python tools/smoke_posterior_study.py \
+            --fixture-limit "${{ matrix.fixture_limit }}" \
+            --rounds 128 --sample-keys 2 --screen-rounds 64 \
+            --output "/tmp/posterior-smoke"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: posterior-smoke-${{ matrix.fixture_limit }}
+          path: /tmp/posterior-smoke
+          if-no-files-found: error

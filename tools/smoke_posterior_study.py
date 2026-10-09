@@ -1,0 +1,309 @@
+"""Bounded, non-certifying smoke of the frozen posterior population source.
+
+This intentionally cannot create a selected cohort or a scientific certificate.
+The ordinary hosted preparation/selection remains the only admission path.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Any, Mapping, Sequence
+
+from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
+from azelficoast.live.corpus import DecisionFixture, load_corpus
+from azelficoast.research.hosted.common import REPOSITORY_ROOT
+from azelficoast.research.posterior_population_selection import _source_binding
+from azelficoast.research.studies import natural_disagreements
+
+
+CONTRACT_PATH = (
+    REPOSITORY_ROOT / "experiments" / "data"
+    / "posterior-stratified-population-contract.json"
+)
+
+
+class SmokeError(RuntimeError):
+    """A diagnostic boundary was not exercised or its authority is invalid."""
+
+
+def smoke_limits(fixtures: int, rounds: int, sample_keys: int, screen_rounds: int) -> None:
+    for label, value, maximum in (
+        ("fixtures", fixtures, 4096),
+        ("rounds", rounds, 2048),
+        ("sample_keys", sample_keys, 4),
+        ("screen_rounds", screen_rounds, 512),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
+            raise SmokeError(f"{label} must be within 1..{maximum}")
+
+
+def _load_object(path: Path) -> dict[str, Any]:
+    result = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(result, dict):
+        raise SmokeError(f"{path} must contain a JSON object")
+    return result
+
+
+def _source_files(root: Path, contract: Mapping[str, Any]) -> tuple[Path, Path]:
+    source = contract["population"]["source_artifact"]
+    if not isinstance(source, Mapping):
+        raise SmokeError("source artifact contract must be an object")
+    corpus = root / "corpus.jsonl"
+    metadata = root / "source-metadata.json"
+    if not (corpus.exists() and metadata.exists()):
+        root.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            (
+                "gh", "run", "download",
+                str(source["workflow_run_id"]), "--repo",
+                "laurajoyhutchins/azelficoast",
+                "--name", str(source["artifact_name"]), "--dir", str(root),
+            ),
+            check=True,
+            timeout=120,
+        )
+    if not corpus.is_file() or not metadata.is_file():
+        raise SmokeError("canonical frozen source download is incomplete")
+    return corpus, metadata
+
+
+def _bounded_mine(
+    fixtures: Sequence[DecisionFixture],
+    showdown_root: Path,
+    *,
+    rounds: int,
+    max_keys: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], int]:
+    real_sampler = natural_disagreements._sample_worlds
+    observations: list[dict[str, Any]] = []
+    cached: dict[tuple[object, ...], dict[str, Any] | Exception] = {}
+    truncated = 0
+
+    def bounded_sampler(**kwargs: Any) -> dict[str, Any]:
+        nonlocal truncated
+        key = (
+            kwargs["species"],
+            tuple(kwargs["observed_moves"]),
+            kwargs["is_lead"],
+            kwargs["public_level"],
+            kwargs["public_ability"],
+        )
+        previous = cached.get(key)
+        if isinstance(previous, Exception):
+            raise natural_disagreements.UnsupportedWorldSample(str(previous))
+        if isinstance(previous, dict):
+            return previous
+        if len(cached) >= max_keys:
+            truncated += 1
+            raise natural_disagreements.UnsupportedWorldSample(
+                "smoke-only unique sampler key cap"
+            )
+
+        begun = time.monotonic()
+        try:
+            sample = real_sampler(**kwargs)
+            if sample.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
+                raise SmokeError("sampler did not use the pinned Showdown revision")
+        except natural_disagreements.UnsupportedWorldSample as error:
+            cached[key] = error
+            observations.append(
+                {
+                    "species": str(kwargs["species"]),
+                    "status": "unsupported",
+                    "duration_seconds": round(time.monotonic() - begun, 3),
+                    "reason": str(error)[:240],
+                }
+            )
+            raise
+        else:
+            cached[key] = sample
+            observations.append(
+                {
+                    "species": str(kwargs["species"]),
+                    "status": "sampled",
+                    "matched": sample.get("matched"),
+                    "duration_seconds": round(time.monotonic() - begun, 3),
+                }
+            )
+            return sample
+
+    try:
+        natural_disagreements._sample_worlds = bounded_sampler
+        candidates = natural_disagreements.mine_candidates(
+            fixtures, showdown_root=showdown_root, rounds=rounds
+        )
+    finally:
+        natural_disagreements._sample_worlds = real_sampler
+    return candidates, observations, truncated
+
+
+def smoke(
+    *,
+    artifact_root: Path,
+    showdown_root: Path,
+    output: Path,
+    fixture_limit: int,
+    rounds: int,
+    sample_keys: int,
+    screen_rounds: int,
+) -> dict[str, Any]:
+    smoke_limits(fixture_limit, rounds, sample_keys, screen_rounds)
+    output.mkdir(parents=True, exist_ok=True)
+    start = time.monotonic()
+    contract = _load_object(CONTRACT_PATH)
+    corpus, source_metadata = _source_files(artifact_root, contract)
+    binding = _source_binding(contract, _load_object(source_metadata), corpus)
+    verify_source_seconds = time.monotonic() - start
+
+    pinned = subprocess.run(
+        ("git", "-C", str(showdown_root), "rev-parse", "HEAD"),
+        check=True, capture_output=True, text=True, timeout=10,
+    ).stdout.strip()
+    if pinned != PINNED_SHOWDOWN_COMMIT:
+        raise SmokeError("Showdown checkout differs from pinned mechanics authority")
+
+    started = time.monotonic()
+    full_fixture_set = load_corpus(corpus)
+    chosen = full_fixture_set[:fixture_limit]
+    if not chosen:
+        raise SmokeError("source corpus has no fixtures")
+    load_seconds = time.monotonic() - started
+
+    started = time.monotonic()
+    candidates, sampler_observations, truncated = _bounded_mine(
+        chosen, showdown_root, rounds=rounds, max_keys=sample_keys
+    )
+    mining_seconds = time.monotonic() - started
+    if not sampler_observations:
+        raise SmokeError(
+            "smoke window did not reach any genuine generator sampling; "
+            "increase fixture_limit, not scientific admission thresholds"
+        )
+    (output / "candidates-smoke.json").write_text(
+        json.dumps(candidates, sort_keys=True, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    real_candidates = candidates.get("candidates")
+    if not isinstance(real_candidates, list):
+        raise SmokeError("candidate miner returned no candidate list")
+    mechanics_seconds: float | None = None
+    mechanics_status = "not-run-no-candidates"
+    if real_candidates:
+        candidate_ids = {candidate["fixture_id"] for candidate in real_candidates}
+        smoke_fixtures = output / "candidate-fixtures-smoke.jsonl"
+        with smoke_fixtures.open("w", encoding="utf-8") as handle:
+            for fixture in chosen:
+                if fixture.fixture_id in candidate_ids:
+                    handle.write(json.dumps(fixture.as_record(), sort_keys=True) + "\n")
+        started = time.monotonic()
+        screen = subprocess.run(
+            (
+                "node",
+                str(REPOSITORY_ROOT / "showdown" / "research" / "belief"
+                    / "screen_public_belief_speed_forks.cjs"),
+                str(showdown_root), str(output / "candidates-smoke.json"),
+                str(smoke_fixtures), str(screen_rounds),
+            ),
+            check=True, capture_output=True, text=True, timeout=120,
+            cwd=REPOSITORY_ROOT,
+        )
+        mechanics = json.loads(screen.stdout)
+        if not isinstance(mechanics, dict):
+            raise SmokeError("mechanics screen produced no JSON object")
+        (output / "mechanics-smoke.json").write_text(
+            json.dumps(mechanics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        mechanics_seconds = time.monotonic() - started
+        mechanics_status = "executed"
+
+    return {
+        "schema": "azelficoast.posterior-population-smoke/v1",
+        "purpose": "performance-diagnostic-only",
+        "certified": False,
+        "scientific_population_admitted": False,
+        "execution_plan_issued": False,
+        "complete_study_result": None,
+        "source": {
+            "workflow_run_id": binding["workflow_run_id"],
+            "corpus_digest": binding["digest"],
+            "generation_head_sha": binding["generation_head_sha"],
+            "showdown_commit": pinned,
+        },
+        "scope": {
+            "fixture_limit": fixture_limit,
+            "fixture_count_checked": len(chosen),
+            "full_source_fixture_count": len(full_fixture_set),
+            "generator_rounds": rounds,
+            "sampler_key_cap": sample_keys,
+            "mechanics_rounds": screen_rounds,
+        },
+        "observations": {
+            "sampler_keys_attempted": len(sampler_observations),
+            "sampling": sampler_observations,
+            "sampler_keys_not_attempted_under_smoke_cap": truncated,
+            "candidate_count_under_smoke_bounds": candidates["candidate_count"],
+            "mechanics_status": mechanics_status,
+        },
+        "timing_seconds": {
+            "download_and_source_binding": round(verify_source_seconds, 3),
+            "corpus_load": round(load_seconds, 3),
+            "candidate_mining": round(mining_seconds, 3),
+            "mechanics_screen": (
+                None if mechanics_seconds is None else round(mechanics_seconds, 3)
+            ),
+            "total": round(time.monotonic() - start, 3),
+        },
+    }
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--artifact-root", type=Path, default=Path("/tmp/posterior-smoke-source"))
+    parser.add_argument("--showdown-root", type=Path, default=Path("/tmp/pokemon-showdown"))
+    parser.add_argument("--output", type=Path, default=Path("/tmp/posterior-smoke"))
+    parser.add_argument("--fixture-limit", type=int, default=1024)
+    parser.add_argument("--rounds", type=int, default=128)
+    parser.add_argument("--sample-keys", type=int, default=2)
+    parser.add_argument("--screen-rounds", type=int, default=64)
+    args = parser.parse_args(argv)
+    args.output.mkdir(parents=True, exist_ok=True)
+    try:
+        result = smoke(
+            artifact_root=args.artifact_root,
+            showdown_root=args.showdown_root,
+            output=args.output,
+            fixture_limit=args.fixture_limit,
+            rounds=args.rounds,
+            sample_keys=args.sample_keys,
+            screen_rounds=args.screen_rounds,
+        )
+    except Exception as error:
+        result = {
+            "schema": "azelficoast.posterior-population-smoke/v1",
+            "certified": False,
+            "scientific_population_admitted": False,
+            "execution_plan_issued": False,
+            "status": "smoke-failed",
+            "error_type": type(error).__name__,
+            "error": str(error)[:500],
+        }
+        code = 1
+    else:
+        result["status"] = "smoke-executed"
+        code = 0
+    (args.output / "smoke-receipt.json").write_text(
+        json.dumps(result, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    print(json.dumps(result, sort_keys=True, indent=2))
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main())

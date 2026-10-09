@@ -31,6 +31,7 @@ def _event_block(source: str, event: str) -> str:
 def test_workflow_surface_is_small_and_authority_specific() -> None:
     assert {path.name for path in WORKFLOWS.glob("*.yml")} == {
         "ci.yml",
+        "posterior-study-smoke.yml",
         "overcenter.yml",
         "research.yml",
         "showdown-build-cache.yml",
