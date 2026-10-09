@@ -40,7 +40,7 @@ def smoke_limits(fixtures: int, rounds: int, sample_keys: int, screen_rounds: in
     for label, value, maximum in (
         ("fixtures", fixtures, 4096),
         ("rounds", rounds, 2048),
-        ("sample_keys", sample_keys, 4),
+        ("sample_keys", sample_keys, 32),
         ("screen_rounds", screen_rounds, 512),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:

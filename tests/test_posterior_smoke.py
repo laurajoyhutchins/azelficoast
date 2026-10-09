@@ -5,10 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from runpy import run_path
 
 from azelficoast.live.corpus import DecisionFixture, _fixture_id, write_corpus
 
-from tools.smoke_posterior_study import SmokeError, _load_fixture_window, smoke_limits
+_SMOKE = run_path(str(Path(__file__).resolve().parents[1] / "tools" / "smoke_posterior_study.py"))
+SmokeError = _SMOKE["SmokeError"]
+_load_fixture_window = _SMOKE["_load_fixture_window"]
+smoke_limits = _SMOKE["smoke_limits"]
 
 
 @pytest.mark.parametrize(
@@ -19,7 +23,7 @@ from tools.smoke_posterior_study import SmokeError, _load_fixture_window, smoke_
         (32, 0, 2, 64),
         (32, 2049, 2, 64),
         (32, 128, 0, 64),
-        (32, 128, 5, 64),
+        (32, 128, 33, 64),
         (32, 128, 2, 513),
         (True, 128, 2, 64),
     ],

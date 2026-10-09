@@ -32,7 +32,7 @@ jobs:
             screen_rounds: 64
           - fixture_limit: 1024
             rounds: 2048
-            sample_keys: 4
+            sample_keys: 16
             screen_rounds: 512
     steps:
       - uses: actions/checkout@v7
