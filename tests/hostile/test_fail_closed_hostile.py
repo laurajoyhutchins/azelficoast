@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from azelficoast.research.matched_comparison import (
+from azelficoast.research.studies.matched_comparison import (
     MatchedComparisonError,
     freeze_packet,
     settle_packet,
@@ -118,7 +118,7 @@ def test_forged_receipts_fail_closed(attack):
 def test_packet_budget_tampering_rejected():
     value = packet()
     value["compute_budget"]["authorized"] += 1
-    from azelficoast.research.matched_comparison import _sha256
+    from azelficoast.research.studies.matched_comparison import _sha256
 
     unsigned = dict(value)
     unsigned.pop("packet_digest")
