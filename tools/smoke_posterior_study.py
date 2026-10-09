@@ -15,6 +15,9 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from azelficoast.core.showdown import PINNED_SHOWDOWN_COMMIT
+from azelficoast.live.belief import build_probe_source
+from azelficoast.search.fusion import FusionSearchError, _candidate_signals
+from azelficoast.research.studies.population_cohort import _exact_opponent_bench_status
 from azelficoast.live.corpus import (
     CORPUS_SCHEMA,
     CORPUS_SCHEMA_VERSION,
@@ -255,6 +258,93 @@ def _verified_mechanics_summary(
     }
 
 
+def _admission_preview(
+    fixtures: Sequence[DecisionFixture],
+    raw_candidates: Sequence[Mapping[str, Any]],
+    mechanics: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Diagnose the unchanged cohort predicates, without approving a study.
+
+    Preview rows are not selected, frozen, capped, or eligible for downstream
+    scientific execution. Only freeze_issue_69_population owns admission.
+    """
+    raw_cases = mechanics.get("cases")
+    if not isinstance(raw_cases, list):
+        raise SmokeError("mechanics preview lacks cases")
+    case_by_id: dict[str, Mapping[str, Any]] = {}
+    for raw in raw_cases:
+        if not isinstance(raw, Mapping):
+            raise SmokeError("malformed mechanics preview case")
+        fixture_id = raw.get("fixture_id")
+        if not isinstance(fixture_id, str) or not fixture_id or fixture_id in case_by_id:
+            raise SmokeError("duplicate or invalid mechanics fixture ID")
+        case_by_id[fixture_id] = raw
+
+    fixture_by_id = {fixture.fixture_id: fixture for fixture in fixtures}
+    seen: set[str] = set()
+    reasons: dict[str, int] = {}
+    admitted_ids: list[str] = []
+
+    def excluded(reason: str) -> None:
+        reasons[reason] = reasons.get(reason, 0) + 1
+
+    for candidate in raw_candidates:
+        if not isinstance(candidate, Mapping):
+            raise SmokeError("malformed candidate in smoke preview")
+        fixture_id = candidate.get("fixture_id")
+        if not isinstance(fixture_id, str) or not fixture_id or fixture_id in seen:
+            raise SmokeError("duplicate or invalid candidate fixture ID")
+        seen.add(fixture_id)
+        fixture = fixture_by_id.get(fixture_id)
+        screen = case_by_id.get(fixture_id)
+        if fixture is None or screen is None:
+            raise SmokeError("smoke preview candidate lacks exact source or mechanics case")
+        active = fixture.state.get("active")
+        opponent = fixture.state.get("opponent_active")
+        active_hp = active.get("current_hp") if isinstance(active, Mapping) else None
+        if not isinstance(active_hp, (int, float)) or active_hp <= 0:
+            excluded("active-hp-nonpositive")
+            continue
+        if (
+            isinstance(opponent, Mapping)
+            and isinstance(opponent.get("tera_type"), str)
+            and opponent.get("tera_type")
+        ):
+            excluded("opponent-terastallized")
+            continue
+
+        source, status = build_probe_source(fixture)
+        if source is None:
+            excluded(f"live-admission:{status}")
+            continue
+        if status != "admitted":
+            raise SmokeError("probe source returned unadmitted status alongside a source")
+        bench = _exact_opponent_bench_status(fixture)
+        if bench not in {"known-surviving-bench", "public-bench-exhausted"}:
+            excluded(f"exact-reconstruction:{bench}")
+            continue
+
+        weights = candidate.get("item_weights")
+        if not isinstance(weights, Mapping):
+            raise SmokeError("candidate lacks hidden-item weights")
+        try:
+            _candidate_signals(candidate, screen, fixture)
+        except FusionSearchError as error:
+            raise SmokeError(f"invalid actual mechanics evidence: {error}") from error
+        admitted_ids.append(fixture_id)
+
+    if set(case_by_id) != seen:
+        raise SmokeError("mechanics preview contains missing or extra candidate identities")
+    return {
+        "status": "diagnostic-only-not-frozen",
+        "candidate_count": len(raw_candidates),
+        "eligibility_preview_count": len(admitted_ids),
+        "eligible_fixture_ids": admitted_ids,
+        "ineligible_reason_counts": dict(sorted(reasons.items())),
+        "scientific_population_admitted": False,
+    }
+
+
 def smoke(
     *,
     artifact_root: Path,
@@ -313,6 +403,7 @@ def smoke(
     mechanics_seconds: float | None = None
     mechanics_status = "not-run-no-candidates"
     mechanics_summary: dict[str, int] | None = None
+    admission_preview: dict[str, Any] | None = None
     if real_candidates:
         candidate_ids = {candidate["fixture_id"] for candidate in real_candidates}
         smoke_fixtures = output / "candidate-fixtures-smoke.jsonl"
@@ -342,6 +433,7 @@ def smoke(
         (output / "mechanics-smoke.json").write_text(
             json.dumps(mechanics, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
+        admission_preview = _admission_preview(chosen, real_candidates, mechanics)
         mechanics_seconds = time.monotonic() - started
         mechanics_status = "executed"
 
@@ -374,6 +466,7 @@ def smoke(
             "candidate_count_under_smoke_bounds": candidates["candidate_count"],
             "mechanics_status": mechanics_status,
             "mechanics_summary": mechanics_summary,
+            "admission_preview": admission_preview,
         },
         "timing_seconds": {
             "download_and_source_binding": round(verify_source_seconds, 3),

@@ -112,3 +112,19 @@ def test_mechanics_smoke_summary_rejects_drift_and_missing_cases() -> None:
                 rounds=512,
                 showdown_commit="pinned",
             )
+
+
+
+def test_admission_preview_requires_exact_mechanics_identity() -> None:
+    preview = _SMOKE["_admission_preview"]
+    assert preview([], [], {"cases": []}) == {
+        "status": "diagnostic-only-not-frozen",
+        "candidate_count": 0,
+        "eligibility_preview_count": 0,
+        "eligible_fixture_ids": [],
+        "ineligible_reason_counts": {},
+        "scientific_population_admitted": False,
+    }
+    for cases in ([], [{"fixture_id": "different"}], [{"fixture_id": "fixture"}] * 2):
+        with pytest.raises(SmokeError):
+            preview([], [{"fixture_id": "fixture"}], {"cases": cases})
