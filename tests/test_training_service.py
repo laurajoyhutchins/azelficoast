@@ -55,6 +55,10 @@ def test_cold_start_bootstraps_then_runs_automatic_generation(
     assert any("import-public" in command for command in calls)
     assert any("bootstrap-public" in command for command in calls)
     assert any("auto" in command for command in calls)
+    auto_command = next(command for command in calls if "auto" in command)
+    value_target_index = auto_command.index("--value-target")
+    assert auto_command[value_target_index + 1] == "eventual_battle_outcome"
+    assert summary["policy"]["value_target_source"] == "eventual_battle_outcome"
     assert (state / "state.json").is_file()
     assert (tmp_path / "work" / "run-summary.json").is_file()
 

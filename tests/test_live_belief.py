@@ -21,6 +21,28 @@ from azelficoast.search.selective import PolicyMarginSearchGate
 from azelficoast.core.whole_turn_program import compile_whole_turn_programs
 
 
+_STRATEGIC_VALUE_CONTRACT = {
+    "schema": "azelficoast.evaluator-value-contract",
+    "schema_version": 1,
+    "target": "eventual_battle_outcome",
+    "aggregation": "empirical-continuation-mixture",
+    "source_dataset_digest": "sha256:" + "e" * 64,
+    "components": [
+        {
+            "continuation_contract_digest": "sha256:" + "b" * 64,
+            "record_count": 1,
+            "continuation_contract": {
+                "schema": "azelficoast.outcome-continuation-contract",
+                "schema_version": 1,
+                "behavior_policy": {"kind": "test"},
+                "opponent_policy": {"kind": "test"},
+                "source_kind": "test",
+            },
+        }
+    ],
+}
+
+
 def _state(
     *,
     opponent_item=None,
@@ -340,6 +362,8 @@ class _FakeEvaluator:
 
 
 class _PosteriorSpreadEvaluator:
+    value_contract = _STRATEGIC_VALUE_CONTRACT
+    value_contract_digest = "sha256:" + "d" * 64
     spec = BeliefEvaluatorSpec(
         public_width=8,
         world_width=8,
@@ -494,6 +518,33 @@ def test_transition_program_belief_search_uses_successor_beliefs() -> None:
     assert result.diagnostics["evaluator_calls"] == 3
     assert set(result.diagnostics["public_belief_root_values"]) == {"risky", "safe"}
 
+
+
+def test_transition_program_rejects_unbound_legacy_value_head() -> None:
+    fixture = _selective_fixture()
+    oracle = _program_search_oracle()
+    worlds = oracle["worlds"]
+    assert isinstance(worlds, list)
+    posterior = {
+        "conditioned_on_public_history": True,
+        "realized_hidden_state_revealed": False,
+        "worlds": worlds,
+    }
+    program = compile_whole_turn_programs(oracle)
+
+    class LegacyEvaluator(_PosteriorSpreadEvaluator):
+        value_contract = None
+
+    result = transition_program_belief_result(
+        fixture=fixture,
+        posterior=posterior,
+        transition_program=program,
+        evaluator=LegacyEvaluator(),
+    )
+
+    assert result.action is None
+    assert result.status == "fallback"
+    assert result.reason == "evaluator-value-contract-mismatch"
 
 
 def test_transition_program_frontier_memo_reuses_only_pre_evaluator_semantics() -> None:

@@ -174,7 +174,7 @@ def test_multiworld_pooling_is_invariant_to_duplicate_support_rows() -> None:
     threat="matched arms silently use different learned models or reject equivalent model serialization",
     layer="evaluator checkpoint identity",
 )
-def test_checkpoint_identity_tracks_parameters_and_model_spec_only(tmp_path) -> None:
+def test_checkpoint_identity_tracks_parameters_model_spec_and_value_contract(tmp_path) -> None:
     np = pytest.importorskip("numpy")
     params = {
         "head.bias": np.asarray([0.25, -0.5], dtype=np.float32),
@@ -183,6 +183,33 @@ def test_checkpoint_identity_tracks_parameters_and_model_spec_only(tmp_path) -> 
     digest = checkpoint_digest(params, SPEC)
     copied = {name: value.copy() for name, value in params.items()}
     assert checkpoint_digest(copied, SPEC) == digest
+
+    strategic_contract = {
+        "schema": "azelficoast.evaluator-value-contract",
+        "schema_version": 1,
+        "target": "eventual_battle_outcome",
+        "aggregation": "empirical-continuation-mixture",
+        "source_dataset_digest": "sha256:" + "e" * 64,
+        "components": [
+            {
+                "continuation_contract_digest": "sha256:" + "c" * 64,
+                "record_count": 1,
+                "continuation_contract": {
+                    "schema": "azelficoast.outcome-continuation-contract",
+                    "schema_version": 1,
+                    "behavior_policy": {"kind": "test-policy"},
+                    "opponent_policy": {"kind": "test-opponent"},
+                    "source_kind": "test",
+                },
+            }
+        ],
+    }
+    strategic_digest = checkpoint_digest(
+        params,
+        SPEC,
+        value_contract=strategic_contract,
+    )
+    assert strategic_digest != digest
 
     first = write_checkpoint(
         tmp_path / "host-a" / "evaluator",
@@ -196,8 +223,17 @@ def test_checkpoint_identity_tracks_parameters_and_model_spec_only(tmp_path) -> 
         SPEC,
         metadata={"note": "training host B"},
     )
+    strategic = write_checkpoint(
+        tmp_path / "host-strategic" / "evaluator",
+        copied,
+        SPEC,
+        metadata={"note": "same parameters, explicit strategic semantics"},
+        value_contract=strategic_contract,
+    )
     assert first["evaluator"]["checkpoint_digest"] == digest
     assert second["evaluator"]["checkpoint_digest"] == digest
+    assert strategic["evaluator"]["checkpoint_digest"] == strategic_digest
+    assert strategic["evaluator"]["checkpoint_digest"] != digest
     loaded, loaded_spec, _ = load_checkpoint(tmp_path / "host-a" / "evaluator")
     assert checkpoint_digest(loaded, loaded_spec) == digest
 
