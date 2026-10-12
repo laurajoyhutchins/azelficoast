@@ -131,9 +131,26 @@ def freeze_issue_69_population(
 
     minimum = int(population["minimum_selected_states"])
     if int(manifest["selected_count"]) < minimum:
+        # Preserve the full outcome-blind exclusion ledger even when the study
+        # correctly rejects the undersized cohort. Failure is never admission.
+        diagnostic = {
+            "schema": "azelficoast.posterior-population-admission-failure",
+            "schema_version": 1,
+            "showdown_commit": checked_showdown_revision(checked),
+            "contract_digest": stable_digest(checked),
+            "source_corpus": source_binding,
+            "required_states": minimum,
+            "selected_states": manifest["selected_count"],
+            "manifest_digest": stable_digest(manifest),
+            "manifest": manifest,
+        }
+        diagnostic_path = Path(selected_dir).parent / "admission-failure.json"
+        _write_json(diagnostic_path, diagnostic)
         raise PosteriorPopulationSelectionError(
             f"outcome-blind admission produced {manifest['selected_count']} states; "
-            f"contract requires {minimum}"
+            f"contract requires {minimum}; complete exclusion ledger: "
+            f"{diagnostic_path}; ineligible reasons: "
+            f"{json.dumps(manifest['ineligible_reason_counts'], sort_keys=True)}"
         )
     if manifest.get("selection_uses_policy_result") is not False:
         raise PosteriorPopulationSelectionError(

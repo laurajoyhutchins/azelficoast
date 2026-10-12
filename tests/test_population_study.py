@@ -195,6 +195,9 @@ def test_freeze_population_preserves_admission_exclusion_reasons(tmp_path) -> No
 
     assert result["eligible_fixture_ids"] == ["eligible"]
     assert result["ineligible_reason_counts"] == {"active-hp-nonpositive": 1}
+    assert result["ineligible"] == [
+        {"fixture_id": "zero-hp", "reason": "active-hp-nonpositive"}
+    ]
 
 
 def test_summarize_trace_measures_bias_and_corrected_regret() -> None:
