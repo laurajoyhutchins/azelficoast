@@ -144,3 +144,12 @@ It should make five things obvious:
 5. **Design consequence:** if the evidence survives, what implementation choice becomes justified, constrained, or removable?
 
 Keep negative results. Keep plans distinguishable from results. Keep scientific assertions out of workflow YAML. When a new experiment displaces an old authority, delete the duplicate path instead of preserving two competing truths.
+
+## Chapter 7: make it fight somebody else
+
+Internal comparisons answer whether one Azelficoast method is better than another. They do not answer whether the finished player is stronger than an independent bot.
+
+The external playing-strength experiment closes that gap with a preregistered Gen 9 Random Battle panel against an exact Foul Play revision. The opponent remains an external process, the promoted evaluator and Showdown revision are identity-bound, the panel size is fixed before results exist, and a negative result is retained rather than extended until it becomes favorable.
+
+**Design consequence:** claims about playing strength require independent battle evidence. Method improvements, training metrics, and candidate-vs-incumbent promotion are supporting evidence, not substitutes for an external scoreboard.
+

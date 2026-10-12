@@ -289,7 +289,7 @@ jobs:
 
   hosted-run:
     needs: [hosted-plan, hosted-prepare]
-    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.run_count != '0' && needs.hosted-prepare.result != 'failure' && needs.hosted-prepare.result != 'cancelled'
+    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.run_count != '0'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.hosted-plan.outputs.run_matrix) }}
@@ -300,6 +300,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: ./.github/actions/setup-python-environment
+        with:
+          simulator: ${{ matrix.simulator }}
       - name: Setup canonical research evidence
         if: matrix.evidence == true
         uses: ./.github/actions/setup-research-evidence
@@ -324,7 +326,7 @@ jobs:
 
   hosted-aggregate:
     needs: [hosted-plan, hosted-prepare, hosted-run]
-    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-prepare.result != 'failure' && needs.hosted-prepare.result != 'cancelled' && needs.hosted-run.result != 'cancelled'
+    if: always() && needs.hosted-plan.result == 'success' && needs.hosted-plan.outputs.aggregate_count != '0' && needs.hosted-run.result != 'cancelled'
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.hosted-plan.outputs.aggregate_matrix) }}

@@ -73,6 +73,7 @@ class HostedStudy:
     paths: tuple[str, ...]
     showdown: bool
     evidence: bool
+    simulator: bool
     run: RunContract
     prepare: PrepareContract | None = None
     aggregate: AggregateContract | None = None
@@ -183,7 +184,12 @@ def load_studies(path: Path = CONTRACT_PATH) -> tuple[HostedStudy, ...]:
         record = _object(raw, label=name)
         showdown = record.get("showdown")
         evidence = record.get("evidence")
-        if not isinstance(showdown, bool) or not isinstance(evidence, bool):
+        simulator = record.get("simulator", False)
+        if (
+            not isinstance(showdown, bool)
+            or not isinstance(evidence, bool)
+            or not isinstance(simulator, bool)
+        ):
             raise HostedResearchContractError(
                 f"{name} capability flags must be booleans"
             )
@@ -195,6 +201,7 @@ def load_studies(path: Path = CONTRACT_PATH) -> tuple[HostedStudy, ...]:
                 paths=_strings(record.get("paths"), label=f"{name}.paths"),
                 showdown=showdown,
                 evidence=evidence,
+                simulator=simulator,
                 run=_run_contract(record.get("run"), label=f"{name}.run"),
                 prepare=(
                     None
@@ -277,6 +284,7 @@ def run_matrix(studies: Sequence[HostedStudy]) -> dict[str, object]:
                     "unit": unit,
                     "showdown": study.showdown,
                     "evidence": study.evidence,
+                    "simulator": study.simulator,
                     "artifact_name": _artifact_name(
                         study.run.artifact.name,
                         unit,

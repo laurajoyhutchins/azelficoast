@@ -17,6 +17,7 @@ EXPECTED_STUDIES = {
     "conditional-team-prior",
     "decision-relevance-quotient",
     "exhausted-bench-real-belief",
+    "external-playing-strength",
     "factored-hidden-bench-prior",
     "joint-random-battle-posterior",
     "live-belief-coverage",
@@ -106,10 +107,11 @@ def test_sharded_studies_compile_to_explicit_execution_units() -> None:
     } == {"posterior-stratified-population-selection"}
 
 
-def test_only_population_studies_require_aggregation() -> None:
+def test_aggregate_studies_are_explicit() -> None:
     matrix = aggregate_matrix(STUDIES)["include"]
     assert isinstance(matrix, list)
     assert {entry["study"] for entry in matrix} == {
+        "external-playing-strength",
         "natural-depth-regret",
         "natural-population-strategy-fusion",
         "posterior-stratified-population",
@@ -216,3 +218,15 @@ def test_posterior_population_preparation_is_a_single_contract_unit() -> None:
             "if_no_files": "error",
         }
     ]
+
+def test_external_strength_compiles_to_bounded_execution_units() -> None:
+    study = STUDIES_BY_NAME["external-playing-strength"]
+    matrix = run_matrix((study,))["include"]
+    assert isinstance(matrix, list)
+    assert [entry["unit"] for entry in matrix] == [str(index) for index in range(40)]
+    assert all(entry["showdown"] is True for entry in matrix)
+    assert all(entry["simulator"] is True for entry in matrix)
+    aggregate = aggregate_matrix((study,))["include"]
+    assert isinstance(aggregate, list) and len(aggregate) == 1
+    assert aggregate[0]["download_pattern"] == "external-playing-strength-*"
+

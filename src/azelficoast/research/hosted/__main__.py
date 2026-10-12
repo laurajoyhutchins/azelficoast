@@ -4,7 +4,7 @@ import argparse
 import json
 from collections.abc import Callable, Sequence
 
-from azelficoast.research.hosted import belief, mechanics, population
+from azelficoast.research.hosted import belief, external_strength, mechanics, population
 from azelficoast.research.hosted.contracts import (
     STUDIES_BY_NAME,
     HostedResearchContractError,
@@ -37,6 +37,7 @@ COMMANDS: dict[str, Command] = {
     "natural-population-aggregate": population.natural_population_aggregate,
     "natural-depth-restore": population.natural_depth_restore,
     "natural-depth-aggregate": population.natural_depth_aggregate,
+    "external-strength-aggregate": external_strength.aggregate,
     "posterior-stratified-population-prepare": (
         population.posterior_stratified_population_prepare
     ),
@@ -114,6 +115,12 @@ def _run_study_unit(study_name: str, unit: str) -> None:
         population.posterior_stratified_population_shard(
             int(unit),
             shard_count=len(contract.units),
+        )
+        return
+    if contract.kind == "external-strength-unit":
+        external_strength.run_unit(
+            int(unit),
+            unit_count=len(contract.units),
         )
         return
     raise HostedResearchContractError(

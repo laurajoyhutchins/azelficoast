@@ -1,0 +1,52 @@
+{
+  "schema": "azelficoast.external-playing-strength-contract",
+  "schema_version": 1,
+  "issue": 198,
+  "format": "gen9randombattle",
+  "showdown_revision_source": "showdown/revision.json",
+  "planned_battles": 1000,
+  "shard_count": 10,
+  "battles_per_shard": 100,
+  "challenge_directions": [
+    "foul_play_challenges",
+    "azelficoast_challenges"
+  ],
+  "battles_per_direction_per_shard": 50,
+  "no_optional_stopping": true,
+  "minimum_decisive_fraction": 0.95,
+  "superiority": {
+    "null_win_probability": 0.5,
+    "alternative": "greater",
+    "max_p_value": 0.01
+  },
+  "azelficoast": {
+    "evaluator_source": {
+      "repository": "laurajoyhutchins/azelficoast",
+      "commit": "ca004cebd6a4ee8946a9f812bc4df70b6376ff33",
+      "promotion_path": "state/evaluators/current.json",
+      "checkpoint_digest": "sha256:9a4b86802f676db276b5f9b988a3d3badda028b5ac6610b2fa7c424b93255a0c"
+    },
+    "belief_timeout_seconds": 20.0,
+    "search_policy_margin": 1.0
+  },
+  "opponent": {
+    "name": "foul-play",
+    "repository": "https://github.com/pmariglia/foul-play.git",
+    "revision": "6c467c081e862fb321adb405355beb41aba8e226",
+    "license": "GPL-3.0",
+    "execution_boundary": "external_process",
+    "search_time_ms": 100,
+    "search_parallelism": 1,
+    "search_threads": 1
+  },
+  "evidence": {
+    "retain_raw_battles": true,
+    "retain_decision_traces": true,
+    "retain_replays": true,
+    "bind_exact_git_head": true,
+    "bind_evaluator_digest": true,
+    "bind_showdown_revision": true,
+    "bind_opponent_revision": true
+  },
+  "claim_scope": "playing_strength_only_unmatched_compute"
+}
