@@ -33,12 +33,19 @@ function exactTieDistribution(scored, mode) {
   return uniformMoveDistribution(choices, mode);
 }
 
-function expectedHitMultiplier(move) {
-  if (!Array.isArray(move.multihit)) return 1;
-  if (move.multihit.length !== 2) return 1;
-  const low = Number(move.multihit[0]);
-  const high = Number(move.multihit[1]);
+function expectedHitMultiplier(attacker, move) {
+  const multihit = move.multihit;
+  if (Number.isInteger(multihit) && multihit > 1) return multihit;
+  if (!Array.isArray(multihit)) return 1;
+  if (multihit.length !== 2) return 1;
+  const low = Number(multihit[0]);
+  const high = Number(multihit[1]);
   if (!Number.isFinite(low) || !Number.isFinite(high)) return 1;
+  if (attacker.hasAbility("skilllink")) return high;
+  if (low === 2 && high === 5) {
+    if (attacker.hasItem("loadeddice")) return 4.5;
+    return 3.1;
+  }
   // This is a policy heuristic, not a mechanics oracle. Exact turn execution remains
   // Showdown-owned. The mean only ranks candidate attacks for the opponent prior.
   return (low + high) / 2;
@@ -75,7 +82,7 @@ function moveDamageHeuristic(battle, moveId) {
   return (
     Number(move.basePower) *
     Math.max(0, accuracy) *
-    expectedHitMultiplier(move) *
+    expectedHitMultiplier(attacker, move) *
     stab *
     effectiveness *
     statRatio
