@@ -109,7 +109,7 @@ def test_compiled_search_changes_select_jax_candidate_evidence() -> None:
         "compiled-search-topology"
     ]
     assert selected[0].simulator is True
-    assert selected[0].showdown is False
+    assert selected[0].showdown is True
 
 
 def test_contract_registry_change_selects_every_contract() -> None:

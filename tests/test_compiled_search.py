@@ -370,6 +370,45 @@ def test_adaptive_search_replans_before_dense_transport_on_cardinality_surprise(
     assert result["root_values"] == reference["root_values"]
 
 
+def test_adaptive_search_uses_caller_reference_fallback() -> None:
+    program_set, posterior = _inputs()
+    calls = 0
+
+    def fallback() -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
+        return {
+            "chosen_action": "reference",
+            "root_values": {"reference": 1.0},
+            "transition_evaluations": 17,
+            "evaluator_calls": 19,
+        }
+
+    result = search_transition_program_adaptive(
+        program_set=program_set,
+        posterior=posterior,
+        method="information_set",
+        evaluator=WeightedPayoffEvaluator(),
+        envelope=CardinalityEnvelope(
+            max_world_count=2,
+            max_class_count=3,
+            max_chance_edge_count=100,
+            max_leaf_count=100,
+            max_dense_leaf_world_cells=1000,
+        ),
+        expected_program_schema="example.transition-program-set",
+        expected_program_schema_version=1,
+        fallback_search=fallback,
+    )
+
+    assert calls == 1
+    assert result["chosen_action"] == "reference"
+    assert result["transition_evaluations"] == 17
+    assert result["evaluator_calls"] == 19
+    assert result["physical_search_path"] == "python-frontier"
+    assert result["cardinality_plan"]["violations"] == ["worlds"]
+
+
 def test_adaptive_search_rejects_compiled_path_from_lower_bound_without_jax() -> None:
     program_set, posterior = _inputs()
     result = search_transition_program_adaptive(

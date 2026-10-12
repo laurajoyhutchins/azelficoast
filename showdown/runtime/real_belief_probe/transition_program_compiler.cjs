@@ -741,27 +741,29 @@ function compileLazyWholeTurnPrograms(
         "class-representative"
       );
       const memberWorldIds = members.map(world => world.world_id).sort();
+      const projection = projectionKey(representativeWorld, dependencyFields);
+      const classSemanticHash = sha256PythonCanonical(execution.outcomes);
       const classId = "transition-class-" + sha256({
         action,
-        causal_fields: [...causalFields].sort(),
-        key,
-        semantic_hash: execution.semantic_hash,
+        read_fields: dependencyFields,
+        key: projection,
+        semantic_hash: classSemanticHash,
       }).slice(0, 24);
       classes.push({
         class_id: classId,
-        read_fields: [...observedFields].sort(),
+        read_fields: [...dependencyFields],
         causal_fields: [...causalFields].sort(),
-        projection_key: projectionKey(representativeWorld, dependencyFields),
+        projection_key: projection,
         representative_world_id: representativeWorld.world_id,
         member_world_ids: memberWorldIds,
-        semantic_hash: execution.semantic_hash,
+        semantic_hash: classSemanticHash,
         outcomes: execution.outcomes,
       });
     }
 
     const partitionKeyHash = sha256({
       action,
-      partition_method: "counterfactual-causal-refinement",
+      partition_method: "dynamic-read-refinement",
       fields: dependencyFields,
       classes: classes.map(row => ({
         class_id: row.class_id,
@@ -772,7 +774,6 @@ function compileLazyWholeTurnPrograms(
     const effectSignature = "sha256:" + sha256({
       showdown_commit: actualCommit,
       source_fixture_id: sourceFixtureId,
-      opponent_policy: OPPONENT_POLICY,
       action,
       dependency_fields: dependencyFields,
       partition_key_hash: partitionKeyHash,
@@ -783,7 +784,7 @@ function compileLazyWholeTurnPrograms(
       effect_signature: effectSignature,
       dependency_fields: dependencyFields,
       observed_read_fields: [...observedFields].sort(),
-      partition_method: "counterfactual-causal-refinement",
+      partition_method: "dynamic-read-refinement",
       representative_world_count: classes.length,
       worlds_in: worlds.length,
       classes_out: classes.length,

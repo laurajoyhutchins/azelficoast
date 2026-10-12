@@ -7,19 +7,21 @@ import hashlib
 import json
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from poke_env.data import GenData
 
-from azelficoast.belief.evaluator import build_evaluator_input
+from azelficoast.belief.evaluator import BeliefSearchValueAdapter, build_evaluator_input
 from azelficoast.live.corpus import DecisionFixture
 from azelficoast.live.execution_planning import TransitionRouteHistory
 from azelficoast.live.showdown_probe import (
     PersistentShowdownProbe,
     ShowdownProbeRuntimeError,
 )
+from azelficoast.core.compiled_planning import CardinalityEnvelope
 from azelficoast.core.decision_relevance import DecisionRelevanceError
 from azelficoast.core.evaluation import EvaluationFrontier
 from azelficoast.core.memo import SemanticMemo
@@ -44,6 +46,14 @@ PROBE_SCHEMA = "azelficoast.real-belief-source-fixture"
 PROBE_SCHEMA_VERSION = 1
 DEFAULT_TIMEOUT_SECONDS = 20.0
 DEFAULT_FRONTIER_MEMO_ENTRIES = 128
+LIVE_COMPILED_NUMERIC_GUARD = 1e-5
+LIVE_COMPILED_SEARCH_ENVELOPE = CardinalityEnvelope(
+    max_world_count=8192,
+    max_class_count=65536,
+    max_chance_edge_count=262144,
+    max_leaf_count=8192,
+    max_dense_leaf_world_cells=1_048_576,
+)
 
 
 @dataclass(frozen=True)
@@ -506,14 +516,81 @@ def transition_program_belief_result(
             belief=belief,
             transport_index=transport_index,
         )
-        search = search_transition_program(
-            mechanics=mechanics,
-            belief=belief,
-            transport_index=transport_index,
-            method="information_set",
-            evaluator=evaluator,
-            frontier_memo=frontier_memo,
-        )
+        def reference_search() -> dict[str, Any]:
+            return search_transition_program(
+                mechanics=mechanics,
+                belief=belief,
+                transport_index=transport_index,
+                method="information_set",
+                evaluator=evaluator,
+                frontier_memo=frontier_memo,
+            )
+
+        if bool(getattr(evaluator, "supports_compiled_search", False)):
+            try:
+                # Keep the optional accelerator dependency out of the base runtime
+                # import graph. A configured learned runtime already requires the
+                # simulator extra; unconfigured/default installs retain Python search.
+                from azelficoast.core.compiled_search import (
+                    search_transition_program_adaptive,
+                )
+
+                search = search_transition_program_adaptive(
+                    program_set=transition_program,
+                    posterior=posterior,
+                    method="information_set",
+                    evaluator=BeliefSearchValueAdapter(evaluator),
+                    envelope=LIVE_COMPILED_SEARCH_ENVELOPE,
+                    expected_program_schema=PROGRAM_SET_SCHEMA,
+                    expected_program_schema_version=PROGRAM_SET_SCHEMA_VERSION,
+                    fallback_search=reference_search,
+                )
+                if search.get("physical_search_path") == "compiled-jax":
+                    raw_root_values = search.get("root_values")
+                    if isinstance(raw_root_values, Mapping) and len(raw_root_values) > 1:
+                        ordered_values = sorted(
+                            (float(value) for value in raw_root_values.values()),
+                            reverse=True,
+                        )
+                        compiled_margin = ordered_values[0] - ordered_values[1]
+                        if compiled_margin <= LIVE_COMPILED_NUMERIC_GUARD:
+                            compiled_result = search
+                            search = {
+                                **reference_search(),
+                                "physical_search_path": "python-frontier",
+                                "cardinality_plan": compiled_result.get(
+                                    "cardinality_plan"
+                                ),
+                                "compiled_shape": compiled_result.get(
+                                    "compiled_shape"
+                                ),
+                                "numeric_backend": compiled_result.get(
+                                    "numeric_backend"
+                                ),
+                                "compiled_numeric_guard": {
+                                    "compiled_margin": compiled_margin,
+                                    "maximum_margin": LIVE_COMPILED_NUMERIC_GUARD,
+                                    "compiled_action": compiled_result.get(
+                                        "chosen_action"
+                                    ),
+                                },
+                            }
+            except Exception as error:
+                # Compiled search is physical machinery, not decision authority.
+                # Preserve the exact typed search as the recovery path.
+                search = {
+                    **reference_search(),
+                    "physical_search_path": "python-frontier",
+                    "compiled_search_failure": {
+                        "type": type(error).__name__,
+                        "error": str(error)[-1000:],
+                    },
+                }
+        else:
+            search = {
+                **reference_search(),
+                "physical_search_path": "python-frontier",
+            }
     except (
         TransitionProgramSearchError,
         MechanicsContractError,
@@ -550,6 +627,15 @@ def transition_program_belief_result(
             "transition_evaluations": search.get("transition_evaluations"),
             "evaluator_calls": search.get("evaluator_calls"),
             "evaluator_batches": search.get("evaluator_batches"),
+            "physical_search_path": search.get(
+                "physical_search_path",
+                "python-frontier",
+            ),
+            "cardinality_plan": search.get("cardinality_plan"),
+            "compiled_shape": search.get("compiled_shape"),
+            "numeric_backend": search.get("numeric_backend"),
+            "compiled_search_failure": search.get("compiled_search_failure"),
+            "compiled_numeric_guard": search.get("compiled_numeric_guard"),
             "frontier_group_identity": search.get("frontier_group_identity"),
             "frontier_materialization": search.get("frontier_materialization"),
             "frontier_memo_hit": search.get("frontier_memo_hit"),
@@ -840,11 +926,16 @@ class PinnedShowdownBeliefPolicy:
 
         route: LiveDecisionResult | None = None
         posterior: Mapping[str, Any] | None = None
+        posterior_probe_ms: float | None = None
         program_failure: dict[str, Any] = {}
 
         if self.learned_evaluator is not None:
             try:
+                posterior_started = time.perf_counter()
                 posterior = self._probe_posterior(source)
+                posterior_probe_ms = (
+                    time.perf_counter() - posterior_started
+                ) * 1000.0
                 if posterior.get("source_fixture_id") != fixture.fixture_id:
                     raise LiveBeliefPolicyError("posterior fixture identity mismatch")
                 if posterior.get("showdown_commit") != PINNED_SHOWDOWN_COMMIT:
@@ -859,7 +950,15 @@ class PinnedShowdownBeliefPolicy:
                 )
                 if route.action is not None:
                     self._release_probe_session(source)
-                    return route
+                    return LiveDecisionResult(
+                        action=route.action,
+                        status=route.status,
+                        reason=route.reason,
+                        diagnostics={
+                            **dict(route.diagnostics),
+                            "posterior_probe_ms": posterior_probe_ms,
+                        },
+                    )
             except Exception as error:
                 if posterior is not None:
                     self._release_probe_session(source)
@@ -899,7 +998,12 @@ class PinnedShowdownBeliefPolicy:
             and route.action is None
         ):
             try:
+                transition_started = time.perf_counter()
                 transition_program = self._probe_transition_program(source)
+                transition_program_probe_ms = (
+                    time.perf_counter() - transition_started
+                ) * 1000.0
+                search_started = time.perf_counter()
                 searched = transition_program_belief_result(
                     fixture=fixture,
                     posterior=posterior,
@@ -907,6 +1011,9 @@ class PinnedShowdownBeliefPolicy:
                     evaluator=self.learned_evaluator,
                     frontier_memo=getattr(self, "_frontier_memo", None),
                 )
+                compiled_search_ms = (
+                    time.perf_counter() - search_started
+                ) * 1000.0
                 if searched.action is not None:
                     return LiveDecisionResult(
                         action=searched.action,
@@ -918,6 +1025,9 @@ class PinnedShowdownBeliefPolicy:
                             "transition_physical_plan": dict(
                                 getattr(self, "_last_transition_route_plan", {})
                             ),
+                            "posterior_probe_ms": posterior_probe_ms,
+                            "transition_program_probe_ms": transition_program_probe_ms,
+                            "exact_search_ms": compiled_search_ms,
                         },
                     )
                 program_failure = {
