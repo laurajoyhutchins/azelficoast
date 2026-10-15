@@ -19,8 +19,9 @@ jobs:
   static:
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
-    runs-on: ubuntu-24.04-arm
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'overcenter/proposal/'))
+    runs-on: [self-hosted, "overcenter-gcp-${{ github.run_id }}-azelficoast-static-${{ github.run_attempt }}"]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - name: Setup Azelficoast Python
@@ -38,8 +39,9 @@ jobs:
   test:
     if: >-
       github.event_name == 'push' ||
-      (github.event_name == 'pull_request' && !startsWith(github.head_ref, 'overcenter/proposal/'))
-    runs-on: ubuntu-24.04-arm
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'overcenter/proposal/'))
+    runs-on: [self-hosted, "overcenter-gcp-${{ github.run_id }}-azelficoast-test-${{ github.run_attempt }}"]
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - name: Setup Azelficoast Python
