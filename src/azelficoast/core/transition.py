@@ -103,10 +103,16 @@ def validate_transition_oracle(
     if not isinstance(raw_transitions, list):
         raise error_type("oracle transitions must be a list")
 
-    worlds = [dict(world) for world in raw_worlds]
-    world_ids = [str(world.get("world_id")) for world in worlds]
-    if any(world_id in {"", "None"} for world_id in world_ids):
-        raise error_type("every world must contain a non-empty world_id")
+    worlds: list[dict[str, Any]] = []
+    world_ids: list[str] = []
+    for raw_world in raw_worlds:
+        if not isinstance(raw_world, Mapping):
+            raise error_type("every world must be an object")
+        world_id = raw_world.get("world_id")
+        if not isinstance(world_id, str) or not world_id:
+            raise error_type("every world must contain a non-empty world_id")
+        worlds.append(dict(raw_world))
+        world_ids.append(world_id)
     if len(set(world_ids)) != len(world_ids):
         raise error_type("world ids must be unique")
     for world in worlds:
@@ -121,9 +127,11 @@ def validate_transition_oracle(
         ):
             raise error_type("world weights must be positive and finite")
 
-    actions = [str(action) for action in raw_actions]
-    if any(not action for action in actions):
-        raise error_type("root actions must be non-empty")
+    actions: list[str] = []
+    for action in raw_actions:
+        if not isinstance(action, str) or not action:
+            raise error_type("root actions must be non-empty strings")
+        actions.append(action)
     if len(set(actions)) != len(actions):
         raise error_type("root actions must be unique")
 
@@ -133,8 +141,12 @@ def validate_transition_oracle(
     for transition in raw_transitions:
         if not isinstance(transition, Mapping):
             raise error_type("transition must be an object")
-        world_id = str(transition.get("world_id"))
-        action = str(transition.get("action"))
+        world_id = transition.get("world_id")
+        action = transition.get("action")
+        if not isinstance(world_id, str) or not world_id:
+            raise error_type("transition world_id must be a non-empty string")
+        if not isinstance(action, str) or not action:
+            raise error_type("transition action must be a non-empty string")
         key = (world_id, action)
         if world_id not in world_id_set:
             raise error_type(f"transition references unknown world {world_id}")
