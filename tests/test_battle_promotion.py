@@ -82,6 +82,63 @@ def test_even_record_does_not_count_as_improvement() -> None:
     assert "superiority_p_value" in settled["failed_checks"]
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("won", 0),
+        ("won", 1),
+        ("lost", 0),
+        ("lost", 1),
+        ("won", 0.0),
+        ("lost", 1.0),
+    ],
+)
+def test_panel_rejects_numeric_outcomes_before_promotion(
+    field: str, value: int | float,
+) -> None:
+    rows = _panel(21, 11)
+    rows[0][field] = value
+
+    with pytest.raises(BattlePromotionError, match="boolean or null"):
+        settle_battle_panel(
+            rows,
+            candidate_checkpoint_digest=CANDIDATE,
+            incumbent_checkpoint_digest=INCUMBENT,
+        )
+
+
+@pytest.mark.parametrize(
+    ("won", "lost", "outcome"),
+    [
+        (True, False, "win"),
+        (False, True, "loss"),
+        (False, False, "tie"),
+        (None, None, "tie"),
+    ],
+)
+def test_native_boolean_and_null_outcomes_are_preserved(
+    won: bool | None, lost: bool | None, outcome: str,
+) -> None:
+    from azelficoast.belief.battle_promotion import _candidate_outcome
+
+    assert _candidate_outcome({
+        "mode": CANDIDATE_PRIMARY_MODE, "won": won, "lost": lost,
+    }) == outcome
+
+
+def test_numeric_win_must_not_change_promotion_decision_to_a_tie() -> None:
+    rows = _panel(21, 11)
+    rows[0]["won"] = 0
+    # Previously the integer passed set-membership validation but was
+    # classified as a tie, changing both the decisive count and p-value.
+    with pytest.raises(BattlePromotionError, match="boolean or null"):
+        settle_battle_panel(
+            rows,
+            candidate_checkpoint_digest=CANDIDATE,
+            incumbent_checkpoint_digest=INCUMBENT,
+        )
+
+
 def test_panel_fails_closed_on_checkpoint_drift() -> None:
     rows = _panel(21, 11)
     rows[0]["candidate_checkpoint_digest"] = "sha256:other"
