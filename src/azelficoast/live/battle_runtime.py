@@ -116,6 +116,7 @@ async def run_local(
     belief_timeout: float,
     evaluator_checkpoint: Path | None,
     search_policy_margin: float,
+    ping_timeout: float = 20.0,
     opponent: Player | None = None,
     trace_source: Mapping[str, Any] | None = None,
     mode: str = "local",
@@ -132,11 +133,13 @@ async def run_local(
         belief_timeout_seconds=belief_timeout,
         evaluator_checkpoint=evaluator_checkpoint,
         search_policy_margin=search_policy_margin,
+        ping_timeout=ping_timeout,
     )
     if opponent is None:
         opponent = RandomPlayer(
             battle_format=BATTLE_FORMAT,
             max_concurrent_battles=concurrency,
+            ping_timeout=ping_timeout,
         )
     await player.battle_against(opponent, n_battles=battles)
     _append_results(player, results, mode=mode, metadata=result_metadata)
@@ -186,6 +189,7 @@ async def run_battle_command(args: argparse.Namespace) -> None:
             belief_timeout=args.belief_timeout,
             evaluator_checkpoint=args.evaluator_checkpoint,
             search_policy_margin=args.search_policy_margin,
+            ping_timeout=args.ping_timeout,
         )
     else:
         await run_live(args)

@@ -257,10 +257,12 @@ def freeze_population(
     }
     eligible: list[dict[str, Any]] = []
     ineligible_reason_counts: dict[str, int] = {}
+    ineligible_fixtures: list[dict[str, str]] = []
     seen_candidates: set[str] = set()
 
-    def exclude(reason: str) -> None:
+    def exclude(fixture_id: str, reason: str) -> None:
         ineligible_reason_counts[reason] = ineligible_reason_counts.get(reason, 0) + 1
+        ineligible_fixtures.append({"fixture_id": fixture_id, "reason": reason})
 
     for candidate in candidates:
         if not isinstance(candidate, Mapping):
@@ -285,19 +287,19 @@ def freeze_population(
         opponent_active = fixture.state.get("opponent_active")
         active_hp = active.get("current_hp") if isinstance(active, Mapping) else None
         if not isinstance(active_hp, (int, float)) or active_hp <= 0:
-            exclude("active-hp-nonpositive")
+            exclude(fixture_id, "active-hp-nonpositive")
             continue
         if (
             isinstance(opponent_active, Mapping)
             and isinstance(opponent_active.get("tera_type"), str)
             and opponent_active.get("tera_type")
         ):
-            exclude("opponent-terastallized")
+            exclude(fixture_id, "opponent-terastallized")
             continue
 
         source, status = build_probe_source(fixture)
         if source is None:
-            exclude(f"live-admission:{status}")
+            exclude(fixture_id, f"live-admission:{status}")
             continue
         if status != "admitted":
             raise PopulationStudyError("live admission returned source without admitted status")
@@ -307,7 +309,7 @@ def freeze_population(
             "known-surviving-bench",
             "public-bench-exhausted",
         }:
-            exclude(f"exact-reconstruction:{bench_status}")
+            exclude(fixture_id, f"exact-reconstruction:{bench_status}")
             continue
 
         weights = candidate.get("item_weights")
@@ -425,5 +427,6 @@ def freeze_population(
         "overflow_selection": admission["overflow_selection"],
         "selected_count": len(selected_rows),
         "eligible_fixture_ids": [row["fixture_id"] for row in eligible],
+        "ineligible_fixtures": ineligible_fixtures,
         "selected": selected_rows,
     }
