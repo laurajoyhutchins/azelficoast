@@ -166,3 +166,61 @@ def test_frozen_ledger_projects_to_existing_population_settlement_schema() -> No
         {"fixture_id": "a", "battle_tag": "battle-1", "population_index": 1},
         {"fixture_id": "b", "battle_tag": "battle-1", "population_index": 2},
     ]
+
+
+def test_population_shortfall_writes_complete_fail_closed_admission_ledger(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from azelficoast.research import posterior_population_selection as selection
+
+    contract = _contract()
+    population = contract["population"]
+    assert isinstance(population, dict)
+    source = population["source_artifact"]
+    assert isinstance(source, dict)
+    binding = {
+        "workflow_run_id": source["workflow_run_id"],
+        "artifact_id": source["artifact_id"],
+        "artifact_digest": source["artifact_digest"],
+        "generation_head_sha": source["generation_head_sha"],
+        "battle_count": source["battle_count"],
+        "state_count": source["decision_state_count"],
+        "decisions_sha256": source["decisions_sha256"],
+        "digest": "sha256:" + str(source["corpus_sha256"]),
+    }
+    rejected = {"fixture_id": "excluded-a", "reason": "opponent-bench-unresolved"}
+    manifest = {
+        "selected_count": 51,
+        "eligible_count": 51,
+        "selected": [{"fixture_id": "admitted-a"}],
+        "source_exclusions": [rejected],
+        "source_exclusion_reason_counts": {"opponent-bench-unresolved": 1},
+        "ineligible": [{"fixture_id": "excluded-b", "reason": "active-hp-nonpositive"}],
+        "ineligible_reason_counts": {"active-hp-nonpositive": 1},
+        "frozen_before_policy_values": True,
+        "selection_uses_policy_result": False,
+    }
+    monkeypatch.setattr(selection, "_source_binding", lambda *_args: binding)
+    monkeypatch.setattr(selection, "load_corpus", lambda _path: ())
+    monkeypatch.setattr(selection, "freeze_population", lambda **_kwargs: manifest)
+
+    with pytest.raises(
+        selection.PosteriorPopulationSelectionError,
+        match="produced 51 states; contract requires 100",
+    ):
+        selection.freeze_issue_69_population(
+            contract=contract,
+            source_metadata={},
+            candidates={},
+            mechanics={},
+            corpus_path=tmp_path / "source.jsonl",
+            selected_dir=tmp_path / "selected",
+        )
+
+    diagnostic = json.loads((tmp_path / "admission-failure.json").read_text())
+    assert diagnostic["schema"] == "azelficoast.posterior-population-admission-failure"
+    assert diagnostic["required_states"] == 100
+    assert diagnostic["selected_states"] == 51
+    assert diagnostic["source_corpus"] == binding
+    assert diagnostic["manifest"] == manifest
+    assert not (tmp_path / "execution-plan.json").exists()

@@ -282,6 +282,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: uv run python -m azelficoast.research.hosted prepare-run "${{ matrix.study }}"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
