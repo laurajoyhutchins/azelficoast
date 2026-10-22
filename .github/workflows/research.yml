@@ -187,6 +187,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: /tmp/azelficoast-research/${{ matrix.experiment }}
           if-no-files-found: error
+          retention-days: 14
 
   candidate-certify:
     needs: [candidate-plan, candidate-exact, accelerator-static]
@@ -212,6 +213,7 @@ jobs:
           name: candidate-research-certificate
           path: /tmp/candidate-research-certificate/certificate.json
           if-no-files-found: error
+          retention-days: 30
 
   hosted-plan:
     if: >-
@@ -286,6 +288,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: ${{ matrix.if_no_files }}
+          retention-days: 7
 
   hosted-run:
     needs: [hosted-plan, hosted-prepare]
@@ -321,6 +324,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: ${{ matrix.if_no_files }}
+          retention-days: 7
 
   hosted-aggregate:
     needs: [hosted-plan, hosted-prepare, hosted-run]
@@ -362,6 +366,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: ${{ matrix.if_no_files }}
+          retention-days: 30
 
   overcenter-settle:
     name: Overcenter project.submit
