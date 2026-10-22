@@ -55,7 +55,9 @@ class BattlePromotionPolicy:
 def _candidate_outcome(row: Mapping[str, Any]) -> str:
     won = row.get("won")
     lost = row.get("lost")
-    if won not in {True, False, None} or lost not in {True, False, None}:
+    if (won is not None and type(won) is not bool) or (
+        lost is not None and type(lost) is not bool
+    ):
         raise BattlePromotionError("battle result won/lost fields must be boolean or null")
     if won is True and lost is True:
         raise BattlePromotionError("battle result cannot be both won and lost")
