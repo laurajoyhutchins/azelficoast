@@ -127,10 +127,27 @@ def test_native_boolean_and_null_outcomes_are_preserved(
 
 
 def test_numeric_win_must_not_change_promotion_decision_to_a_tie() -> None:
-    rows = _panel(21, 11)
+    admitted = settle_battle_panel(
+        _panel(17, 9, 6),
+        candidate_checkpoint_digest=CANDIDATE,
+        incumbent_checkpoint_digest=INCUMBENT,
+    )
+    rejected = settle_battle_panel(
+        _panel(16, 9, 7),
+        candidate_checkpoint_digest=CANDIDATE,
+        incumbent_checkpoint_digest=INCUMBENT,
+    )
+
+    assert admitted["one_sided_superiority_p_value"] == pytest.approx(0.08431877195835114)
+    assert admitted["admitted"] is True
+    assert rejected["one_sided_superiority_p_value"] == pytest.approx(0.11476147174835205)
+    assert rejected["admitted"] is False
+
+    rows = _panel(17, 9, 6)
     rows[0]["won"] = 0
     # Previously the integer passed set-membership validation but was
-    # classified as a tie, changing both the decisive count and p-value.
+    # classified as a tie. That changed the default-policy p-value from
+    # 0.0843 (admitted) to 0.1148 (rejected).
     with pytest.raises(BattlePromotionError, match="boolean or null"):
         settle_battle_panel(
             rows,
