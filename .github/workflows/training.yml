@@ -133,4 +133,6 @@ jobs:
             /tmp/azelficoast-training/${{ github.run_id }}
             /tmp/azelficoast-showdown-server.log
           if-no-files-found: warn
-          retention-days: 30
+          # Promoted model state is committed to refs/heads/training-state.
+          # Retain completed success diagnostics briefly, failed runs longer.
+          retention-days: ${{ job.status == 'success' && 7 || 30 }}
