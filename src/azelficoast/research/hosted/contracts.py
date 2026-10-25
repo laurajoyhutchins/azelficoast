@@ -5,7 +5,9 @@ import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Sequence
+
+from azelficoast.research.json_schema_contracts import ContractShapeError, load_contract_document
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
@@ -16,6 +18,8 @@ _SHARED_PYTHON_PATHS = {
     ".python-version",
     ".github/workflows/research.yml",
     "experiments/contracts/hosted.json",
+    "experiments/contracts/schemas/hosted.schema.json",
+    "src/azelficoast/research/json_schema_contracts.py",
     "src/azelficoast/research/hosted/**",
     "pyproject.toml",
     "uv.lock",
@@ -78,149 +82,61 @@ class HostedStudy:
     aggregate: AggregateContract | None = None
 
 
-def _object(value: object, *, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise HostedResearchContractError(f"{label} must be an object")
-    return value
-
-
-def _strings(value: object, *, label: str) -> tuple[str, ...]:
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item for item in value
-    ):
-        raise HostedResearchContractError(f"{label} must be a non-empty string list")
-    return tuple(value)
-
-
-def _artifact(value: object, *, label: str) -> Artifact:
-    record = _object(value, label=label)
-    name = record.get("name")
-    if_no_files = record.get("if_no_files")
-    if not isinstance(name, str) or not name:
-        raise HostedResearchContractError(f"{label}.name must be non-empty")
-    if if_no_files not in {"warn", "error"}:
-        raise HostedResearchContractError(
-            f"{label}.if_no_files must be warn or error"
-        )
+def _artifact(record: dict[str, Any]) -> Artifact:
     return Artifact(
-        name=name,
-        paths=_strings(record.get("paths"), label=f"{label}.paths"),
-        if_no_files=if_no_files,
+        name=record["name"],
+        paths=tuple(record["paths"]),
+        if_no_files=record["if_no_files"],
     )
 
 
-def _prepare_contract(value: object, *, label: str) -> PrepareContract:
-    record = _object(value, label=label)
-    operation = record.get("operation")
-    if not isinstance(operation, str) or not operation:
-        raise HostedResearchContractError(f"{label}.operation must be non-empty")
+def _prepare_contract(record: dict[str, Any]) -> PrepareContract:
     return PrepareContract(
-        operation=operation,
-        artifact=_artifact(record.get("artifact"), label=f"{label}.artifact"),
+        operation=record["operation"], artifact=_artifact(record["artifact"]),
     )
 
 
-def _run_contract(value: object, *, label: str) -> RunContract:
-    record = _object(value, label=label)
-    kind = record.get("kind")
-    operation = record.get("operation")
-    if not isinstance(kind, str) or not kind:
-        raise HostedResearchContractError(f"{label}.kind must be non-empty")
-    if not isinstance(operation, str) or not operation:
-        raise HostedResearchContractError(f"{label}.operation must be non-empty")
+def _run_contract(record: dict[str, Any]) -> RunContract:
     return RunContract(
-        kind=kind,
-        operation=operation,
-        units=_strings(record.get("units"), label=f"{label}.units"),
-        artifact=_artifact(record.get("artifact"), label=f"{label}.artifact"),
+        kind=record["kind"], operation=record["operation"],
+        units=tuple(record["units"]), artifact=_artifact(record["artifact"]),
     )
 
 
-def _aggregate_contract(value: object, *, label: str) -> AggregateContract:
-    record = _object(value, label=label)
-    operation = record.get("operation")
-    pattern = record.get("download_pattern")
-    prepare = record.get("prepare")
-    if not isinstance(operation, str) or not operation:
-        raise HostedResearchContractError(f"{label}.operation must be non-empty")
-    if not isinstance(pattern, str) or not pattern:
-        raise HostedResearchContractError(
-            f"{label}.download_pattern must be non-empty"
-        )
-    if prepare is not None and (not isinstance(prepare, str) or not prepare):
-        raise HostedResearchContractError(f"{label}.prepare must be non-empty")
-    evidence = record.get("evidence", False)
-    showdown = record.get("showdown", False)
-    if not isinstance(evidence, bool) or not isinstance(showdown, bool):
-        raise HostedResearchContractError(
-            f"{label} capability flags must be booleans"
-        )
+def _aggregate_contract(record: dict[str, Any]) -> AggregateContract:
     return AggregateContract(
-        operation=operation,
-        download_pattern=pattern,
-        artifact=_artifact(record.get("artifact"), label=f"{label}.artifact"),
-        prepare=prepare,
-        evidence=evidence,
-        showdown=showdown,
+        operation=record["operation"],
+        download_pattern=record["download_pattern"],
+        artifact=_artifact(record["artifact"]),
+        prepare=record.get("prepare"),
+        evidence=record.get("evidence", False),
+        showdown=record.get("showdown", False),
     )
 
 
 def load_studies(path: Path = CONTRACT_PATH) -> tuple[HostedStudy, ...]:
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise HostedResearchContractError(
-            f"cannot read hosted research contracts: {error}"
-        ) from error
-    root = _object(document, label="contract document")
-    if root.get("schema") != "azelficoast.hosted-research-contracts":
-        raise HostedResearchContractError("unsupported hosted research schema")
-    studies_record = _object(root.get("studies"), label="studies")
+        document = load_contract_document(
+            path, REPOSITORY_ROOT / "experiments/contracts/schemas/hosted.schema.json",
+        )
+    except ContractShapeError as error:
+        raise HostedResearchContractError(str(error)) from error
     studies: list[HostedStudy] = []
-    for name, raw in studies_record.items():
-        if not isinstance(name, str) or not name:
-            raise HostedResearchContractError("study names must be non-empty")
-        record = _object(raw, label=name)
-        showdown = record.get("showdown")
-        evidence = record.get("evidence")
-        if not isinstance(showdown, bool) or not isinstance(evidence, bool):
-            raise HostedResearchContractError(
-                f"{name} capability flags must be booleans"
-            )
-        prepare_raw = record.get("prepare")
-        aggregate_raw = record.get("aggregate")
+    for name, record in document["studies"].items():
+        prepare = record.get("prepare")
+        aggregate = record.get("aggregate")
         studies.append(
             HostedStudy(
                 name=name,
-                paths=_strings(record.get("paths"), label=f"{name}.paths"),
-                showdown=showdown,
-                evidence=evidence,
-                run=_run_contract(record.get("run"), label=f"{name}.run"),
-                prepare=(
-                    None
-                    if prepare_raw is None
-                    else _prepare_contract(
-                        prepare_raw,
-                        label=f"{name}.prepare",
-                    )
-                ),
-                aggregate=(
-                    None
-                    if aggregate_raw is None
-                    else _aggregate_contract(
-                        aggregate_raw,
-                        label=f"{name}.aggregate",
-                    )
-                ),
+                paths=tuple(record["paths"]),
+                showdown=record["showdown"],
+                evidence=record["evidence"],
+                run=_run_contract(record["run"]),
+                prepare=None if prepare is None else _prepare_contract(prepare),
+                aggregate=None if aggregate is None else _aggregate_contract(aggregate),
             )
         )
-    if not studies:
-        raise HostedResearchContractError("at least one hosted study is required")
-    names = [study.name for study in studies]
-    if len(names) != len(set(names)):
-        raise HostedResearchContractError("hosted study names must be unique")
     return tuple(studies)
-
 
 STUDIES = load_studies()
 STUDIES_BY_NAME = {study.name: study for study in STUDIES}

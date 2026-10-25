@@ -4,7 +4,9 @@ import fnmatch
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Any, Iterable, Sequence
+
+from azelficoast.research.json_schema_contracts import ContractShapeError, load_contract_document
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
@@ -50,175 +52,53 @@ class CandidateExperiment:
     checks: tuple[Check, ...]
 
 
-def _object(value: object, *, label: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise CandidateExperimentError(f"{label} must be an object")
-    return value
+def _generator(record: dict[str, Any]) -> Generator:
+    return Generator(script=record["script"], output=record["output"])
 
 
-def _strings(
-    value: object,
-    *,
-    label: str,
-    allow_empty: bool = True,
-) -> tuple[str, ...]:
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item for item in value
-    ):
-        raise CandidateExperimentError(f"{label} must be a string list")
-    if not allow_empty and not value:
-        raise CandidateExperimentError(f"{label} must not be empty")
-    return tuple(value)
-
-
-def _generator(value: object, *, label: str) -> Generator:
-    record = _object(value, label=label)
-    script = record.get("script")
-    output = record.get("output")
-    if not isinstance(script, str) or not script:
-        raise CandidateExperimentError(f"{label}.script must be non-empty")
-    if not isinstance(output, str) or not output:
-        raise CandidateExperimentError(f"{label}.output must be non-empty")
-    return Generator(script=script, output=output)
-
-
-def _module(value: object, *, label: str) -> ModuleRun:
-    record = _object(value, label=label)
-    module = record.get("module")
-    output = record.get("output")
-    input_path = record.get("input")
-    entrypoint = record.get("entrypoint")
-    if not isinstance(module, str) or not module:
-        raise CandidateExperimentError(f"{label}.module must be non-empty")
-    if not isinstance(output, str) or not output:
-        raise CandidateExperimentError(f"{label}.output must be non-empty")
-    if input_path is not None and (
-        not isinstance(input_path, str) or not input_path
-    ):
-        raise CandidateExperimentError(f"{label}.input must be null or non-empty")
-    if not isinstance(entrypoint, str) or not entrypoint:
-        raise CandidateExperimentError(f"{label}.entrypoint must be non-empty")
+def _module(record: dict[str, Any]) -> ModuleRun:
     return ModuleRun(
-        module=module,
-        output=output,
-        input=input_path,
-        entrypoint=entrypoint,
+        module=record["module"], output=record["output"],
+        input=record.get("input"), entrypoint=record["entrypoint"],
     )
 
 
-def _check(value: object, *, label: str) -> Check:
-    record = _object(value, label=label)
-    output = record.get("output")
-    path = record.get("path")
-    operator = record.get("operator")
-    expected = record.get("expected")
-    if not isinstance(output, str) or not output:
-        raise CandidateExperimentError(f"{label}.output must be non-empty")
-    if (
-        not isinstance(path, list)
-        or not path
-        or any(
-            isinstance(component, bool)
-            or not isinstance(component, (str, int))
-            or isinstance(component, str)
-            and not component
-            for component in path
-        )
-    ):
-        raise CandidateExperimentError(
-            f"{label}.path must contain non-empty strings or integers"
-        )
-    if operator not in {"eq", "ge", "prefix"}:
-        raise CandidateExperimentError(f"{label}.operator is unsupported")
-    if operator == "ge" and (
-        isinstance(expected, bool) or not isinstance(expected, (int, float))
-    ):
-        raise CandidateExperimentError(f"{label}.expected must be numeric for ge")
-    if operator == "prefix" and not isinstance(expected, str):
-        raise CandidateExperimentError(
-            f"{label}.expected must be a string for prefix"
-        )
+def _check(record: dict[str, Any]) -> Check:
     return Check(
-        output=output,
-        path=tuple(path),
-        operator=operator,
-        expected=expected,
+        output=record["output"], path=tuple(record["path"]),
+        operator=record["operator"], expected=record["expected"],
     )
 
 
-def _experiment(name: str, value: object) -> CandidateExperiment:
-    record = _object(value, label=name)
-    artifact_name = record.get("artifact_name")
-    simulator = record.get("simulator")
-    showdown = record.get("showdown")
-    if not isinstance(artifact_name, str) or not artifact_name:
-        raise CandidateExperimentError(f"{name}.artifact_name must be non-empty")
-    if not isinstance(simulator, bool) or not isinstance(showdown, bool):
-        raise CandidateExperimentError(f"{name} capability flags must be booleans")
-
-    raw_generators = record.get("generators")
-    raw_modules = record.get("modules")
-    raw_checks = record.get("checks")
-    if not isinstance(raw_generators, list):
-        raise CandidateExperimentError(f"{name}.generators must be a list")
-    if not isinstance(raw_modules, list):
-        raise CandidateExperimentError(f"{name}.modules must be a list")
-    if not isinstance(raw_checks, list):
-        raise CandidateExperimentError(f"{name}.checks must be a list")
-
+def _experiment(name: str, record: dict[str, Any]) -> CandidateExperiment:
     return CandidateExperiment(
         name=name,
-        paths=_strings(record.get("paths"), label=f"{name}.paths", allow_empty=False),
-        artifact_name=artifact_name,
-        simulator=simulator,
-        showdown=showdown,
-        generators=tuple(
-            _generator(item, label=f"{name}.generators[{index}]")
-            for index, item in enumerate(raw_generators)
-        ),
-        tests=_strings(record.get("tests"), label=f"{name}.tests"),
-        modules=tuple(
-            _module(item, label=f"{name}.modules[{index}]")
-            for index, item in enumerate(raw_modules)
-        ),
-        checks=tuple(
-            _check(item, label=f"{name}.checks[{index}]")
-            for index, item in enumerate(raw_checks)
-        ),
+        paths=tuple(record["paths"]),
+        artifact_name=record["artifact_name"],
+        simulator=record["simulator"],
+        showdown=record["showdown"],
+        generators=tuple(_generator(item) for item in record["generators"]),
+        tests=tuple(record["tests"]),
+        modules=tuple(_module(item) for item in record["modules"]),
+        checks=tuple(_check(item) for item in record["checks"]),
     )
 
 
 def load_experiments(path: Path = CONTRACT_PATH) -> tuple[CandidateExperiment, ...]:
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise CandidateExperimentError(
-            f"cannot read candidate research contracts: {error}"
-        ) from error
-
-    root = _object(document, label="contract document")
-    if root.get("schema") != "azelficoast.candidate-research-contracts":
-        raise CandidateExperimentError("unsupported candidate research schema")
-    records = _object(root.get("experiments"), label="experiments")
+        document = load_contract_document(
+            path, REPOSITORY_ROOT / "experiments/contracts/schemas/candidate.schema.json",
+        )
+    except ContractShapeError as error:
+        raise CandidateExperimentError(str(error)) from error
 
     experiments = tuple(
-        _experiment(name, value)
-        for name, value in records.items()
-        if isinstance(name, str) and name
+        _experiment(name, record) for name, record in document["experiments"].items()
     )
-    if len(experiments) != len(records):
-        raise CandidateExperimentError("experiment names must be non-empty strings")
-    if not experiments:
-        raise CandidateExperimentError("at least one candidate experiment is required")
-
-    names = [experiment.name for experiment in experiments]
-    artifacts = [experiment.artifact_name for experiment in experiments]
-    if len(names) != len(set(names)):
-        raise CandidateExperimentError("candidate experiment names must be unique")
-    if len(artifacts) != len(set(artifacts)):
+    artifact_names = [experiment.artifact_name for experiment in experiments]
+    if len(artifact_names) != len(set(artifact_names)):
         raise CandidateExperimentError("candidate artifact names must be unique")
     return experiments
-
 
 EXPERIMENTS = load_experiments()
 CONTRACTS_BY_NAME = {experiment.name: experiment for experiment in EXPERIMENTS}
@@ -230,6 +110,8 @@ _SHARED_PYTHON_PATHS = {
     "pyproject.toml",
     "uv.lock",
     "experiments/contracts/candidate.json",
+    "experiments/contracts/schemas/candidate.schema.json",
+    "src/azelficoast/research/json_schema_contracts.py",
     "src/azelficoast/research/ci.py",
     "src/azelficoast/research/experiment_contracts.py",
 }
