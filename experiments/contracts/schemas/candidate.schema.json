@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://azelficoast.invalid/schemas/candidate-research-contracts.schema.json",
+  "title": "Azelficoast candidate research orchestration contract",
+  "description": "Shape of the repo-owned exact-head candidate research plan, not proof of scientific conclusions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "experiments"
+  ],
+  "properties": {
+    "schema": {
+      "const": "azelficoast.candidate-research-contracts"
+    },
+    "experiments": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/experiment"
+      }
+    }
+  },
+  "$defs": {
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "script",
+        "output"
+      ],
+      "properties": {
+        "script": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "module",
+        "output",
+        "entrypoint"
+      ],
+      "properties": {
+        "module": {
+          "type": "string",
+          "minLength": 1
+        },
+        "output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "entrypoint": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "output",
+        "path",
+        "operator",
+        "expected"
+      ],
+      "properties": {
+        "output": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          }
+        },
+        "operator": {
+          "enum": [
+            "eq",
+            "ge",
+            "prefix"
+          ]
+        },
+        "expected": {}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "const": "ge"
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expected": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "const": "prefix"
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expected": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "paths",
+        "artifact_name",
+        "simulator",
+        "showdown",
+        "generators",
+        "tests",
+        "modules",
+        "checks"
+      ],
+      "properties": {
+        "paths": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "artifact_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "simulator": {
+          "type": "boolean"
+        },
+        "showdown": {
+          "type": "boolean"
+        },
+        "generators": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/generator"
+          }
+        },
+        "tests": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "modules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/module"
+          }
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          }
+        }
+      }
+    }
+  }
+}
