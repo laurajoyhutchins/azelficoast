@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import fnmatch
-import json
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path

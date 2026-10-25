@@ -50,9 +50,14 @@ def load_contract_document(path: Path, schema_path: Path) -> dict[str, Any]:
     if errors:
         error = errors[0]
         location = list(error.absolute_path)
-        if error.validator == "required":
-            location.append(error.message.split("'")[1])
+        if error.validator == "required" and isinstance(error.instance, dict):
+            missing = next(
+                (field for field in error.validator_value if field not in error.instance),
+                None,
+            )
+            if missing is not None:
+                location.append(missing)
         raise ContractShapeError(
             f"{path}: JSON Schema {_location(location)}: {error.message}"
         )
-    return cast("dict[str, Any]", document)
+    return cast(dict[str, Any], document)
