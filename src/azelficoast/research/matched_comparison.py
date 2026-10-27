@@ -111,9 +111,9 @@ def validate_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
     depths = plan.get("depths")
     if not isinstance(depths, list) or not depths:
         raise MatchedComparisonError("plan must preregister at least one search depth")
-    normalized_depths = [int(depth) for depth in depths]
-    if any(depth <= 0 for depth in normalized_depths):
-        raise MatchedComparisonError("search depths must be positive")
+    if any(type(depth) is not int or depth <= 0 for depth in depths):
+        raise MatchedComparisonError("search depths must be positive integers, excluding booleans")
+    normalized_depths = depths
     if sorted(set(normalized_depths)) != normalized_depths:
         raise MatchedComparisonError("search depths must be unique and ascending")
 
@@ -187,7 +187,9 @@ def freeze_packet(
         raise MatchedComparisonError(
             f"posterior treatment {posterior_treatment!r} was not preregistered"
         )
-    if int(depth) not in checked_plan["depths"]:
+    if type(depth) is not int or depth <= 0:
+        raise MatchedComparisonError("packet search depth must be a positive integer, excluding booleans")
+    if depth not in checked_plan["depths"]:
         raise MatchedComparisonError(f"depth {depth} was not preregistered")
 
     mechanics_identity = MechanicsIdentity.from_showdown_commit(
@@ -258,7 +260,7 @@ def freeze_packet(
             "posterior_semantic_digest": belief.semantic_digest,
             "evaluator_digest": evaluator_digest,
             "showdown_commit": checked_plan["showdown_commit"],
-            "depth": int(depth),
+            "depth": depth,
         }
     )
     budget = {
@@ -281,7 +283,7 @@ def freeze_packet(
         evaluator_identity_digest=evaluator_digest,
         chance_treatment=chance_treatment,
         compute_budget=typed_budget,
-        depth=int(depth),
+        depth=depth,
         opponent_model=str(checked_plan["opponent_model"]),
     )
 
@@ -294,7 +296,7 @@ def freeze_packet(
         "posterior_treatment": posterior_treatment,
         "opponent_model": checked_plan["opponent_model"],
         "showdown_commit": checked_plan["showdown_commit"],
-        "depth": int(depth),
+        "depth": depth,
         "state_digest": state_digest,
         "posterior_digest": posterior_digest,
         "posterior_support": posterior_support,

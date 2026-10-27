@@ -9,6 +9,7 @@ from azelficoast.research.matched_comparison import (
     _sha256,
     freeze_packet,
     settle_packet,
+    validate_plan,
 )
 
 
@@ -112,6 +113,41 @@ def _receipt(
         "chosen_action": chosen_action,
         "root_values": root_values,
     }
+
+
+@pytest.mark.parametrize("invalid", [True, False, 1.9, 1.0, "1", "2", 0, -1, None])
+def test_plan_rejects_nonpositive_noninteger_or_boolean_search_depths(invalid: object) -> None:
+    plan = _plan()
+    plan["depths"] = [invalid]
+    with pytest.raises(MatchedComparisonError, match="positive integers"):
+        validate_plan(plan)
+
+
+@pytest.mark.parametrize("invalid", [True, False, 1.9, 1.0, "1", "2", 0, -1, None])
+def test_packet_rejects_lossy_search_depth_coercion(invalid: object) -> None:
+    with pytest.raises(MatchedComparisonError, match="positive integer"):
+        freeze_packet(
+            plan=_plan(),
+            state=_state(),
+            posterior=_posterior(),
+            posterior_treatment="generator_faithful",
+            depth=invalid,
+        )
+
+
+def test_integer_depth_remains_identical_in_packet_and_pre_registered_digest() -> None:
+    packet = freeze_packet(
+        plan=_plan(),
+        state=_state(),
+        posterior=_posterior(),
+        posterior_treatment="generator_faithful",
+        depth=2,
+    )
+    assert type(packet["depth"]) is int
+    assert packet["depth"] == 2
+    assert packet["matched_spec"]["depth"] == 2
+    assert packet["matched_spec_digest"]
+    assert packet["packet_digest"] == _sha256({k: v for k, v in packet.items() if k != "packet_digest"})
 
 
 def test_freeze_packet_gives_both_methods_identical_input_and_budget() -> None:
